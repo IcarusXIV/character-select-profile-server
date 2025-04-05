@@ -38,6 +38,6 @@ app.get("/view/:name", (req, res) => {
     res.json(JSON.parse(profile));
 });
 
-app.listen(PORT, () => {
-    console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Character Select+ RP server running at http://0.0.0.0:${PORT}`);
 });
