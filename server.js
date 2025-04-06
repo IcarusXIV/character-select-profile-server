@@ -54,7 +54,7 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
     const filePath = path.join(profilesDir, `${characterName}.json`);
     fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
 
-    res.json({ success: true, message: `Profile saved for ${characterName}` });
+    res.json(profile); // ✅ Return the updated profile including ProfileImageUrl
 });
 
 // 📥 View endpoint
