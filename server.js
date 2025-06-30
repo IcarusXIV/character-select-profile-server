@@ -50,6 +50,14 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
         profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
     }
 
+    // Initialize LikeCount if not present
+    if (profile.LikeCount === undefined) {
+        profile.LikeCount = 0;
+    }
+
+    // Set LastUpdated
+    profile.LastUpdated = new Date().toISOString();
+
     // 💾 Save profile JSON
     const filePath = path.join(profilesDir, `${characterName}.json`);
     fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
@@ -70,7 +78,7 @@ app.get("/view/:name", (req, res) => {
     res.json(JSON.parse(profile));
 });
 
-// 📚 Gallery endpoint - Get all showcase profiles
+// 📚 Gallery endpoint - Get all showcase profiles (FIXED PROPERTY NAMES)
 app.get("/gallery", (req, res) => {
     try {
         const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
@@ -86,16 +94,15 @@ app.get("/gallery", (req, res) => {
                 // Only include profiles that want to be showcased
                 if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
                     showcaseProfiles.push({
-                        characterName: profileData.CharacterName || characterName,
-                        server: extractServerFromName(characterName),
-                        profileImageUrl: profileData.ProfileImageUrl || null,
-                        tags: profileData.Tags || "",
-                        bio: profileData.Bio || "",
-                        race: profileData.Race || "",
-                        pronouns: profileData.Pronouns || "",
-                        likeCount: profileData.LikeCount || 0,
-                        viewCount: profileData.ViewCount || 0,
-                        lastUpdated: profileData.LastUpdated || new Date().toISOString()
+                        CharacterName: profileData.CharacterName || characterName.split('@')[0], // Remove server from name
+                        Server: extractServerFromName(characterName),
+                        ProfileImageUrl: profileData.ProfileImageUrl || null,
+                        Tags: profileData.Tags || "",
+                        Bio: profileData.Bio || "",
+                        Race: profileData.Race || "",
+                        Pronouns: profileData.Pronouns || "",
+                        LikeCount: profileData.LikeCount || 0,
+                        LastUpdated: profileData.LastUpdated || new Date().toISOString()
                     });
                 }
             } catch (err) {
@@ -104,7 +111,7 @@ app.get("/gallery", (req, res) => {
         }
 
         // Sort by most liked first
-        showcaseProfiles.sort((a, b) => b.likeCount - a.likeCount);
+        showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
         
         res.json(showcaseProfiles);
     } catch (err) {
@@ -113,7 +120,7 @@ app.get("/gallery", (req, res) => {
     }
 });
 
-// 💖 Like endpoint
+// 💖 Like endpoint (FIXED RESPONSE FORMAT)
 app.post("/gallery/:name/like", (req, res) => {
     const characterName = decodeURIComponent(req.params.name);
     const filePath = path.join(profilesDir, `${characterName}.json`);
@@ -129,14 +136,15 @@ app.post("/gallery/:name/like", (req, res) => {
         
         fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
         
-        res.json({ likeCount: profile.LikeCount });
+        // Return PascalCase to match C# client expectations
+        res.json({ LikeCount: profile.LikeCount });
     } catch (err) {
         console.error('Like error:', err);
         res.status(500).json({ error: 'Failed to like profile' });
     }
 });
 
-// 💔 Unlike endpoint  
+// 💔 Unlike endpoint (FIXED RESPONSE FORMAT)
 app.delete("/gallery/:name/like", (req, res) => {
     const characterName = decodeURIComponent(req.params.name);
     const filePath = path.join(profilesDir, `${characterName}.json`);
@@ -152,7 +160,8 @@ app.delete("/gallery/:name/like", (req, res) => {
         
         fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
         
-        res.json({ likeCount: profile.LikeCount });
+        // Return PascalCase to match C# client expectations
+        res.json({ LikeCount: profile.LikeCount });
     } catch (err) {
         console.error('Unlike error:', err);
         res.status(500).json({ error: 'Failed to unlike profile' });
