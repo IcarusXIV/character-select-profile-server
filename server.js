@@ -84,7 +84,7 @@ app.get("/gallery", (req, res) => {
                 const profileData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
                 
                 // Only include profiles that want to be showcased
-                if (profileData.Sharing === 'ShowcasePublic') {
+                if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
                     showcaseProfiles.push({
                         characterName: profileData.CharacterName || characterName,
                         server: extractServerFromName(characterName),
