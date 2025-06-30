@@ -78,14 +78,14 @@ app.get("/view/:name", (req, res) => {
     res.json(JSON.parse(profile));
 });
 
-// 📚 Gallery endpoint - Get all showcase profiles (FIXED PROPERTY NAMES)
+// 📚 Gallery endpoint - Get all showcase profiles (FIXED TO USE FILENAME AS ID)
 app.get("/gallery", (req, res) => {
     try {
         const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
         const showcaseProfiles = [];
 
         for (const file of profileFiles) {
-            const characterName = file.replace('.json', '');
+            const characterId = file.replace('.json', ''); // This is the actual filename we need for likes
             const filePath = path.join(profilesDir, file);
             
             try {
@@ -94,8 +94,9 @@ app.get("/gallery", (req, res) => {
                 // Only include profiles that want to be showcased
                 if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
                     showcaseProfiles.push({
-                        CharacterName: profileData.CharacterName || characterName.split('@')[0], // Remove server from name
-                        Server: extractServerFromName(characterName),
+                        CharacterId: characterId, // NEW: The actual filename for API calls
+                        CharacterName: profileData.CharacterName || characterId.split('@')[0],
+                        Server: extractServerFromName(characterId),
                         ProfileImageUrl: profileData.ProfileImageUrl || null,
                         Tags: profileData.Tags || "",
                         Bio: profileData.Bio || "",
