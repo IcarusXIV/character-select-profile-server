@@ -23,13 +23,45 @@ const upload = multer({ dest: "uploads/" }); // temp folder for uploads
 app.use(cors());
 app.use(bodyParser.json());
 
-// 📨 Upload endpoint (supports JSON + optional image)
+// 🔧 NEW: Helper function to generate CS+ character filename
+function generateCSCharacterFileName(csCharacterName, inGameCharacterName) {
+    // Format: "CSCharacter_InGameCharacter@Server.json"
+    const safeCsName = csCharacterName.replace(/[^\w-]/g, "_");
+    const safeInGameName = inGameCharacterName.replace(/[^\w@-]/g, "_");
+    return `${safeCsName}_${safeInGameName}.json`;
+}
+
+// 🔧 NEW: Helper function to parse CS+ character from filename
+function parseCSCharacterFromFileName(fileName) {
+    const nameWithoutExt = fileName.replace('.json', '');
+    const parts = nameWithoutExt.split('_');
+    
+    if (parts.length >= 2) {
+        const csCharacter = parts[0].replace(/_/g, ' '); // Convert back from safe format
+        const inGameCharacter = parts.slice(1).join('_').replace(/_/g, ' '); // Handle names with underscores
+        return { csCharacter, inGameCharacter, originalFileName: nameWithoutExt };
+    }
+    
+    // Fallback for old format files
+    return { csCharacter: null, inGameCharacter: nameWithoutExt, originalFileName: nameWithoutExt };
+}
+
+// 📨 Upload endpoint (UPDATED for CS+ character storage)
 app.post("/upload/:name", upload.single("image"), (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
+    const inGameCharacterName = decodeURIComponent(req.params.name);
     const profileJson = req.body.profile;
+    
+    // 🔥 NEW: Get CS+ character name from headers
+    const csCharacterName = req.headers['x-cs-character-name'];
+    
+    console.log(`Upload request - CS+ Character: ${csCharacterName}, In-Game: ${inGameCharacterName}`);
 
     if (!profileJson) {
         return res.status(400).send("Missing profile data.");
+    }
+
+    if (!csCharacterName) {
+        return res.status(400).send("Missing CS+ character name in headers.");
     }
 
     let profile;
@@ -39,10 +71,25 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
         return res.status(400).send("Invalid profile JSON.");
     }
 
+    // 🔧 NEW: Generate CS+ character specific filename
+    const fileName = generateCSCharacterFileName(csCharacterName, inGameCharacterName);
+    const filePath = path.join(profilesDir, fileName);
+    
+    // 🔄 NEW: Load existing profile to preserve likes
+    let existingProfile = {};
+    if (fs.existsSync(filePath)) {
+        try {
+            existingProfile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            console.log(`Preserving existing data for ${fileName} - Likes: ${existingProfile.LikeCount || 0}`);
+        } catch (err) {
+            console.error(`Error reading existing profile ${fileName}:`, err);
+        }
+    }
+
     // 🖼 Save image (if provided)
     if (req.file) {
         const ext = path.extname(req.file.originalname) || ".png";
-        const safeFileName = characterName.replace(/[^\w@-]/g, "_") + ext;
+        const safeFileName = `${csCharacterName.replace(/[^\w-]/g, "_")}_${inGameCharacterName.replace(/[^\w@-]/g, "_")}${ext}`;
         const finalImagePath = path.join(imagesDir, safeFileName);
         fs.renameSync(req.file.path, finalImagePath);
 
@@ -50,27 +97,43 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
         profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
     }
 
-    // Initialize LikeCount if not present
-    if (profile.LikeCount === undefined) {
-        profile.LikeCount = 0;
-    }
-
+    // 🔥 NEW: Preserve existing LikeCount and other important data
+    profile.LikeCount = existingProfile.LikeCount || 0;
+    profile.CSCharacterName = csCharacterName; // Store CS+ character name
+    profile.InGameCharacterName = inGameCharacterName; // Store in-game character name
+    
     // Set LastUpdated
     profile.LastUpdated = new Date().toISOString();
 
-    // 💾 Save profile JSON
-    const filePath = path.join(profilesDir, `${characterName}.json`);
+    // 💾 Save profile JSON with CS+ character specific filename
     fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
-
+    
+    console.log(`Profile saved successfully: ${fileName}`);
     res.json(profile); // ✅ Return the updated profile including ProfileImageUrl
 });
 
-// 📥 View endpoint
+// 📥 View endpoint (UPDATED for CS+ character lookup)
 app.get("/view/:name", (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
-    const filePath = path.join(profilesDir, `${characterName}.json`);
+    const characterIdentifier = decodeURIComponent(req.params.name);
+    const csCharacterName = req.headers['x-cs-character-name'];
+    
+    let filePath;
+    
+    if (csCharacterName) {
+        // 🔥 NEW: Look for CS+ character specific file first
+        const fileName = generateCSCharacterFileName(csCharacterName, characterIdentifier);
+        filePath = path.join(profilesDir, fileName);
+        console.log(`Looking for CS+ character file: ${fileName}`);
+    }
+    
+    // Fallback to old format if CS+ specific file doesn't exist
+    if (!filePath || !fs.existsSync(filePath)) {
+        filePath = path.join(profilesDir, `${characterIdentifier}.json`);
+        console.log(`Fallback to legacy file: ${characterIdentifier}.json`);
+    }
 
     if (!fs.existsSync(filePath)) {
+        console.log(`Profile not found: ${characterIdentifier}`);
         return res.status(404).json({ error: "Profile not found" });
     }
 
@@ -78,14 +141,13 @@ app.get("/view/:name", (req, res) => {
     res.json(JSON.parse(profile));
 });
 
-// 📚 Gallery endpoint - Get all showcase profiles
+// 📚 Gallery endpoint (UPDATED for CS+ character support)
 app.get("/gallery", (req, res) => {
     try {
         const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
         const showcaseProfiles = [];
 
         for (const file of profileFiles) {
-            const characterId = file.replace('.json', ''); // This is the actual filename we need for likes
             const filePath = path.join(profilesDir, file);
             
             try {
@@ -93,10 +155,16 @@ app.get("/gallery", (req, res) => {
                 
                 // Only include profiles that want to be showcased
                 if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
+                    const parsedName = parseCSCharacterFromFileName(file);
+                    
+                    // 🔥 NEW: Use CS+ character name as primary identifier for gallery
+                    const characterId = parsedName.originalFileName; // Keep original for API compatibility
+                    const displayName = parsedName.csCharacter || profileData.CharacterName || parsedName.inGameCharacter.split('@')[0];
+                    
                     showcaseProfiles.push({
-                        CharacterId: characterId, // NEW: The actual filename for API calls
-                        CharacterName: profileData.CharacterName || characterId.split('@')[0],
-                        Server: extractServerFromName(characterId),
+                        CharacterId: characterId, // For API calls (like/unlike)
+                        CharacterName: displayName, // Display the CS+ character name
+                        Server: extractServerFromName(parsedName.inGameCharacter),
                         ProfileImageUrl: profileData.ProfileImageUrl || null,
                         Tags: profileData.Tags || "",
                         Bio: profileData.Bio || "",
@@ -105,9 +173,13 @@ app.get("/gallery", (req, res) => {
                         LikeCount: profileData.LikeCount || 0,
                         LastUpdated: profileData.LastUpdated || new Date().toISOString(),
                         
-                        // 🔥 FIX: Include ONLY crop data for proper gallery image display
+                        // Include crop data for proper gallery image display
                         ImageZoom: profileData.ImageZoom || 1.0,
-                        ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
+                        ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                        
+                        // 🔥 NEW: Include CS+ character info
+                        CSCharacterName: profileData.CSCharacterName || null,
+                        InGameCharacterName: profileData.InGameCharacterName || parsedName.inGameCharacter
                     });
                 }
             } catch (err) {
@@ -118,6 +190,7 @@ app.get("/gallery", (req, res) => {
         // Sort by most liked first
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
         
+        console.log(`Gallery returned ${showcaseProfiles.length} profiles`);
         res.json(showcaseProfiles);
     } catch (err) {
         console.error('Gallery error:', err);
@@ -125,11 +198,16 @@ app.get("/gallery", (req, res) => {
     }
 });
 
-// 💖 Like endpoint (FIXED RESPONSE FORMAT)
+// 💖 Like endpoint (UPDATED for CS+ character files)
 app.post("/gallery/:name/like", (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
-    const filePath = path.join(profilesDir, `${characterName}.json`);
-
+    const characterIdentifier = decodeURIComponent(req.params.name);
+    const csCharacterKey = req.headers['x-character-key']; // CS+ character doing the liking
+    
+    console.log(`Like request - Target: ${characterIdentifier}, Liker: ${csCharacterKey}`);
+    
+    // Find the actual file (could be CS+ format or legacy format)
+    let filePath = path.join(profilesDir, `${characterIdentifier}.json`);
+    
     if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: "Profile not found" });
     }
@@ -141,6 +219,8 @@ app.post("/gallery/:name/like", (req, res) => {
         
         fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
         
+        console.log(`Like added - New count: ${profile.LikeCount}`);
+        
         // Return PascalCase to match C# client expectations
         res.json({ LikeCount: profile.LikeCount });
     } catch (err) {
@@ -149,11 +229,16 @@ app.post("/gallery/:name/like", (req, res) => {
     }
 });
 
-// 💔 Unlike endpoint (FIXED RESPONSE FORMAT)
+// 💔 Unlike endpoint (UPDATED for CS+ character files)
 app.delete("/gallery/:name/like", (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
-    const filePath = path.join(profilesDir, `${characterName}.json`);
-
+    const characterIdentifier = decodeURIComponent(req.params.name);
+    const csCharacterKey = req.headers['x-character-key']; // CS+ character doing the unliking
+    
+    console.log(`Unlike request - Target: ${characterIdentifier}, Unliker: ${csCharacterKey}`);
+    
+    // Find the actual file (could be CS+ format or legacy format)
+    let filePath = path.join(profilesDir, `${characterIdentifier}.json`);
+    
     if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: "Profile not found" });
     }
@@ -164,6 +249,8 @@ app.delete("/gallery/:name/like", (req, res) => {
         profile.LastUpdated = new Date().toISOString();
         
         fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
+        
+        console.log(`Like removed - New count: ${profile.LikeCount}`);
         
         // Return PascalCase to match C# client expectations
         res.json({ LikeCount: profile.LikeCount });
