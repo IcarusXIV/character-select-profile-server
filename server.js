@@ -153,17 +153,28 @@ app.get("/gallery", (req, res) => {
             try {
                 const profileData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
                 
-                // Only include profiles that want to be showcased
-                if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
+                console.log(`Checking profile ${file}: Sharing = ${profileData.Sharing}`);
+                
+                // FIXED: Proper sharing check - only include ShowcasePublic profiles
+                const isShowcasePublic = profileData.Sharing === 'ShowcasePublic' || 
+                                        profileData.Sharing === 2 || 
+                                        profileData.Sharing === 'ShowcasePublic';
+                
+                if (isShowcasePublic) {
                     const parsedName = parseCSCharacterFromFileName(file);
                     
-                    // 🔥 NEW: Use CS+ character name as primary identifier for gallery
-                    const characterId = parsedName.originalFileName; // Keep original for API compatibility
-                    const displayName = parsedName.csCharacter || profileData.CharacterName || parsedName.inGameCharacter.split('@')[0];
+                    // Generate proper character ID for API calls
+                    const characterId = parsedName.originalFileName;
+                    
+                    // FIXED: Use proper character name priority
+                    let displayName = profileData.CSCharacterName || // CS+ character name first
+                                     profileData.CharacterName ||   // Then regular character name  
+                                     parsedName.csCharacter ||      // Then parsed CS name
+                                     parsedName.inGameCharacter.split('@')[0]; // Finally in-game name
                     
                     showcaseProfiles.push({
-                        CharacterId: characterId, // For API calls (like/unlike)
-                        CharacterName: displayName, // Display the CS+ character name
+                        CharacterId: characterId,
+                        CharacterName: displayName,
                         Server: extractServerFromName(parsedName.inGameCharacter),
                         ProfileImageUrl: profileData.ProfileImageUrl || null,
                         Tags: profileData.Tags || "",
@@ -177,10 +188,14 @@ app.get("/gallery", (req, res) => {
                         ImageZoom: profileData.ImageZoom || 1.0,
                         ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
                         
-                        // 🔥 NEW: Include CS+ character info
+                        // Include CS+ character info
                         CSCharacterName: profileData.CSCharacterName || null,
                         InGameCharacterName: profileData.InGameCharacterName || parsedName.inGameCharacter
                     });
+                    
+                    console.log(`Added to gallery: ${displayName} (CS+: ${profileData.CSCharacterName})`);
+                } else {
+                    console.log(`Skipped profile ${file}: Sharing setting ${profileData.Sharing} is not ShowcasePublic`);
                 }
             } catch (err) {
                 console.error(`Error reading profile ${file}:`, err);
