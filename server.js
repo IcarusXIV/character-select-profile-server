@@ -78,7 +78,7 @@ app.get("/view/:name", (req, res) => {
     res.json(JSON.parse(profile));
 });
 
-// 📚 Gallery endpoint - Get all showcase profiles (FIXED TO USE FILENAME AS ID)
+// 📚 Gallery endpoint - Get all showcase profiles
 app.get("/gallery", (req, res) => {
     try {
         const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
@@ -103,7 +103,11 @@ app.get("/gallery", (req, res) => {
                         Race: profileData.Race || "",
                         Pronouns: profileData.Pronouns || "",
                         LikeCount: profileData.LikeCount || 0,
-                        LastUpdated: profileData.LastUpdated || new Date().toISOString()
+                        LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                        
+                        // 🔥 FIX: Include ONLY crop data for proper gallery image display
+                        ImageZoom: profileData.ImageZoom || 1.0,
+                        ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
                     });
                 }
             } catch (err) {
