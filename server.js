@@ -69,6 +69,7 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
 
     // Set LastUpdated
     profile.LastUpdated = new Date().toISOString();
+    profile.LastActiveTime = new Date().toISOString();
 
     // 💾 Save profile JSON with new filename format
     const filePath = path.join(profilesDir, `${newFileName}.json`);
