@@ -25,7 +25,7 @@ app.use(bodyParser.json());
 
 // 📨 Upload endpoint (supports JSON + optional image)
 app.post("/upload/:name", upload.single("image"), (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
+    const physicalCharacterName = decodeURIComponent(req.params.name);
     const profileJson = req.body.profile;
 
     if (!profileJson) {
@@ -39,10 +39,22 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
         return res.status(400).send("Invalid profile JSON.");
     }
 
+    // Extract CS+ character name from profile
+    const csCharacterName = profile.CharacterName;
+    if (!csCharacterName) {
+        return res.status(400).send("Missing CharacterName in profile data.");
+    }
+
+    // Sanitize CS+ character name (allow spaces, numbers, letters, basic punctuation)
+    const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
+    
+    // New filename format: {CS+Name}_{PhysicalName}
+    const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+
     // 🖼 Save image (if provided)
     if (req.file) {
         const ext = path.extname(req.file.originalname) || ".png";
-        const safeFileName = characterName.replace(/[^\w@-]/g, "_") + ext;
+        const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
         const finalImagePath = path.join(imagesDir, safeFileName);
         fs.renameSync(req.file.path, finalImagePath);
 
@@ -58,24 +70,60 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
     // Set LastUpdated
     profile.LastUpdated = new Date().toISOString();
 
-    // 💾 Save profile JSON
-    const filePath = path.join(profilesDir, `${characterName}.json`);
+    // 💾 Save profile JSON with new filename format
+    const filePath = path.join(profilesDir, `${newFileName}.json`);
     fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
 
+    console.log(`✅ Saved profile: ${newFileName}.json`);
     res.json(profile); // ✅ Return the updated profile including ProfileImageUrl
 });
 
-// 📥 View endpoint
+// 📥 View endpoint - handles both old and new formats, returns most recent for physical character
 app.get("/view/:name", (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
-    const filePath = path.join(profilesDir, `${characterName}.json`);
-
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "Profile not found" });
+    const requestedName = decodeURIComponent(req.params.name);
+    
+    // First try direct lookup (new format)
+    let filePath = path.join(profilesDir, `${requestedName}.json`);
+    
+    if (fs.existsSync(filePath)) {
+        const profile = fs.readFileSync(filePath, "utf-8");
+        return res.json(JSON.parse(profile));
     }
 
-    const profile = fs.readFileSync(filePath, "utf-8");
-    res.json(JSON.parse(profile));
+    // If not found, assume it's a physical character name and find most recent CS+ profile
+    try {
+        const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
+        const matchingProfiles = [];
+
+        for (const file of profileFiles) {
+            // Check if filename ends with _{requestedName}.json
+            const expectedSuffix = `_${requestedName}.json`;
+            if (file.endsWith(expectedSuffix)) {
+                const fullPath = path.join(profilesDir, file);
+                const stats = fs.statSync(fullPath);
+                const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                
+                matchingProfiles.push({
+                    file: file,
+                    lastModified: stats.mtime,
+                    profile: profileData
+                });
+            }
+        }
+
+        if (matchingProfiles.length === 0) {
+            return res.status(404).json({ error: "Profile not found" });
+        }
+
+        // Return the most recently modified profile
+        matchingProfiles.sort((a, b) => b.lastModified - a.lastModified);
+        console.log(`📖 Found ${matchingProfiles.length} profiles for ${requestedName}, returning most recent: ${matchingProfiles[0].file}`);
+        
+        res.json(matchingProfiles[0].profile);
+    } catch (err) {
+        console.error(`Error in view endpoint: ${err}`);
+        res.status(500).json({ error: "Server error" });
+    }
 });
 
 // 📚 Gallery endpoint - Get all showcase profiles
@@ -85,7 +133,7 @@ app.get("/gallery", (req, res) => {
         const showcaseProfiles = [];
 
         for (const file of profileFiles) {
-            const characterId = file.replace('.json', ''); // This is the actual filename we need for likes
+            const characterId = file.replace('.json', ''); // Full filename without .json
             const filePath = path.join(profilesDir, file);
             
             try {
@@ -93,10 +141,24 @@ app.get("/gallery", (req, res) => {
                 
                 // Only include profiles that want to be showcased
                 if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
+                    // Parse CS+ character name and physical character name from filename
+                    const underscoreIndex = characterId.indexOf('_');
+                    let csCharacterName, physicalCharacterName;
+                    
+                    if (underscoreIndex > 0) {
+                        // New format: CS+Name_Physical@Server
+                        csCharacterName = characterId.substring(0, underscoreIndex);
+                        physicalCharacterName = characterId.substring(underscoreIndex + 1);
+                    } else {
+                        // Fallback for any remaining old format files
+                        csCharacterName = profileData.CharacterName || characterId.split('@')[0];
+                        physicalCharacterName = characterId;
+                    }
+
                     showcaseProfiles.push({
-                        CharacterId: characterId, // NEW: The actual filename for API calls
-                        CharacterName: profileData.CharacterName || characterId.split('@')[0],
-                        Server: extractServerFromName(characterId),
+                        CharacterId: characterId, // Full filename for API calls (CS+Name_Physical@Server)
+                        CharacterName: csCharacterName, // CS+ character name for display
+                        Server: extractServerFromName(physicalCharacterName),
                         ProfileImageUrl: profileData.ProfileImageUrl || null,
                         Tags: profileData.Tags || "",
                         Bio: profileData.Bio || "",
@@ -105,7 +167,7 @@ app.get("/gallery", (req, res) => {
                         LikeCount: profileData.LikeCount || 0,
                         LastUpdated: profileData.LastUpdated || new Date().toISOString(),
                         
-                        // 🔥 FIX: Include ONLY crop data for proper gallery image display
+                        // Include crop data for proper gallery image display
                         ImageZoom: profileData.ImageZoom || 1.0,
                         ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
                     });
@@ -115,9 +177,10 @@ app.get("/gallery", (req, res) => {
             }
         }
 
-        // Sort by most liked first
+        // Sort by individual profile like counts
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
         
+        console.log(`📸 Gallery: Found ${showcaseProfiles.length} showcase profiles`);
         res.json(showcaseProfiles);
     } catch (err) {
         console.error('Gallery error:', err);
@@ -125,10 +188,10 @@ app.get("/gallery", (req, res) => {
     }
 });
 
-// 💖 Like endpoint (FIXED RESPONSE FORMAT)
+// 💖 Like endpoint
 app.post("/gallery/:name/like", (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
-    const filePath = path.join(profilesDir, `${characterName}.json`);
+    const characterId = decodeURIComponent(req.params.name); // Now includes CS+ prefix
+    const filePath = path.join(profilesDir, `${characterId}.json`);
 
     if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: "Profile not found" });
@@ -141,6 +204,8 @@ app.post("/gallery/:name/like", (req, res) => {
         
         fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
         
+        console.log(`👍 Liked profile: ${characterId} (now ${profile.LikeCount} likes)`);
+        
         // Return PascalCase to match C# client expectations
         res.json({ LikeCount: profile.LikeCount });
     } catch (err) {
@@ -149,10 +214,10 @@ app.post("/gallery/:name/like", (req, res) => {
     }
 });
 
-// 💔 Unlike endpoint (FIXED RESPONSE FORMAT)
+// 💔 Unlike endpoint
 app.delete("/gallery/:name/like", (req, res) => {
-    const characterName = decodeURIComponent(req.params.name);
-    const filePath = path.join(profilesDir, `${characterName}.json`);
+    const characterId = decodeURIComponent(req.params.name); // Now includes CS+ prefix
+    const filePath = path.join(profilesDir, `${characterId}.json`);
 
     if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: "Profile not found" });
@@ -164,6 +229,8 @@ app.delete("/gallery/:name/like", (req, res) => {
         profile.LastUpdated = new Date().toISOString();
         
         fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
+        
+        console.log(`👎 Unliked profile: ${characterId} (now ${profile.LikeCount} likes)`);
         
         // Return PascalCase to match C# client expectations
         res.json({ LikeCount: profile.LikeCount });
@@ -181,4 +248,6 @@ function extractServerFromName(characterName) {
 
 app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
+    console.log(`📁 Profiles directory: ${profilesDir}`);
+    console.log(`🖼️ Images directory: ${imagesDir}`);
 });
