@@ -23,7 +23,7 @@ const upload = multer({ dest: "uploads/" }); // temp folder for uploads
 app.use(cors());
 app.use(bodyParser.json());
 
-// 📨 Upload endpoint (supports JSON + optional image)
+// 📨 Upload endpoint (supports JSON + optional image) - FIXED to preserve likes
 app.post("/upload/:name", upload.single("image"), (req, res) => {
     const physicalCharacterName = decodeURIComponent(req.params.name);
     const profileJson = req.body.profile;
@@ -50,6 +50,21 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
     
     // New filename format: {CS+Name}_{PhysicalName}
     const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+    const filePath = path.join(profilesDir, `${newFileName}.json`);
+
+    // FIXED: Check if profile already exists and preserve likes
+    let existingLikeCount = 0;
+    if (fs.existsSync(filePath)) {
+        try {
+            const existingProfile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            existingLikeCount = existingProfile.LikeCount || 0;
+            console.log(`📝 Updating existing profile: ${newFileName} (preserving ${existingLikeCount} likes)`);
+        } catch (err) {
+            console.error(`Error reading existing profile: ${err}`);
+        }
+    } else {
+        console.log(`🆕 Creating new profile: ${newFileName}`);
+    }
 
     // 🖼 Save image (if provided)
     if (req.file) {
@@ -62,21 +77,76 @@ app.post("/upload/:name", upload.single("image"), (req, res) => {
         profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
     }
 
-    // Initialize LikeCount if not present
-    if (profile.LikeCount === undefined) {
-        profile.LikeCount = 0;
-    }
+    // FIXED: Preserve existing like count instead of resetting to 0
+    profile.LikeCount = existingLikeCount;
 
     // Set LastUpdated
     profile.LastUpdated = new Date().toISOString();
     profile.LastActiveTime = new Date().toISOString();
 
-    // 💾 Save profile JSON with new filename format
-    const filePath = path.join(profilesDir, `${newFileName}.json`);
+    // 💾 Save profile JSON with preserved like count
     fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
 
-    console.log(`✅ Saved profile: ${newFileName}.json`);
-    res.json(profile); // ✅ Return the updated profile including ProfileImageUrl
+    console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
+    res.json(profile); // ✅ Return the updated profile including preserved LikeCount
+});
+
+// 📨 PUT endpoint for explicit updates - FIXED to preserve likes
+app.put("/upload/:name", upload.single("image"), (req, res) => {
+    const physicalCharacterName = decodeURIComponent(req.params.name);
+    const profileJson = req.body.profile;
+
+    if (!profileJson) {
+        return res.status(400).send("Missing profile data.");
+    }
+
+    let profile;
+    try {
+        profile = JSON.parse(profileJson);
+    } catch (err) {
+        return res.status(400).send("Invalid profile JSON.");
+    }
+
+    // Extract CS+ character name from profile
+    const csCharacterName = profile.CharacterName;
+    if (!csCharacterName) {
+        return res.status(400).send("Missing CharacterName in profile data.");
+    }
+
+    // Sanitize CS+ character name
+    const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
+    const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+    const filePath = path.join(profilesDir, `${newFileName}.json`);
+
+    // FIXED: Always preserve likes on PUT (update)
+    let existingLikeCount = 0;
+    if (fs.existsSync(filePath)) {
+        try {
+            const existingProfile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            existingLikeCount = existingProfile.LikeCount || 0;
+            console.log(`🔄 PUT update for: ${newFileName} (preserving ${existingLikeCount} likes)`);
+        } catch (err) {
+            console.error(`Error reading existing profile: ${err}`);
+        }
+    }
+
+    // Save image if provided
+    if (req.file) {
+        const ext = path.extname(req.file.originalname) || ".png";
+        const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
+        const finalImagePath = path.join(imagesDir, safeFileName);
+        fs.renameSync(req.file.path, finalImagePath);
+        profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
+    }
+
+    // Preserve like count
+    profile.LikeCount = existingLikeCount;
+    profile.LastUpdated = new Date().toISOString();
+    profile.LastActiveTime = new Date().toISOString();
+
+    fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
+    console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
+    res.json(profile);
 });
 
 // 📥 View endpoint - handles both old and new formats, returns most recent for physical character
