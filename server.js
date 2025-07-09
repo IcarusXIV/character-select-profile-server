@@ -18,175 +18,241 @@ if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 // Static route to serve uploaded images
 app.use("/images", express.static(path.join(__dirname, "public", "images")));
 
-const upload = multer({ dest: "uploads/" }); // temp folder for uploads
+const upload = multer({ dest: "uploads/" });
+
+// 🚀 OPTIMIZATION: Add gallery caching
+let galleryCache = null;
+let galleryCacheTime = 0;
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
+
+// 🚀 OPTIMIZATION: Add response compression
+app.use(require('compression')());
 
 app.use(cors());
 app.use(bodyParser.json());
 
-// 📨 Upload endpoint (supports JSON + optional image) - FIXED to preserve likes
-app.post("/upload/:name", upload.single("image"), (req, res) => {
-    const physicalCharacterName = decodeURIComponent(req.params.name);
-    const profileJson = req.body.profile;
-
-    if (!profileJson) {
-        return res.status(400).send("Missing profile data.");
-    }
-
-    let profile;
-    try {
-        profile = JSON.parse(profileJson);
-    } catch (err) {
-        return res.status(400).send("Invalid profile JSON.");
-    }
-
-    // Extract CS+ character name from profile
-    const csCharacterName = profile.CharacterName;
-    if (!csCharacterName) {
-        return res.status(400).send("Missing CharacterName in profile data.");
-    }
-
-    // Sanitize CS+ character name (allow spaces, numbers, letters, basic punctuation)
-    const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
-    
-    // New filename format: {CS+Name}_{PhysicalName}
-    const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
-    const filePath = path.join(profilesDir, `${newFileName}.json`);
-
-    // FIXED: Check if profile already exists and preserve likes
-    let existingLikeCount = 0;
-    if (fs.existsSync(filePath)) {
-        try {
-            const existingProfile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            existingLikeCount = existingProfile.LikeCount || 0;
-            console.log(`📝 Updating existing profile: ${newFileName} (preserving ${existingLikeCount} likes)`);
-        } catch (err) {
-            console.error(`Error reading existing profile: ${err}`);
-        }
-    } else {
-        console.log(`🆕 Creating new profile: ${newFileName}`);
-    }
-
-    // 🖼 Save image (if provided)
-    if (req.file) {
-        const ext = path.extname(req.file.originalname) || ".png";
-        const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
-        const finalImagePath = path.join(imagesDir, safeFileName);
-        fs.renameSync(req.file.path, finalImagePath);
-
-        // 🔗 Set image URL in profile
-        profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
-    }
-
-    // FIXED: Preserve existing like count instead of resetting to 0
-    profile.LikeCount = existingLikeCount;
-
-    // Set LastUpdated
-    profile.LastUpdated = new Date().toISOString();
-    profile.LastActiveTime = new Date().toISOString();
-
-    // 💾 Save profile JSON with preserved like count
-    fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
-
-    console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
-    res.json(profile); // ✅ Return the updated profile including preserved LikeCount
+// 🚀 NEW: Health check endpoint for connection testing
+app.get("/health", (req, res) => {
+    res.status(200).json({ 
+        status: "healthy", 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
 });
 
-// 📨 PUT endpoint for explicit updates - FIXED to preserve likes
-app.put("/upload/:name", upload.single("image"), (req, res) => {
-    const physicalCharacterName = decodeURIComponent(req.params.name);
-    const profileJson = req.body.profile;
+// 🚀 OPTIMIZATION: Async file operations to prevent blocking
+const readProfileAsync = (filePath) => {
+    return new Promise((resolve, reject) => {
+        fs.readFile(filePath, 'utf-8', (err, data) => {
+            if (err) reject(err);
+            else resolve(JSON.parse(data));
+        });
+    });
+};
 
-    if (!profileJson) {
-        return res.status(400).send("Missing profile data.");
-    }
+const writeProfileAsync = (filePath, data) => {
+    return new Promise((resolve, reject) => {
+        fs.writeFile(filePath, JSON.stringify(data, null, 2), (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+};
 
-    let profile;
+// 📨 Upload endpoint (supports JSON + optional image) - OPTIMIZED
+app.post("/upload/:name", upload.single("image"), async (req, res) => {
     try {
-        profile = JSON.parse(profileJson);
-    } catch (err) {
-        return res.status(400).send("Invalid profile JSON.");
-    }
+        const physicalCharacterName = decodeURIComponent(req.params.name);
+        const profileJson = req.body.profile;
 
-    // Extract CS+ character name from profile
-    const csCharacterName = profile.CharacterName;
-    if (!csCharacterName) {
-        return res.status(400).send("Missing CharacterName in profile data.");
-    }
-
-    // Sanitize CS+ character name
-    const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
-    const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
-    const filePath = path.join(profilesDir, `${newFileName}.json`);
-
-    // FIXED: Always preserve likes on PUT (update)
-    let existingLikeCount = 0;
-    if (fs.existsSync(filePath)) {
-        try {
-            const existingProfile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            existingLikeCount = existingProfile.LikeCount || 0;
-            console.log(`🔄 PUT update for: ${newFileName} (preserving ${existingLikeCount} likes)`);
-        } catch (err) {
-            console.error(`Error reading existing profile: ${err}`);
+        if (!profileJson) {
+            return res.status(400).send("Missing profile data.");
         }
-    }
 
-    // Save image if provided
-    if (req.file) {
-        const ext = path.extname(req.file.originalname) || ".png";
-        const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
-        const finalImagePath = path.join(imagesDir, safeFileName);
-        fs.renameSync(req.file.path, finalImagePath);
-        profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
-    }
+        let profile;
+        try {
+            profile = JSON.parse(profileJson);
+        } catch (err) {
+            return res.status(400).send("Invalid profile JSON.");
+        }
 
-    // Preserve like count
-    profile.LikeCount = existingLikeCount;
-    profile.LastUpdated = new Date().toISOString();
-    profile.LastActiveTime = new Date().toISOString();
+        const csCharacterName = profile.CharacterName;
+        if (!csCharacterName) {
+            return res.status(400).send("Missing CharacterName in profile data.");
+        }
 
-    fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
-    console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
-    res.json(profile);
-});
+        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
+        const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+        const filePath = path.join(profilesDir, `${newFileName}.json`);
 
-// 📥 View endpoint - handles both old and new formats, returns most recent for physical character
-app.get("/view/:name", (req, res) => {
-    const requestedName = decodeURIComponent(req.params.name);
-    
-    // First try direct lookup (new format)
-    let filePath = path.join(profilesDir, `${requestedName}.json`);
-    
-    if (fs.existsSync(filePath)) {
-        const profile = fs.readFileSync(filePath, "utf-8");
-        return res.json(JSON.parse(profile));
-    }
-
-    // If not found, assume it's a physical character name and find most recent CS+ profile
-    try {
-        const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
-        const matchingProfiles = [];
-
-        for (const file of profileFiles) {
-            // Check if filename ends with _{requestedName}.json
-            const expectedSuffix = `_${requestedName}.json`;
-            if (file.endsWith(expectedSuffix)) {
-                const fullPath = path.join(profilesDir, file);
-                const stats = fs.statSync(fullPath);
-                const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
-                
-                matchingProfiles.push({
-                    file: file,
-                    lastModified: stats.mtime,
-                    profile: profileData
-                });
+        // 🚀 OPTIMIZATION: Use async file operations
+        let existingLikeCount = 0;
+        if (fs.existsSync(filePath)) {
+            try {
+                const existingProfile = await readProfileAsync(filePath);
+                existingLikeCount = existingProfile.LikeCount || 0;
+                console.log(`📝 Updating existing profile: ${newFileName} (preserving ${existingLikeCount} likes)`);
+            } catch (err) {
+                console.error(`Error reading existing profile: ${err}`);
             }
+        } else {
+            console.log(`🆕 Creating new profile: ${newFileName}`);
+        }
+
+        // Handle image upload
+        if (req.file) {
+            const ext = path.extname(req.file.originalname) || ".png";
+            const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
+            const finalImagePath = path.join(imagesDir, safeFileName);
+            
+            // 🚀 OPTIMIZATION: Use async file operations
+            await new Promise((resolve, reject) => {
+                fs.rename(req.file.path, finalImagePath, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+
+            profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
+        }
+
+        profile.LikeCount = existingLikeCount;
+        profile.LastUpdated = new Date().toISOString();
+        profile.LastActiveTime = new Date().toISOString();
+
+        // 🚀 OPTIMIZATION: Async write + invalidate cache
+        await writeProfileAsync(filePath, profile);
+        galleryCache = null; // Invalidate cache
+
+        console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
+        res.json(profile);
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 📨 PUT endpoint for explicit updates - OPTIMIZED
+app.put("/upload/:name", upload.single("image"), async (req, res) => {
+    try {
+        const physicalCharacterName = decodeURIComponent(req.params.name);
+        const profileJson = req.body.profile;
+
+        if (!profileJson) {
+            return res.status(400).send("Missing profile data.");
+        }
+
+        let profile;
+        try {
+            profile = JSON.parse(profileJson);
+        } catch (err) {
+            return res.status(400).send("Invalid profile JSON.");
+        }
+
+        const csCharacterName = profile.CharacterName;
+        if (!csCharacterName) {
+            return res.status(400).send("Missing CharacterName in profile data.");
+        }
+
+        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
+        const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+        const filePath = path.join(profilesDir, `${newFileName}.json`);
+
+        let existingLikeCount = 0;
+        if (fs.existsSync(filePath)) {
+            try {
+                const existingProfile = await readProfileAsync(filePath);
+                existingLikeCount = existingProfile.LikeCount || 0;
+                console.log(`🔄 PUT update for: ${newFileName} (preserving ${existingLikeCount} likes)`);
+            } catch (err) {
+                console.error(`Error reading existing profile: ${err}`);
+            }
+        }
+
+        if (req.file) {
+            const ext = path.extname(req.file.originalname) || ".png";
+            const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
+            const finalImagePath = path.join(imagesDir, safeFileName);
+            
+            await new Promise((resolve, reject) => {
+                fs.rename(req.file.path, finalImagePath, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+            
+            profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
+        }
+
+        profile.LikeCount = existingLikeCount;
+        profile.LastUpdated = new Date().toISOString();
+        profile.LastActiveTime = new Date().toISOString();
+
+        await writeProfileAsync(filePath, profile);
+        galleryCache = null; // Invalidate cache
+
+        console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
+        res.json(profile);
+    } catch (error) {
+        console.error('PUT error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// 📥 View endpoint - OPTIMIZED
+app.get("/view/:name", async (req, res) => {
+    try {
+        const requestedName = decodeURIComponent(req.params.name);
+        let filePath = path.join(profilesDir, `${requestedName}.json`);
+        
+        if (fs.existsSync(filePath)) {
+            const profile = await readProfileAsync(filePath);
+            return res.json(profile);
+        }
+
+        // 🚀 OPTIMIZATION: Use async operations for file search
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file => file.endsWith('.json')));
+            });
+        });
+
+        const matchingProfiles = [];
+        const expectedSuffix = `_${requestedName}.json`;
+
+        // 🚀 OPTIMIZATION: Process files in batches to avoid blocking
+        for (let i = 0; i < profileFiles.length; i += 5) {
+            const batch = profileFiles.slice(i, i + 5);
+            
+            await Promise.all(batch.map(async (file) => {
+                if (file.endsWith(expectedSuffix)) {
+                    const fullPath = path.join(profilesDir, file);
+                    try {
+                        const stats = await new Promise((resolve, reject) => {
+                            fs.stat(fullPath, (err, stats) => {
+                                if (err) reject(err);
+                                else resolve(stats);
+                            });
+                        });
+                        const profileData = await readProfileAsync(fullPath);
+                        
+                        matchingProfiles.push({
+                            file: file,
+                            lastModified: stats.mtime,
+                            profile: profileData
+                        });
+                    } catch (err) {
+                        console.error(`Error processing ${file}:`, err);
+                    }
+                }
+            }));
         }
 
         if (matchingProfiles.length === 0) {
             return res.status(404).json({ error: "Profile not found" });
         }
 
-        // Return the most recently modified profile
         matchingProfiles.sort((a, b) => b.lastModified - a.lastModified);
         console.log(`📖 Found ${matchingProfiles.length} profiles for ${requestedName}, returning most recent: ${matchingProfiles[0].file}`);
         
@@ -197,114 +263,141 @@ app.get("/view/:name", (req, res) => {
     }
 });
 
-// 📚 Gallery endpoint - Get all showcase profiles
-app.get("/gallery", (req, res) => {
+// 📚 Gallery endpoint - HEAVILY OPTIMIZED with caching
+app.get("/gallery", async (req, res) => {
     try {
-        const profileFiles = fs.readdirSync(profilesDir).filter(file => file.endsWith('.json'));
-        const showcaseProfiles = [];
-
-        for (const file of profileFiles) {
-            const characterId = file.replace('.json', ''); // Full filename without .json
-            const filePath = path.join(profilesDir, file);
-            
-            try {
-                const profileData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-                
-                // Only include profiles that want to be showcased
-                if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
-                    // Parse CS+ character name and physical character name from filename
-                    const underscoreIndex = characterId.indexOf('_');
-                    let csCharacterName, physicalCharacterName;
-                    
-                    if (underscoreIndex > 0) {
-                        // New format: CS+Name_Physical@Server
-                        csCharacterName = characterId.substring(0, underscoreIndex);
-                        physicalCharacterName = characterId.substring(underscoreIndex + 1);
-                    } else {
-                        // Fallback for any remaining old format files
-                        csCharacterName = profileData.CharacterName || characterId.split('@')[0];
-                        physicalCharacterName = characterId;
-                    }
-
-                    showcaseProfiles.push({
-                        CharacterId: characterId, // Full filename for API calls (CS+Name_Physical@Server)
-                        CharacterName: csCharacterName, // CS+ character name for display
-                        Server: extractServerFromName(physicalCharacterName),
-                        ProfileImageUrl: profileData.ProfileImageUrl || null,
-                        Tags: profileData.Tags || "",
-                        Bio: profileData.Bio || "",
-                        Race: profileData.Race || "",
-                        Pronouns: profileData.Pronouns || "",
-                        LikeCount: profileData.LikeCount || 0,
-                        LastUpdated: profileData.LastUpdated || new Date().toISOString(),
-                        
-                        // Include crop data for proper gallery image display
-                        ImageZoom: profileData.ImageZoom || 1.0,
-                        ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
-                    });
-                }
-            } catch (err) {
-                console.error(`Error reading profile ${file}:`, err);
-            }
+        // 🚀 OPTIMIZATION: Return cached data if available and fresh
+        const now = Date.now();
+        if (galleryCache && (now - galleryCacheTime) < CACHE_DURATION) {
+            console.log(`📸 Gallery: Serving cached data (${galleryCache.length} profiles)`);
+            return res.json(galleryCache);
         }
 
-        // Sort by individual profile like counts
+        console.log(`📸 Gallery: Building fresh cache...`);
+        
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file => file.endsWith('.json')));
+            });
+        });
+
+        const showcaseProfiles = [];
+
+        // 🚀 OPTIMIZATION: Process files in smaller batches to prevent blocking
+        for (let i = 0; i < profileFiles.length; i += 10) {
+            const batch = profileFiles.slice(i, i + 10);
+            
+            const batchResults = await Promise.all(batch.map(async (file) => {
+                const characterId = file.replace('.json', '');
+                const filePath = path.join(profilesDir, file);
+                
+                try {
+                    const profileData = await readProfileAsync(filePath);
+                    
+                    // Only include profiles that want to be showcased
+                    if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
+                        const underscoreIndex = characterId.indexOf('_');
+                        let csCharacterName, physicalCharacterName;
+                        
+                        if (underscoreIndex > 0) {
+                            csCharacterName = characterId.substring(0, underscoreIndex);
+                            physicalCharacterName = characterId.substring(underscoreIndex + 1);
+                        } else {
+                            csCharacterName = profileData.CharacterName || characterId.split('@')[0];
+                            physicalCharacterName = characterId;
+                        }
+
+                        return {
+                            CharacterId: characterId,
+                            CharacterName: csCharacterName,
+                            Server: extractServerFromName(physicalCharacterName),
+                            ProfileImageUrl: profileData.ProfileImageUrl || null,
+                            Tags: profileData.Tags || "",
+                            Bio: profileData.Bio || "",
+                            Race: profileData.Race || "",
+                            Pronouns: profileData.Pronouns || "",
+                            LikeCount: profileData.LikeCount || 0,
+                            LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                            ImageZoom: profileData.ImageZoom || 1.0,
+                            ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
+                        };
+                    }
+                    return null;
+                } catch (err) {
+                    console.error(`Error reading profile ${file}:`, err);
+                    return null;
+                }
+            }));
+
+            // Add non-null results to showcase profiles
+            batchResults.forEach(result => {
+                if (result) showcaseProfiles.push(result);
+            });
+        }
+
+        // Sort by like count
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
         
-        console.log(`📸 Gallery: Found ${showcaseProfiles.length} showcase profiles`);
+        // 🚀 OPTIMIZATION: Cache the results
+        galleryCache = showcaseProfiles;
+        galleryCacheTime = now;
+        
+        console.log(`📸 Gallery: Cached ${showcaseProfiles.length} showcase profiles`);
         res.json(showcaseProfiles);
+        
     } catch (err) {
         console.error('Gallery error:', err);
         res.status(500).json({ error: 'Failed to load gallery' });
     }
 });
 
-// 💖 Like endpoint
-app.post("/gallery/:name/like", (req, res) => {
-    const characterId = decodeURIComponent(req.params.name); // Now includes CS+ prefix
-    const filePath = path.join(profilesDir, `${characterId}.json`);
-
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "Profile not found" });
-    }
-
+// 💖 Like endpoint - OPTIMIZED
+app.post("/gallery/:name/like", async (req, res) => {
     try {
-        const profile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const characterId = decodeURIComponent(req.params.name);
+        const filePath = path.join(profilesDir, `${characterId}.json`);
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: "Profile not found" });
+        }
+
+        const profile = await readProfileAsync(filePath);
         profile.LikeCount = (profile.LikeCount || 0) + 1;
         profile.LastUpdated = new Date().toISOString();
         
-        fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
+        await writeProfileAsync(filePath, profile);
+        galleryCache = null; // Invalidate cache
         
         console.log(`👍 Liked profile: ${characterId} (now ${profile.LikeCount} likes)`);
-        
-        // Return PascalCase to match C# client expectations
         res.json({ LikeCount: profile.LikeCount });
+        
     } catch (err) {
         console.error('Like error:', err);
         res.status(500).json({ error: 'Failed to like profile' });
     }
 });
 
-// 💔 Unlike endpoint
-app.delete("/gallery/:name/like", (req, res) => {
-    const characterId = decodeURIComponent(req.params.name); // Now includes CS+ prefix
-    const filePath = path.join(profilesDir, `${characterId}.json`);
-
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "Profile not found" });
-    }
-
+// 💔 Unlike endpoint - OPTIMIZED
+app.delete("/gallery/:name/like", async (req, res) => {
     try {
-        const profile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const characterId = decodeURIComponent(req.params.name);
+        const filePath = path.join(profilesDir, `${characterId}.json`);
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: "Profile not found" });
+        }
+
+        const profile = await readProfileAsync(filePath);
         profile.LikeCount = Math.max(0, (profile.LikeCount || 0) - 1);
         profile.LastUpdated = new Date().toISOString();
         
-        fs.writeFileSync(filePath, JSON.stringify(profile, null, 2));
+        await writeProfileAsync(filePath, profile);
+        galleryCache = null; // Invalidate cache
         
         console.log(`👎 Unliked profile: ${characterId} (now ${profile.LikeCount} likes)`);
-        
-        // Return PascalCase to match C# client expectations
         res.json({ LikeCount: profile.LikeCount });
+        
     } catch (err) {
         console.error('Unlike error:', err);
         res.status(500).json({ error: 'Failed to unlike profile' });
@@ -317,8 +410,15 @@ function extractServerFromName(characterName) {
     return parts.length > 1 ? parts[1] : 'Unknown';
 }
 
+// 🚀 OPTIMIZATION: Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('💤 Server shutting down gracefully...');
+    process.exit(0);
+});
+
 app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
+    console.log(`🚀 Optimizations: Async I/O, Gallery caching, Health checks`);
 });
