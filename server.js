@@ -40,23 +40,86 @@ app.get("/health", (req, res) => {
     });
 });
 
-// 🚀 OPTIMIZATION: Async file operations to prevent blocking
+// 🛡️ FIXED: Robust async file operations with error handling
 const readProfileAsync = (filePath) => {
     return new Promise((resolve, reject) => {
         fs.readFile(filePath, 'utf-8', (err, data) => {
-            if (err) reject(err);
-            else resolve(JSON.parse(data));
+            if (err) {
+                reject(err);
+                return;
+            }
+            
+            // Check if file is empty or only whitespace
+            if (!data || data.trim().length === 0) {
+                console.error(`[Error] Empty profile file: ${filePath}`);
+                reject(new Error(`Profile file is empty: ${filePath}`));
+                return;
+            }
+            
+            try {
+                const parsed = JSON.parse(data);
+                resolve(parsed);
+            } catch (parseError) {
+                console.error(`[Error] Invalid JSON in file ${filePath}:`, parseError.message);
+                console.error(`[Error] File content preview:`, data.substring(0, 100));
+                
+                // Try to recover by deleting the corrupted file
+                fs.unlink(filePath, (unlinkErr) => {
+                    if (unlinkErr) {
+                        console.error(`[Error] Failed to delete corrupted file ${filePath}:`, unlinkErr.message);
+                    } else {
+                        console.log(`[Recovery] Deleted corrupted file: ${filePath}`);
+                    }
+                });
+                
+                reject(new Error(`Invalid JSON in profile file: ${filePath}`));
+            }
         });
     });
 };
 
 const writeProfileAsync = (filePath, data) => {
     return new Promise((resolve, reject) => {
-        fs.writeFile(filePath, JSON.stringify(data, null, 2), (err) => {
-            if (err) reject(err);
-            else resolve();
+        // First, validate that the data can be stringified
+        let jsonString;
+        try {
+            jsonString = JSON.stringify(data, null, 2);
+        } catch (stringifyError) {
+            console.error(`[Error] Cannot stringify data for ${filePath}:`, stringifyError.message);
+            reject(stringifyError);
+            return;
+        }
+        
+        // Write to a temporary file first, then rename (atomic operation)
+        const tempPath = filePath + '.tmp';
+        
+        fs.writeFile(tempPath, jsonString, 'utf-8', (writeErr) => {
+            if (writeErr) {
+                reject(writeErr);
+                return;
+            }
+            
+            // Atomically rename temp file to final file
+            fs.rename(tempPath, filePath, (renameErr) => {
+                if (renameErr) {
+                    // Clean up temp file if rename failed
+                    fs.unlink(tempPath, () => {});
+                    reject(renameErr);
+                    return;
+                }
+                
+                resolve();
+            });
         });
     });
+};
+
+// 🛡️ ADDED: Helper function to validate profiles
+const isValidProfile = (profile) => {
+    return profile && 
+           typeof profile === 'object' && 
+           typeof profile.CharacterName === 'string' &&
+           profile.CharacterName.length > 0;
 };
 
 // 📨 Upload endpoint (supports JSON + optional image) - OPTIMIZED
@@ -199,15 +262,20 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
     }
 });
 
-// 📥 View endpoint - OPTIMIZED
+// 📥 View endpoint - OPTIMIZED with error handling
 app.get("/view/:name", async (req, res) => {
     try {
         const requestedName = decodeURIComponent(req.params.name);
         let filePath = path.join(profilesDir, `${requestedName}.json`);
         
         if (fs.existsSync(filePath)) {
-            const profile = await readProfileAsync(filePath);
-            return res.json(profile);
+            try {
+                const profile = await readProfileAsync(filePath);
+                return res.json(profile);
+            } catch (err) {
+                console.error(`Error reading profile ${requestedName}:`, err.message);
+                // Continue to search for alternative profiles
+            }
         }
 
         // 🚀 OPTIMIZATION: Use async operations for file search
@@ -237,13 +305,16 @@ app.get("/view/:name", async (req, res) => {
                         });
                         const profileData = await readProfileAsync(fullPath);
                         
-                        matchingProfiles.push({
-                            file: file,
-                            lastModified: stats.mtime,
-                            profile: profileData
-                        });
+                        // Validate profile before using
+                        if (isValidProfile(profileData)) {
+                            matchingProfiles.push({
+                                file: file,
+                                lastModified: stats.mtime,
+                                profile: profileData
+                            });
+                        }
                     } catch (err) {
-                        console.error(`Error processing ${file}:`, err);
+                        console.error(`Error processing ${file}:`, err.message);
                     }
                 }
             }));
@@ -263,7 +334,7 @@ app.get("/view/:name", async (req, res) => {
     }
 });
 
-// 📚 Gallery endpoint - HEAVILY OPTIMIZED with caching
+// 📚 Gallery endpoint - HEAVILY OPTIMIZED with caching and error handling
 app.get("/gallery", async (req, res) => {
     try {
         // 🚀 OPTIMIZATION: Return cached data if available and fresh
@@ -283,6 +354,7 @@ app.get("/gallery", async (req, res) => {
         });
 
         const showcaseProfiles = [];
+        let skippedFiles = 0;
 
         // 🚀 OPTIMIZATION: Process files in smaller batches to prevent blocking
         for (let i = 0; i < profileFiles.length; i += 10) {
@@ -294,6 +366,13 @@ app.get("/gallery", async (req, res) => {
                 
                 try {
                     const profileData = await readProfileAsync(filePath);
+                    
+                    // 🛡️ ADDED: Validate profile data
+                    if (!isValidProfile(profileData)) {
+                        console.error(`[Error] Invalid profile structure in ${file}`);
+                        skippedFiles++;
+                        return null;
+                    }
                     
                     // Only include profiles that want to be showcased
                     if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
@@ -325,7 +404,8 @@ app.get("/gallery", async (req, res) => {
                     }
                     return null;
                 } catch (err) {
-                    console.error(`Error reading profile ${file}:`, err);
+                    console.error(`[Error] Failed to process profile ${file}:`, err.message);
+                    skippedFiles++;
                     return null;
                 }
             }));
@@ -343,7 +423,12 @@ app.get("/gallery", async (req, res) => {
         galleryCache = showcaseProfiles;
         galleryCacheTime = now;
         
-        console.log(`📸 Gallery: Cached ${showcaseProfiles.length} showcase profiles`);
+        if (skippedFiles > 0) {
+            console.log(`📸 Gallery: Cached ${showcaseProfiles.length} profiles (skipped ${skippedFiles} corrupted files)`);
+        } else {
+            console.log(`📸 Gallery: Cached ${showcaseProfiles.length} profiles`);
+        }
+        
         res.json(showcaseProfiles);
         
     } catch (err) {
@@ -352,7 +437,7 @@ app.get("/gallery", async (req, res) => {
     }
 });
 
-// 💖 Like endpoint - OPTIMIZED
+// 💖 Like endpoint - OPTIMIZED with error handling
 app.post("/gallery/:name/like", async (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.name);
@@ -363,6 +448,12 @@ app.post("/gallery/:name/like", async (req, res) => {
         }
 
         const profile = await readProfileAsync(filePath);
+        
+        // Validate profile before modifying
+        if (!isValidProfile(profile)) {
+            return res.status(400).json({ error: "Invalid profile data" });
+        }
+        
         profile.LikeCount = (profile.LikeCount || 0) + 1;
         profile.LastUpdated = new Date().toISOString();
         
@@ -378,7 +469,7 @@ app.post("/gallery/:name/like", async (req, res) => {
     }
 });
 
-// 💔 Unlike endpoint - OPTIMIZED
+// 💔 Unlike endpoint - OPTIMIZED with error handling
 app.delete("/gallery/:name/like", async (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.name);
@@ -389,6 +480,12 @@ app.delete("/gallery/:name/like", async (req, res) => {
         }
 
         const profile = await readProfileAsync(filePath);
+        
+        // Validate profile before modifying
+        if (!isValidProfile(profile)) {
+            return res.status(400).json({ error: "Invalid profile data" });
+        }
+        
         profile.LikeCount = Math.max(0, (profile.LikeCount || 0) - 1);
         profile.LastUpdated = new Date().toISOString();
         
@@ -420,5 +517,5 @@ app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
-    console.log(`🚀 Optimizations: Async I/O, Gallery caching, Health checks`);
+    console.log(`🚀 Optimizations: Async I/O, Gallery caching, Health checks, Error recovery`);
 });
