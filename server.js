@@ -188,6 +188,9 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         galleryCache = null; // Invalidate cache
 
         console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
+        if (profile.GalleryStatus) {
+            console.log(`📝 Status: "${profile.GalleryStatus.substring(0, 50)}${profile.GalleryStatus.length > 50 ? '...' : ''}"`);
+        }
         res.json(profile);
     } catch (error) {
         console.error('Upload error:', error);
@@ -255,6 +258,9 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         galleryCache = null; // Invalidate cache
 
         console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
+        if (profile.GalleryStatus) {
+            console.log(`📝 Status: "${profile.GalleryStatus.substring(0, 50)}${profile.GalleryStatus.length > 50 ? '...' : ''}"`);
+        }
         res.json(profile);
     } catch (error) {
         console.error('PUT error:', error);
@@ -334,7 +340,7 @@ app.get("/view/:name", async (req, res) => {
     }
 });
 
-// 📚 Gallery endpoint - HEAVILY OPTIMIZED with caching and error handling
+// 📚 Gallery endpoint - HEAVILY OPTIMIZED with caching and error handling + STATUS SUPPORT
 app.get("/gallery", async (req, res) => {
     try {
         // 🚀 OPTIMIZATION: Return cached data if available and fresh
@@ -394,6 +400,7 @@ app.get("/gallery", async (req, res) => {
                             ProfileImageUrl: profileData.ProfileImageUrl || null,
                             Tags: profileData.Tags || "",
                             Bio: profileData.Bio || "",
+                            GalleryStatus: profileData.GalleryStatus || "", // ← STATUS SUPPORT ADDED
                             Race: profileData.Race || "",
                             Pronouns: profileData.Pronouns || "",
                             LikeCount: profileData.LikeCount || 0,
@@ -475,7 +482,7 @@ app.delete("/gallery/:name/like", async (req, res) => {
         const characterId = decodeURIComponent(req.params.name);
         const filePath = path.join(profilesDir, `${characterId}.json`);
 
-        if (!fs.existsSync(filePath)) {
+        if (!fs.existsExists(filePath)) {
             return res.status(404).json({ error: "Profile not found" });
         }
 
@@ -501,6 +508,73 @@ app.delete("/gallery/:name/like", async (req, res) => {
     }
 });
 
+// 🤝 FRIENDS SYSTEM ENDPOINTS
+
+// Endpoint to update your friends list
+app.post("/friends/update-follows", async (req, res) => {
+    try {
+        const { character, following } = req.body;
+        
+        if (!character || !Array.isArray(following)) {
+            return res.status(400).json({ error: "Invalid request data" });
+        }
+
+        const followsFile = path.join(profilesDir, `${character}_follows.json`);
+        const followsData = {
+            character: character,
+            following: following,
+            lastUpdated: new Date().toISOString()
+        };
+        
+        await writeProfileAsync(followsFile, followsData);
+        
+        console.log(`👥 Updated friends for ${character}: ${following.length} following`);
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('Update friends error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Endpoint to check mutual friends
+app.post("/friends/check-mutual", async (req, res) => {
+    try {
+        const { character, following } = req.body;
+        
+        if (!character || !Array.isArray(following)) {
+            return res.status(400).json({ error: "Invalid request data" });
+        }
+
+        const mutualFriends = [];
+        
+        // Check each person you follow to see if they follow you back
+        for (const followedPerson of following) {
+            try {
+                const followsFile = path.join(profilesDir, `${followedPerson}_follows.json`);
+                
+                if (fs.existsSync(followsFile)) {
+                    const theirFollows = await readProfileAsync(followsFile);
+                    
+                    // If they follow you back, it's mutual
+                    if (theirFollows.following && theirFollows.following.includes(character)) {
+                        mutualFriends.push(followedPerson);
+                    }
+                }
+            } catch (err) {
+                console.error(`Error checking follows for ${followedPerson}:`, err.message);
+            }
+        }
+        
+        console.log(`🤝 ${character} has ${mutualFriends.length} mutual friends`);
+        res.json({ mutualFriends });
+        
+    } catch (error) {
+        console.error('Check mutual error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Helper function to extract server from character name
 function extractServerFromName(characterName) {
     const parts = characterName.split('@');
@@ -517,5 +591,7 @@ app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
-    console.log(`🚀 Optimizations: Async I/O, Gallery caching, Health checks, Error recovery`);
+    console.log(`🚀 Features: Gallery, Likes, Friends System, Status Support, Caching, Error Recovery`);
+    console.log(`🤝 Friends endpoints: /friends/update-follows, /friends/check-mutual`);
+    console.log(`📝 Status support: GalleryStatus field included in gallery responses`);
 });
