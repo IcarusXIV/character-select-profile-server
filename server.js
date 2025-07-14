@@ -144,7 +144,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
-        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
+        const sanitizedCSName = csCharacterName.replace(/[^\w\-.']/g, "_"); // Remove spaces for safer file operations
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
@@ -220,7 +220,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
-        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
+        const sanitizedCSName = csCharacterName.replace(/[^\w\-.']/g, "_"); // Remove spaces for safer file operations
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
@@ -288,7 +288,10 @@ app.get("/view/:name", async (req, res) => {
         const profileFiles = await new Promise((resolve, reject) => {
             fs.readdir(profilesDir, (err, files) => {
                 if (err) reject(err);
-                else resolve(files.filter(file => file.endsWith('.json')));
+                else resolve(files.filter(file => 
+                    file.endsWith('.json') && 
+                    !file.endsWith('_follows.json') // Skip friends files
+                ));
             });
         });
 
@@ -355,7 +358,10 @@ app.get("/gallery", async (req, res) => {
         const profileFiles = await new Promise((resolve, reject) => {
             fs.readdir(profilesDir, (err, files) => {
                 if (err) reject(err);
-                else resolve(files.filter(file => file.endsWith('.json')));
+                else resolve(files.filter(file => 
+                    file.endsWith('.json') && 
+                    !file.endsWith('_follows.json') // Skip friends files
+                ));
             });
         });
 
