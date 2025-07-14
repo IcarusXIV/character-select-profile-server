@@ -90,7 +90,19 @@ const writeProfileAsync = (filePath, data) => {
             return;
         }
         
-        // Write to a temporary file first, then rename (atomic operation)
+        // For files with spaces, just write directly instead of atomic rename
+        if (filePath.includes(' ')) {
+            fs.writeFile(filePath, jsonString, 'utf-8', (writeErr) => {
+                if (writeErr) {
+                    reject(writeErr);
+                    return;
+                }
+                resolve();
+            });
+            return;
+        }
+        
+        // For files without spaces, use atomic rename (safer)
         const tempPath = filePath + '.tmp';
         
         fs.writeFile(tempPath, jsonString, 'utf-8', (writeErr) => {
@@ -144,7 +156,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
-        const sanitizedCSName = csCharacterName.replace(/[^\w\-.']/g, "_"); // Remove spaces for safer file operations
+        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_"); // Keep spaces, only remove special chars
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
@@ -220,7 +232,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
-        const sanitizedCSName = csCharacterName.replace(/[^\w\-.']/g, "_"); // Remove spaces for safer file operations
+        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_"); // Keep spaces, only remove special chars
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
@@ -488,7 +500,7 @@ app.delete("/gallery/:name/like", async (req, res) => {
         const characterId = decodeURIComponent(req.params.name);
         const filePath = path.join(profilesDir, `${characterId}.json`);
 
-        if (!fs.existsExists(filePath)) {
+        if (!fs.existsSync(filePath)) {
             return res.status(404).json({ error: "Profile not found" });
         }
 
