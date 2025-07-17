@@ -421,6 +421,7 @@ app.get("/gallery", async (req, res) => {
                             GalleryStatus: profileData.GalleryStatus || "", // ← STATUS SUPPORT ADDED
                             Race: profileData.Race || "",
                             Pronouns: profileData.Pronouns || "",
+                            Links: profileData.Links || "",
                             LikeCount: profileData.LikeCount || 0,
                             LastUpdated: profileData.LastUpdated || new Date().toISOString(),
                             ImageZoom: profileData.ImageZoom || 1.0,
