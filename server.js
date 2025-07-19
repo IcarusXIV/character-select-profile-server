@@ -38,7 +38,7 @@ function sanitizeGalleryData(profiles) {
         CharacterId: generateSafeId(profile.CharacterName, profile.CharacterId),
         CharacterName: profile.CharacterName,
         Server: "Gallery", // Generic server name
-        ProfileImageUrl: profile.ProfileImageUrl,
+        ProfileImageUrl: null,
         Tags: profile.Tags,
         Bio: profile.Bio,
         GalleryStatus: profile.GalleryStatus,
