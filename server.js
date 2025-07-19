@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,6 +31,42 @@ app.use(require('compression')());
 
 app.use(cors());
 app.use(bodyParser.json());
+
+// 🔐 Helper function to sanitize gallery data
+function sanitizeGalleryData(profiles) {
+    return profiles.map(profile => ({
+        CharacterId: generateSafeId(profile.CharacterName, profile.CharacterId),
+        CharacterName: profile.CharacterName,
+        Server: "Gallery", // Generic server name
+        ProfileImageUrl: profile.ProfileImageUrl,
+        Tags: profile.Tags,
+        Bio: profile.Bio,
+        GalleryStatus: profile.GalleryStatus,
+        Race: profile.Race,
+        Pronouns: profile.Pronouns,
+        Links: profile.Links,
+        LikeCount: profile.LikeCount,
+        LastUpdated: profile.LastUpdated,
+        ImageZoom: profile.ImageZoom,
+        ImageOffset: profile.ImageOffset
+    }));
+}
+
+// 🛡️ Helper function to remove sensitive data from profile responses
+function sanitizeProfileResponse(profile) {
+    const sanitized = { ...profile };
+    
+    // Remove local file paths that could expose real usernames
+    delete sanitized.CustomImagePath;
+    
+    return sanitized;
+}
+
+// 🔐 Generate safe ID for public view
+function generateSafeId(characterName, originalId) {
+    return characterName.toLowerCase().replace(/\s+/g, '_') + '_' + 
+           crypto.createHash('md5').update(originalId).digest('hex').substring(0, 8);
+}
 
 // 🚀 NEW: Health check endpoint for connection testing
 app.get("/health", (req, res) => {
@@ -156,7 +193,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
-        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_"); // Keep spaces, only remove special chars
+        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
@@ -232,7 +269,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
-        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_"); // Keep spaces, only remove special chars
+        const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
@@ -280,7 +317,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
     }
 });
 
-// 📥 View endpoint - OPTIMIZED with error handling
+// 📥 View endpoint - OPTIMIZED with error handling + PRIVACY PROTECTION
 app.get("/view/:name", async (req, res) => {
     try {
         const requestedName = decodeURIComponent(req.params.name);
@@ -289,7 +326,9 @@ app.get("/view/:name", async (req, res) => {
         if (fs.existsSync(filePath)) {
             try {
                 const profile = await readProfileAsync(filePath);
-                return res.json(profile);
+                // 🛡️ PRIVACY: Remove sensitive local file paths
+                const sanitizedProfile = sanitizeProfileResponse(profile);
+                return res.json(sanitizedProfile);
             } catch (err) {
                 console.error(`Error reading profile ${requestedName}:`, err.message);
                 // Continue to search for alternative profiles
@@ -348,21 +387,34 @@ app.get("/view/:name", async (req, res) => {
         matchingProfiles.sort((a, b) => b.lastModified - a.lastModified);
         console.log(`📖 Found ${matchingProfiles.length} profiles for ${requestedName}, returning most recent: ${matchingProfiles[0].file}`);
         
-        res.json(matchingProfiles[0].profile);
+        // 🛡️ PRIVACY: Sanitize before sending
+        const sanitizedProfile = sanitizeProfileResponse(matchingProfiles[0].profile);
+        res.json(sanitizedProfile);
     } catch (err) {
         console.error(`Error in view endpoint: ${err}`);
         res.status(500).json({ error: "Server error" });
     }
 });
 
-// 📚 Gallery endpoint - HEAVILY OPTIMIZED with caching and error handling + STATUS SUPPORT
+// 📚 Gallery endpoint - WITH AUTHENTICATION AND PRIVACY PROTECTION
 app.get("/gallery", async (req, res) => {
     try {
+        // 🔐 AUTHENTICATION CHECK
+        const isPlugin = req.headers['x-plugin-auth'] === 'cs-plus-gallery-client';
+        const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
+        
+        console.log(`📸 Gallery request - Plugin: ${isPlugin}, Admin: ${isAdmin}`);
+        
         // 🚀 OPTIMIZATION: Return cached data if available and fresh
         const now = Date.now();
         if (galleryCache && (now - galleryCacheTime) < CACHE_DURATION) {
             console.log(`📸 Gallery: Serving cached data (${galleryCache.length} profiles)`);
-            return res.json(galleryCache);
+            
+            if (isPlugin || isAdmin) {
+                return res.json(galleryCache); // Full data
+            } else {
+                return res.json(sanitizeGalleryData(galleryCache)); // Sanitized data
+            }
         }
 
         console.log(`📸 Gallery: Building fresh cache...`);
@@ -418,7 +470,7 @@ app.get("/gallery", async (req, res) => {
                             ProfileImageUrl: profileData.ProfileImageUrl || null,
                             Tags: profileData.Tags || "",
                             Bio: profileData.Bio || "",
-                            GalleryStatus: profileData.GalleryStatus || "", // ← STATUS SUPPORT ADDED
+                            GalleryStatus: profileData.GalleryStatus || "",
                             Race: profileData.Race || "",
                             Pronouns: profileData.Pronouns || "",
                             Links: profileData.Links || "",
@@ -445,7 +497,7 @@ app.get("/gallery", async (req, res) => {
         // Sort by like count
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
         
-        // 🚀 OPTIMIZATION: Cache the results
+        // 🚀 OPTIMIZATION: Cache the results and return appropriate data
         galleryCache = showcaseProfiles;
         galleryCacheTime = now;
         
@@ -455,7 +507,14 @@ app.get("/gallery", async (req, res) => {
             console.log(`📸 Gallery: Cached ${showcaseProfiles.length} profiles`);
         }
         
-        res.json(showcaseProfiles);
+        // Return full or sanitized data based on authentication
+        if (isPlugin || isAdmin) {
+            console.log(`📸 Gallery: Returning full data (${isPlugin ? 'plugin' : 'admin'} access)`);
+            res.json(showcaseProfiles); // Full data
+        } else {
+            console.log(`📸 Gallery: Returning sanitized data (public access)`);
+            res.json(sanitizeGalleryData(showcaseProfiles)); // Sanitized data
+        }
         
     } catch (err) {
         console.error('Gallery error:', err);
@@ -610,7 +669,15 @@ app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
-    console.log(`🚀 Features: Gallery, Likes, Friends System, Status Support, Caching, Error Recovery`);
+    console.log(`🚀 Features: Gallery, Likes, Friends System, Status Support, Caching, Error Recovery, Privacy Protection`);
     console.log(`🤝 Friends endpoints: /friends/update-follows, /friends/check-mutual`);
     console.log(`📝 Status support: GalleryStatus field included in gallery responses`);
+    console.log(`🔐 Privacy: Gallery data sanitized for public access, full data for authenticated plugin requests`);
+    console.log(`🛡️ Profile privacy: CustomImagePath removed from /view responses`);
+    
+    if (process.env.ADMIN_SECRET_KEY) {
+        console.log(`👑 Admin access enabled`);
+    } else {
+        console.log(`⚠️  Admin access disabled - set ADMIN_SECRET_KEY environment variable to enable`);
+    }
 });
