@@ -526,12 +526,30 @@ async function atomicWriteProfile(filePath, profile) {
     const tempPath = filePath + '.tmp';
     const backupPath = filePath + '.backup';
     
-    if (fs.existsSync(filePath)) {
-        fs.copyFileSync(filePath, backupPath);
+    try {
+        // Create backup if original exists
+        if (fs.existsSync(filePath)) {
+            fs.copyFileSync(filePath, backupPath);
+        }
+        
+        // Write directly using synchronous method to avoid temp file conflicts
+        const jsonString = JSON.stringify(profile, null, 2);
+        fs.writeFileSync(tempPath, jsonString, 'utf-8');
+        
+        // Atomic rename
+        fs.renameSync(tempPath, filePath);
+        
+    } catch (error) {
+        // Clean up temp file if it exists
+        if (fs.existsSync(tempPath)) {
+            try {
+                fs.unlinkSync(tempPath);
+            } catch (cleanupErr) {
+                console.warn('Failed to cleanup temp file:', cleanupErr);
+            }
+        }
+        throw error;
     }
-    
-    await writeProfileAsync(tempPath, profile);
-    fs.renameSync(tempPath, filePath);
 }
 
 function sanitizeGalleryData(profiles) {
