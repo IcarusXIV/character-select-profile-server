@@ -750,6 +750,9 @@ app.get("/admin", (req, res) => {
             padding: 15px;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            height: 280px; /* Fixed height for uniformity */
+            display: flex;
+            flex-direction: column;
         }
         
         .profile-header {
@@ -770,6 +773,13 @@ app.get("/admin", (req, res) => {
             object-fit: cover;
             margin-left: 15px;
             border: 2px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .profile-image:hover {
+            border-color: #4CAF50;
+            transform: scale(1.05);
         }
         
         .profile-image-placeholder {
@@ -803,14 +813,65 @@ app.get("/admin", (req, res) => {
             margin: 10px 0;
             font-size: 0.9em;
             color: #ddd;
-            max-height: 60px;
+            flex: 1; /* Takes up remaining space */
             overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 3; /* Limit to 3 lines */
+            -webkit-box-orient: vertical;
+        }
+        
+        .profile-status {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4CAF50;
+            color: #4CAF50;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            margin-top: 5px;
+            display: inline-block;
         }
         
         .profile-actions {
             display: flex;
             gap: 10px;
-            margin-top: 15px;
+            margin-top: auto; /* Pushes buttons to bottom */
+        }
+        
+        /* Image Modal Styles */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            cursor: pointer;
+        }
+        
+        .image-modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 10px;
+        }
+        
+        .image-modal-close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .image-modal-close:hover {
+            color: #4CAF50;
         }
         
         .btn {
@@ -1047,6 +1108,12 @@ app.get("/admin", (req, res) => {
             </div>
         </div>
     </div>
+    
+    <!-- Image Modal for viewing full-size images -->
+    <div id="imageModal" class="image-modal" onclick="closeImageModal()">
+        <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
+        <img class="image-modal-content" id="modalImage">
+    </div>
 
     <script>
         let adminKey = '';
@@ -1172,11 +1239,20 @@ app.get("/admin", (req, res) => {
                     const card = document.createElement('div');
                     card.className = 'profile-card';
                     
-                    // Create image element or placeholder
+                    // Create clickable image element or placeholder
                     const imageHtml = profile.ProfileImageUrl 
-                        ? \`<img src="\${profile.ProfileImageUrl}" alt="\${profile.CharacterName}" class="profile-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        ? \`<img src="\${profile.ProfileImageUrl}" 
+                                alt="\${profile.CharacterName}" 
+                                class="profile-image" 
+                                onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
+                                onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                            <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
                         : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                    
+                    // Gallery status with appropriate styling
+                    const statusHtml = profile.GalleryStatus 
+                        ? \`<div class="profile-status">\${profile.GalleryStatus}</div>\`
+                        : '';
                     
                     card.innerHTML = \`
                         <div class="profile-header">
@@ -1187,6 +1263,7 @@ app.get("/admin", (req, res) => {
                                     <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
                                     <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                                 </div>
+                                \${statusHtml}
                             </div>
                             \${imageHtml}
                         </div>
@@ -1207,6 +1284,26 @@ app.get("/admin", (req, res) => {
                 loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
             }
         }
+        
+        // Image modal functions
+        function openImageModal(imageUrl, characterName) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            modal.style.display = 'block';
+            modalImg.src = imageUrl;
+            modalImg.alt = characterName;
+        }
+        
+        function closeImageModal() {
+            document.getElementById('imageModal').style.display = 'none';
+        }
+        
+        // Close modal when pressing Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeImageModal();
+            }
+        });
         
         async function removeProfile(characterId, characterName) {
             const reason = prompt(\`Why are you removing \${characterName}?\`);
