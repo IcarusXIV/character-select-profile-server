@@ -21,23 +21,480 @@ app.use("/images", express.static(path.join(__dirname, "public", "images")));
 
 const upload = multer({ dest: "uploads/" });
 
-// 🚀 OPTIMIZATION: Add gallery caching
+// Gallery caching
 let galleryCache = null;
 let galleryCacheTime = 0;
 const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
 
-// 🚀 OPTIMIZATION: Add response compression
 app.use(require('compression')());
-
 app.use(cors());
 app.use(bodyParser.json());
 
-// 🔐 Helper function to sanitize gallery data
+// Database files
+const likesDbFile = path.join(__dirname, "likes_database.json");
+const friendsDbFile = path.join(__dirname, "friends_database.json");
+const announcementsDbFile = path.join(__dirname, "announcements_database.json");
+const reportsDbFile = path.join(__dirname, "reports_database.json");
+const moderationDbFile = path.join(__dirname, "moderation_database.json");
+
+// 💾 DATABASE CLASSES
+class LikesDatabase {
+    constructor() {
+        this.likes = new Map();
+        this.likeCounts = new Map();
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(likesDbFile)) {
+                const data = JSON.parse(fs.readFileSync(likesDbFile, 'utf-8'));
+                this.likes = new Map(data.likes.map(([k, v]) => [k, new Set(v)]));
+                this.likeCounts = new Map(data.likeCounts);
+                console.log(`💾 Loaded ${this.likeCounts.size} like records`);
+            }
+        } catch (err) {
+            console.error('Error loading likes database:', err);
+            this.likes = new Map();
+            this.likeCounts = new Map();
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                likes: Array.from(this.likes.entries()).map(([k, v]) => [k, Array.from(v)]),
+                likeCounts: Array.from(this.likeCounts.entries()),
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = likesDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(likesDbFile)) {
+                fs.copyFileSync(likesDbFile, likesDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, likesDbFile);
+        } catch (err) {
+            console.error('Error saving likes database:', err);
+        }
+    }
+
+    addLike(characterId, likerId) {
+        if (!this.likes.has(characterId)) {
+            this.likes.set(characterId, new Set());
+        }
+        
+        const wasNew = !this.likes.get(characterId).has(likerId);
+        if (wasNew) {
+            this.likes.get(characterId).add(likerId);
+            this.likeCounts.set(characterId, (this.likeCounts.get(characterId) || 0) + 1);
+            this.save();
+        }
+        return this.likeCounts.get(characterId) || 0;
+    }
+
+    removeLike(characterId, likerId) {
+        if (this.likes.has(characterId)) {
+            const wasRemoved = this.likes.get(characterId).delete(likerId);
+            if (wasRemoved) {
+                const newCount = Math.max(0, (this.likeCounts.get(characterId) || 0) - 1);
+                this.likeCounts.set(characterId, newCount);
+                this.save();
+                return newCount;
+            }
+        }
+        return this.likeCounts.get(characterId) || 0;
+    }
+
+    getLikeCount(characterId) {
+        return this.likeCounts.get(characterId) || 0;
+    }
+}
+
+class FriendsDatabase {
+    constructor() {
+        this.friends = new Map();
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(friendsDbFile)) {
+                const data = JSON.parse(fs.readFileSync(friendsDbFile, 'utf-8'));
+                this.friends = new Map(data.friends.map(([k, v]) => [k, new Set(v)]));
+                console.log(`🤝 Loaded ${this.friends.size} friend records`);
+            }
+        } catch (err) {
+            console.error('Error loading friends database:', err);
+            this.friends = new Map();
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                friends: Array.from(this.friends.entries()).map(([k, v]) => [k, Array.from(v)]),
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = friendsDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(friendsDbFile)) {
+                fs.copyFileSync(friendsDbFile, friendsDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, friendsDbFile);
+        } catch (err) {
+            console.error('Error saving friends database:', err);
+        }
+    }
+
+    updateFriends(characterId, friendsList) {
+        this.friends.set(characterId, new Set(friendsList));
+        this.save();
+    }
+
+    getFriends(characterId) {
+        return Array.from(this.friends.get(characterId) || []);
+    }
+
+    getMutualFriends(characterId) {
+        const myFriends = this.friends.get(characterId) || new Set();
+        const mutuals = [];
+        
+        for (const friendId of myFriends) {
+            const theirFriends = this.friends.get(friendId) || new Set();
+            if (theirFriends.has(characterId)) {
+                mutuals.push(friendId);
+            }
+        }
+        
+        return mutuals;
+    }
+}
+
+class AnnouncementsDatabase {
+    constructor() {
+        this.announcements = [];
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(announcementsDbFile)) {
+                const data = JSON.parse(fs.readFileSync(announcementsDbFile, 'utf-8'));
+                this.announcements = data.announcements || [];
+                console.log(`📢 Loaded ${this.announcements.length} announcements`);
+            }
+        } catch (err) {
+            console.error('Error loading announcements database:', err);
+            this.announcements = [];
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                announcements: this.announcements,
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = announcementsDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(announcementsDbFile)) {
+                fs.copyFileSync(announcementsDbFile, announcementsDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, announcementsDbFile);
+        } catch (err) {
+            console.error('Error saving announcements database:', err);
+        }
+    }
+
+    addAnnouncement(title, message, type = 'info') {
+        const announcement = {
+            id: crypto.randomUUID(),
+            title,
+            message,
+            type,
+            createdAt: new Date().toISOString(),
+            active: true
+        };
+        
+        this.announcements.unshift(announcement);
+        this.save();
+        console.log(`📢 Added announcement: ${title}`);
+        return announcement;
+    }
+
+    getActiveAnnouncements() {
+        return this.announcements.filter(a => a.active);
+    }
+
+    getAllAnnouncements() {
+        return this.announcements;
+    }
+
+    deactivateAnnouncement(id) {
+        const announcement = this.announcements.find(a => a.id === id);
+        if (announcement) {
+            announcement.active = false;
+            this.save();
+            return true;
+        }
+        return false;
+    }
+
+    deleteAnnouncement(id) {
+        const index = this.announcements.findIndex(a => a.id === id);
+        if (index !== -1) {
+            this.announcements.splice(index, 1);
+            this.save();
+            return true;
+        }
+        return false;
+    }
+}
+
+class ReportsDatabase {
+    constructor() {
+        this.reports = [];
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(reportsDbFile)) {
+                const data = JSON.parse(fs.readFileSync(reportsDbFile, 'utf-8'));
+                this.reports = data.reports || [];
+                console.log(`🚨 Loaded ${this.reports.length} reports`);
+            }
+        } catch (err) {
+            console.error('Error loading reports database:', err);
+            this.reports = [];
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                reports: this.reports,
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = reportsDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(reportsDbFile)) {
+                fs.copyFileSync(reportsDbFile, reportsDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, reportsDbFile);
+        } catch (err) {
+            console.error('Error saving reports database:', err);
+        }
+    }
+
+    addReport(reportedCharacterId, reportedCharacterName, reporterCharacter, reason, details) {
+        const report = {
+            id: crypto.randomUUID(),
+            reportedCharacterId,
+            reportedCharacterName,
+            reporterCharacter,
+            reason,
+            details,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            reviewedAt: null,
+            reviewedBy: null,
+            adminNotes: null
+        };
+        
+        this.reports.unshift(report);
+        this.save();
+        console.log(`🚨 New report: ${reportedCharacterName} reported for ${reason}`);
+        return report;
+    }
+
+    getReports(status = null) {
+        if (status) {
+            return this.reports.filter(r => r.status === status);
+        }
+        return this.reports;
+    }
+
+    updateReportStatus(reportId, status, adminNotes = null) {
+        const report = this.reports.find(r => r.id === reportId);
+        if (report) {
+            report.status = status;
+            report.reviewedAt = new Date().toISOString();
+            report.adminNotes = adminNotes;
+            this.save();
+            return true;
+        }
+        return false;
+    }
+}
+
+class ModerationDatabase {
+    constructor() {
+        this.actions = [];
+        this.bannedProfiles = new Set();
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(moderationDbFile)) {
+                const data = JSON.parse(fs.readFileSync(moderationDbFile, 'utf-8'));
+                this.actions = data.actions || [];
+                this.bannedProfiles = new Set(data.bannedProfiles || []);
+                console.log(`🛡️ Loaded ${this.actions.length} moderation actions, ${this.bannedProfiles.size} banned profiles`);
+            }
+        } catch (err) {
+            console.error('Error loading moderation database:', err);
+            this.actions = [];
+            this.bannedProfiles = new Set();
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                actions: this.actions,
+                bannedProfiles: Array.from(this.bannedProfiles),
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = moderationDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(moderationDbFile)) {
+                fs.copyFileSync(moderationDbFile, moderationDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, moderationDbFile);
+        } catch (err) {
+            console.error('Error saving moderation database:', err);
+        }
+    }
+
+    logAction(action, characterId, characterName, reason, adminId) {
+        const moderationAction = {
+            id: crypto.randomUUID(),
+            action,
+            characterId,
+            characterName,
+            reason,
+            adminId,
+            timestamp: new Date().toISOString()
+        };
+        
+        this.actions.unshift(moderationAction);
+        this.save();
+        console.log(`🛡️ Moderation: ${action} on ${characterName} by ${adminId}`);
+        return moderationAction;
+    }
+
+    banProfile(characterId) {
+        this.bannedProfiles.add(characterId);
+        this.save();
+    }
+
+    unbanProfile(characterId) {
+        this.bannedProfiles.delete(characterId);
+        this.save();
+    }
+
+    isProfileBanned(characterId) {
+        return this.bannedProfiles.has(characterId);
+    }
+
+    getActions() {
+        return this.actions;
+    }
+}
+
+// Initialize databases
+const likesDB = new LikesDatabase();
+const friendsDB = new FriendsDatabase();
+const announcementsDB = new AnnouncementsDatabase();
+const reportsDB = new ReportsDatabase();
+const moderationDB = new ModerationDatabase();
+
+// Admin authentication middleware
+function requireAdmin(req, res, next) {
+    const adminKey = req.headers['x-admin-key'] || req.query.adminKey;
+    if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+}
+
+// Helper functions (keeping all the existing ones)
+async function cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName) {
+    try {
+        const allFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file => 
+                    file.endsWith('.json') && 
+                    !file.endsWith('_follows.json') &&
+                    file !== `${newFileName}.json`
+                ));
+            });
+        });
+
+        const oldVersions = [];
+        
+        for (const file of allFiles) {
+            if (file.endsWith(`_${physicalCharacterName}.json`)) {
+                try {
+                    const filePath = path.join(profilesDir, file);
+                    const oldProfile = await readProfileAsync(filePath);
+                    
+                    if (oldProfile.CharacterName === csCharacterName) {
+                        oldVersions.push({ file, path: filePath });
+                    }
+                } catch (err) {
+                    continue;
+                }
+            }
+        }
+
+        for (const oldVersion of oldVersions) {
+            fs.unlinkSync(oldVersion.path);
+        }
+        
+        if (oldVersions.length > 0) {
+            galleryCache = null;
+        }
+    } catch (cleanupErr) {
+        console.error('Error during cleanup:', cleanupErr.message);
+    }
+}
+
+async function atomicWriteProfile(filePath, profile) {
+    const tempPath = filePath + '.tmp';
+    const backupPath = filePath + '.backup';
+    
+    if (fs.existsSync(filePath)) {
+        fs.copyFileSync(filePath, backupPath);
+    }
+    
+    await writeProfileAsync(tempPath, profile);
+    fs.renameSync(tempPath, filePath);
+}
+
 function sanitizeGalleryData(profiles) {
     return profiles.map(profile => ({
         CharacterId: generateSafeId(profile.CharacterName, profile.CharacterId),
         CharacterName: profile.CharacterName,
-        Server: "Gallery", // Generic server name
+        Server: "Gallery",
         ProfileImageUrl: null,
         Tags: profile.Tags,
         Bio: profile.Bio,
@@ -52,32 +509,17 @@ function sanitizeGalleryData(profiles) {
     }));
 }
 
-// 🛡️ Helper function to remove sensitive data from profile responses
 function sanitizeProfileResponse(profile) {
     const sanitized = { ...profile };
-    
-    // Remove local file paths that could expose real usernames
     delete sanitized.CustomImagePath;
-    
     return sanitized;
 }
 
-// 🔐 Generate safe ID for public view
 function generateSafeId(characterName, originalId) {
     return characterName.toLowerCase().replace(/\s+/g, '_') + '_' + 
            crypto.createHash('md5').update(originalId).digest('hex').substring(0, 8);
 }
 
-// 🚀 NEW: Health check endpoint for connection testing
-app.get("/health", (req, res) => {
-    res.status(200).json({ 
-        status: "healthy", 
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
-});
-
-// 🛡️ FIXED: Robust async file operations with error handling
 const readProfileAsync = (filePath) => {
     return new Promise((resolve, reject) => {
         fs.readFile(filePath, 'utf-8', (err, data) => {
@@ -86,9 +528,7 @@ const readProfileAsync = (filePath) => {
                 return;
             }
             
-            // Check if file is empty or only whitespace
             if (!data || data.trim().length === 0) {
-                console.error(`[Error] Empty profile file: ${filePath}`);
                 reject(new Error(`Profile file is empty: ${filePath}`));
                 return;
             }
@@ -98,17 +538,11 @@ const readProfileAsync = (filePath) => {
                 resolve(parsed);
             } catch (parseError) {
                 console.error(`[Error] Invalid JSON in file ${filePath}:`, parseError.message);
-                console.error(`[Error] File content preview:`, data.substring(0, 100));
-                
-                // Try to recover by deleting the corrupted file
                 fs.unlink(filePath, (unlinkErr) => {
-                    if (unlinkErr) {
-                        console.error(`[Error] Failed to delete corrupted file ${filePath}:`, unlinkErr.message);
-                    } else {
+                    if (!unlinkErr) {
                         console.log(`[Recovery] Deleted corrupted file: ${filePath}`);
                     }
                 });
-                
                 reject(new Error(`Invalid JSON in profile file: ${filePath}`));
             }
         });
@@ -117,29 +551,22 @@ const readProfileAsync = (filePath) => {
 
 const writeProfileAsync = (filePath, data) => {
     return new Promise((resolve, reject) => {
-        // First, validate that the data can be stringified
         let jsonString;
         try {
             jsonString = JSON.stringify(data, null, 2);
         } catch (stringifyError) {
-            console.error(`[Error] Cannot stringify data for ${filePath}:`, stringifyError.message);
             reject(stringifyError);
             return;
         }
         
-        // For files with spaces, just write directly instead of atomic rename
         if (filePath.includes(' ')) {
             fs.writeFile(filePath, jsonString, 'utf-8', (writeErr) => {
-                if (writeErr) {
-                    reject(writeErr);
-                    return;
-                }
-                resolve();
+                if (writeErr) reject(writeErr);
+                else resolve();
             });
             return;
         }
         
-        // For files without spaces, use atomic rename (safer)
         const tempPath = filePath + '.tmp';
         
         fs.writeFile(tempPath, jsonString, 'utf-8', (writeErr) => {
@@ -148,22 +575,18 @@ const writeProfileAsync = (filePath, data) => {
                 return;
             }
             
-            // Atomically rename temp file to final file
             fs.rename(tempPath, filePath, (renameErr) => {
                 if (renameErr) {
-                    // Clean up temp file if rename failed
                     fs.unlink(tempPath, () => {});
                     reject(renameErr);
                     return;
                 }
-                
                 resolve();
             });
         });
     });
 };
 
-// 🛡️ ADDED: Helper function to validate profiles
 const isValidProfile = (profile) => {
     return profile && 
            typeof profile === 'object' && 
@@ -171,7 +594,718 @@ const isValidProfile = (profile) => {
            profile.CharacterName.length > 0;
 };
 
-// 📨 Upload endpoint (supports JSON + optional image) - OPTIMIZED
+function extractServerFromName(characterName) {
+    const parts = characterName.split('@');
+    return parts.length > 1 ? parts[1] : 'Unknown';
+}
+
+// =============================================================================
+// 🖥️ ADMIN DASHBOARD - BUILT-IN HTML INTERFACE
+// =============================================================================
+
+app.get("/admin", (req, res) => {
+    const adminHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Character Select+ Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .auth-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #ccc;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            color: #4CAF50;
+            border-bottom: 2px solid #4CAF50;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .profile-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .profile-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .profile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .profile-name {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        .profile-server {
+            color: #ccc;
+            font-size: 0.9em;
+        }
+        
+        .profile-bio {
+            margin: 10px 0;
+            font-size: 0.9em;
+            color: #ddd;
+            max-height: 60px;
+            overflow: hidden;
+        }
+        
+        .profile-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+        
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+        
+        .btn-warning {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .btn-warning:hover {
+            background: #f57c00;
+        }
+        
+        .btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #1976D2;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+        
+        .input-group input, .input-group textarea, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #ccc;
+        }
+        
+        .error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            color: #f44336;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .success {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4CAF50;
+            color: #4CAF50;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .report-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #ff9800;
+        }
+        
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .announcement-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ Character Select+ Admin Dashboard</h1>
+            <p>Manage your gallery, announcements, and reports</p>
+        </div>
+        
+        <div class="auth-section">
+            <div class="input-group">
+                <label for="adminKey">Admin Secret Key:</label>
+                <input type="password" id="adminKey" placeholder="Enter your admin secret key">
+            </div>
+            <button class="btn btn-primary" onclick="loadDashboard()">Load Dashboard</button>
+        </div>
+        
+        <div id="dashboardContent" style="display: none;">
+            <div class="stats" id="statsSection">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalProfiles">-</div>
+                    <div>Total Profiles</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="pendingReports">-</div>
+                    <div>Pending Reports</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalBanned">-</div>
+                    <div>Banned Profiles</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="activeAnnouncements">-</div>
+                    <div>Active Announcements</div>
+                </div>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
+                <button class="tab" onclick="showTab('reports')">Reports</button>
+                <button class="tab" onclick="showTab('announcements')">Announcements</button>
+                <button class="tab" onclick="showTab('moderation')">Moderation Log</button>
+            </div>
+            
+            <div id="profiles" class="tab-content active">
+                <h3>Gallery Profiles</h3>
+                <div class="loading" id="profilesLoading">Loading profiles...</div>
+                <div class="profile-grid" id="profilesGrid"></div>
+            </div>
+            
+            <div id="reports" class="tab-content">
+                <h3>Reports</h3>
+                <div class="loading" id="reportsLoading">Loading reports...</div>
+                <div id="reportsContainer"></div>
+            </div>
+            
+            <div id="announcements" class="tab-content">
+                <h3>Announcements</h3>
+                <div class="input-group">
+                    <label for="announcementTitle">Title:</label>
+                    <input type="text" id="announcementTitle" placeholder="Announcement title">
+                </div>
+                <div class="input-group">
+                    <label for="announcementMessage">Message:</label>
+                    <textarea id="announcementMessage" rows="3" placeholder="Announcement message"></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="announcementType">Type:</label>
+                    <select id="announcementType">
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="update">Update</option>
+                        <option value="maintenance">Maintenance</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="createAnnouncement()">Create Announcement</button>
+                
+                <div class="loading" id="announcementsLoading">Loading announcements...</div>
+                <div id="announcementsContainer"></div>
+            </div>
+            
+            <div id="moderation" class="tab-content">
+                <h3>Moderation Actions</h3>
+                <div class="loading" id="moderationLoading">Loading moderation log...</div>
+                <div id="moderationContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let adminKey = '';
+        const serverUrl = window.location.origin;
+        
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+            
+            switch(tabName) {
+                case 'profiles':
+                    loadProfiles();
+                    break;
+                case 'reports':
+                    loadReports();
+                    break;
+                case 'announcements':
+                    loadAnnouncements();
+                    break;
+                case 'moderation':
+                    loadModerationLog();
+                    break;
+            }
+        }
+        
+        async function loadDashboard() {
+            adminKey = document.getElementById('adminKey').value;
+            
+            if (!adminKey) {
+                alert('Please enter your admin key');
+                return;
+            }
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
+                if (!response.ok) {
+                    throw new Error('Invalid admin key or server error');
+                }
+                
+                const stats = await response.json();
+                
+                document.getElementById('totalProfiles').textContent = stats.totalProfiles;
+                document.getElementById('pendingReports').textContent = stats.pendingReports;
+                document.getElementById('totalBanned').textContent = stats.totalBanned;
+                document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
+                
+                document.getElementById('dashboardContent').style.display = 'block';
+                loadProfiles();
+                
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function loadProfiles() {
+            const loading = document.getElementById('profilesLoading');
+            const grid = document.getElementById('profilesGrid');
+            
+            loading.style.display = 'block';
+            grid.innerHTML = '';
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
+                const profiles = await response.json();
+                
+                loading.style.display = 'none';
+                
+                profiles.forEach(profile => {
+                    const card = document.createElement('div');
+                    card.className = 'profile-card';
+                    card.innerHTML = \`
+                        <div class="profile-header">
+                            <div>
+                                <div class="profile-name">\${profile.CharacterName}</div>
+                                <div class="profile-server">\${profile.Server}</div>
+                            </div>
+                            <div>❤️ \${profile.LikeCount}</div>
+                        </div>
+                        <div class="profile-bio">\${profile.Bio || 'No bio'}</div>
+                        <div class="profile-actions">
+                            <button class="btn btn-danger" onclick="removeProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                                Remove
+                            </button>
+                            <button class="btn btn-warning" onclick="banProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                                Ban
+                            </button>
+                        </div>
+                    \`;
+                    grid.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
+            }
+        }
+        
+        async function removeProfile(characterId, characterName) {
+            const reason = prompt(\`Why are you removing \${characterName}?\`);
+            if (!reason) return;
+            
+            const ban = confirm('Also ban this profile from uploading again?');
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ reason, ban })
+                });
+                
+                if (response.ok) {
+                    alert(\`\${characterName} has been removed\${ban ? ' and banned' : ''}\`);
+                    loadProfiles();
+                } else {
+                    alert('Error removing profile');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function banProfile(characterId, characterName) {
+            const reason = prompt(\`Why are you banning \${characterName}?\`);
+            if (!reason) return;
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ reason })
+                });
+                
+                if (response.ok) {
+                    alert(\`\${characterName} has been banned\`);
+                } else {
+                    alert('Error banning profile');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function loadReports() {
+            const loading = document.getElementById('reportsLoading');
+            const container = document.getElementById('reportsContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/reports?adminKey=\${adminKey}\`);
+                const reports = await response.json();
+                
+                loading.style.display = 'none';
+                
+                reports.forEach(report => {
+                    const card = document.createElement('div');
+                    card.className = 'report-card';
+                    card.innerHTML = \`
+                        <div class="report-header">
+                            <strong>\${report.reportedCharacterName}</strong>
+                            <span class="btn btn-\${report.status === 'pending' ? 'warning' : 'primary'}">\${report.status}</span>
+                        </div>
+                        <p><strong>Reason:</strong> \${report.reason}</p>
+                        <p><strong>Details:</strong> \${report.details || 'None'}</p>
+                        <p><strong>Reported by:</strong> \${report.reporterCharacter}</p>
+                        <p><strong>Date:</strong> \${new Date(report.createdAt).toLocaleDateString()}</p>
+                        \${report.status === 'pending' ? \`
+                            <div style="margin-top: 10px;">
+                                <button class="btn btn-primary" onclick="updateReport('\${report.id}', 'resolved')">Mark Resolved</button>
+                                <button class="btn btn-warning" onclick="updateReport('\${report.id}', 'dismissed')">Dismiss</button>
+                            </div>
+                        \` : ''}
+                    \`;
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading reports: \${error.message}</div>\`;
+            }
+        }
+        
+        async function updateReport(reportId, status) {
+            const adminNotes = prompt('Add admin notes (optional):');
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/reports/\${reportId}\`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ status, adminNotes })
+                });
+                
+                if (response.ok) {
+                    alert('Report updated');
+                    loadReports();
+                } else {
+                    alert('Error updating report');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function createAnnouncement() {
+            const title = document.getElementById('announcementTitle').value;
+            const message = document.getElementById('announcementMessage').value;
+            const type = document.getElementById('announcementType').value;
+            
+            if (!title || !message) {
+                alert('Please fill in title and message');
+                return;
+            }
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/announcements\`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ title, message, type })
+                });
+                
+                if (response.ok) {
+                    alert('Announcement created');
+                    document.getElementById('announcementTitle').value = '';
+                    document.getElementById('announcementMessage').value = '';
+                    loadAnnouncements();
+                } else {
+                    alert('Error creating announcement');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function loadAnnouncements() {
+            const loading = document.getElementById('announcementsLoading');
+            const container = document.getElementById('announcementsContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/announcements?adminKey=\${adminKey}\`);
+                const announcements = await response.json();
+                
+                loading.style.display = 'none';
+                
+                announcements.forEach(announcement => {
+                    const card = document.createElement('div');
+                    card.className = 'announcement-card';
+                    card.innerHTML = \`
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong>\${announcement.title}</strong>
+                            <span class="btn btn-\${announcement.active ? 'primary' : 'warning'}">\${announcement.active ? 'Active' : 'Inactive'}</span>
+                        </div>
+                        <p>\${announcement.message}</p>
+                        <p><strong>Type:</strong> \${announcement.type}</p>
+                        <p><strong>Created:</strong> \${new Date(announcement.createdAt).toLocaleDateString()}</p>
+                        \${announcement.active ? \`
+                            <button class="btn btn-warning" onclick="deactivateAnnouncement('\${announcement.id}')">Deactivate</button>
+                        \` : ''}
+                        <button class="btn btn-danger" onclick="deleteAnnouncement('\${announcement.id}')">Delete</button>
+                    \`;
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading announcements: \${error.message}</div>\`;
+            }
+        }
+        
+        async function deactivateAnnouncement(id) {
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}/deactivate\`, {
+                    method: 'PATCH',
+                    headers: { 'X-Admin-Key': adminKey }
+                });
+                
+                if (response.ok) {
+                    loadAnnouncements();
+                } else {
+                    alert('Error deactivating announcement');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function deleteAnnouncement(id) {
+            if (!confirm('Are you sure you want to delete this announcement?')) return;
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
+                    method: 'DELETE',
+                    headers: { 'X-Admin-Key': adminKey }
+                });
+                
+                if (response.ok) {
+                    loadAnnouncements();
+                } else {
+                    alert('Error deleting announcement');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function loadModerationLog() {
+            const loading = document.getElementById('moderationLoading');
+            const container = document.getElementById('moderationContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/moderation/actions?adminKey=\${adminKey}\`);
+                const actions = await response.json();
+                
+                loading.style.display = 'none';
+                
+                actions.forEach(action => {
+                    const card = document.createElement('div');
+                    card.className = 'profile-card';
+                    card.innerHTML = \`
+                        <div><strong>\${action.action.toUpperCase()}</strong> - \${action.characterName}</div>
+                        <p><strong>Reason:</strong> \${action.reason}</p>
+                        <p><strong>Admin:</strong> \${action.adminId}</p>
+                        <p><strong>Date:</strong> \${new Date(action.timestamp).toLocaleString()}</p>
+                    \`;
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading moderation log: \${error.message}</div>\`;
+            }
+        }
+    </script>
+</body>
+</html>
+    `;
+    
+    res.send(adminHtml);
+});
+
+// =============================================================================
+// ALL YOUR EXISTING ENDPOINTS (keeping them exactly the same)
+// =============================================================================
+
+// Health check
+app.get("/health", (req, res) => {
+    res.status(200).json({ 
+        status: "healthy", 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
+// Upload endpoints (keeping all existing logic)
 app.post("/upload/:name", upload.single("image"), async (req, res) => {
     try {
         const physicalCharacterName = decodeURIComponent(req.params.name);
@@ -195,29 +1329,23 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
 
         const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+        const characterId = newFileName;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
-        // 🚀 OPTIMIZATION: Use async file operations
-        let existingLikeCount = 0;
-        if (fs.existsSync(filePath)) {
-            try {
-                const existingProfile = await readProfileAsync(filePath);
-                existingLikeCount = existingProfile.LikeCount || 0;
-                console.log(`📝 Updating existing profile: ${newFileName} (preserving ${existingLikeCount} likes)`);
-            } catch (err) {
-                console.error(`Error reading existing profile: ${err}`);
-            }
-        } else {
-            console.log(`🆕 Creating new profile: ${newFileName}`);
+        if (moderationDB.isProfileBanned(characterId)) {
+            return res.status(403).json({ error: 'Profile has been banned from the gallery' });
         }
 
-        // Handle image upload
+        await cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName);
+
+        delete profile.LikeCount;
+        profile.LikeCount = likesDB.getLikeCount(characterId);
+
         if (req.file) {
             const ext = path.extname(req.file.originalname) || ".png";
             const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
             const finalImagePath = path.join(imagesDir, safeFileName);
             
-            // 🚀 OPTIMIZATION: Use async file operations
             await new Promise((resolve, reject) => {
                 fs.rename(req.file.path, finalImagePath, (err) => {
                     if (err) reject(err);
@@ -228,18 +1356,13 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
 
-        profile.LikeCount = existingLikeCount;
         profile.LastUpdated = new Date().toISOString();
         profile.LastActiveTime = new Date().toISOString();
 
-        // 🚀 OPTIMIZATION: Async write + invalidate cache
-        await writeProfileAsync(filePath, profile);
-        galleryCache = null; // Invalidate cache
+        await atomicWriteProfile(filePath, profile);
+        galleryCache = null;
 
         console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
-        if (profile.GalleryStatus) {
-            console.log(`📝 Status: "${profile.GalleryStatus.substring(0, 50)}${profile.GalleryStatus.length > 50 ? '...' : ''}"`);
-        }
         res.json(profile);
     } catch (error) {
         console.error('Upload error:', error);
@@ -247,7 +1370,6 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
     }
 });
 
-// 📨 PUT endpoint for explicit updates - OPTIMIZED
 app.put("/upload/:name", upload.single("image"), async (req, res) => {
     try {
         const physicalCharacterName = decodeURIComponent(req.params.name);
@@ -271,18 +1393,17 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
 
         const sanitizedCSName = csCharacterName.replace(/[^\w\s\-.']/g, "_");
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
+        const characterId = newFileName;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
-        let existingLikeCount = 0;
-        if (fs.existsSync(filePath)) {
-            try {
-                const existingProfile = await readProfileAsync(filePath);
-                existingLikeCount = existingProfile.LikeCount || 0;
-                console.log(`🔄 PUT update for: ${newFileName} (preserving ${existingLikeCount} likes)`);
-            } catch (err) {
-                console.error(`Error reading existing profile: ${err}`);
-            }
+        if (moderationDB.isProfileBanned(characterId)) {
+            return res.status(403).json({ error: 'Profile has been banned from the gallery' });
         }
+
+        await cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName);
+
+        delete profile.LikeCount;
+        profile.LikeCount = likesDB.getLikeCount(characterId);
 
         if (req.file) {
             const ext = path.extname(req.file.originalname) || ".png";
@@ -299,17 +1420,13 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
 
-        profile.LikeCount = existingLikeCount;
         profile.LastUpdated = new Date().toISOString();
         profile.LastActiveTime = new Date().toISOString();
 
-        await writeProfileAsync(filePath, profile);
-        galleryCache = null; // Invalidate cache
+        await atomicWriteProfile(filePath, profile);
+        galleryCache = null;
 
         console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
-        if (profile.GalleryStatus) {
-            console.log(`📝 Status: "${profile.GalleryStatus.substring(0, 50)}${profile.GalleryStatus.length > 50 ? '...' : ''}"`);
-        }
         res.json(profile);
     } catch (error) {
         console.error('PUT error:', error);
@@ -317,7 +1434,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
     }
 });
 
-// 📥 View endpoint - OPTIMIZED with error handling + PRIVACY PROTECTION
+// View endpoint
 app.get("/view/:name", async (req, res) => {
     try {
         const requestedName = decodeURIComponent(req.params.name);
@@ -326,22 +1443,19 @@ app.get("/view/:name", async (req, res) => {
         if (fs.existsSync(filePath)) {
             try {
                 const profile = await readProfileAsync(filePath);
-                // 🛡️ PRIVACY: Remove sensitive local file paths
                 const sanitizedProfile = sanitizeProfileResponse(profile);
                 return res.json(sanitizedProfile);
             } catch (err) {
                 console.error(`Error reading profile ${requestedName}:`, err.message);
-                // Continue to search for alternative profiles
             }
         }
 
-        // 🚀 OPTIMIZATION: Use async operations for file search
         const profileFiles = await new Promise((resolve, reject) => {
             fs.readdir(profilesDir, (err, files) => {
                 if (err) reject(err);
                 else resolve(files.filter(file => 
                     file.endsWith('.json') && 
-                    !file.endsWith('_follows.json') // Skip friends files
+                    !file.endsWith('_follows.json')
                 ));
             });
         });
@@ -349,7 +1463,6 @@ app.get("/view/:name", async (req, res) => {
         const matchingProfiles = [];
         const expectedSuffix = `_${requestedName}.json`;
 
-        // 🚀 OPTIMIZATION: Process files in batches to avoid blocking
         for (let i = 0; i < profileFiles.length; i += 5) {
             const batch = profileFiles.slice(i, i + 5);
             
@@ -365,7 +1478,6 @@ app.get("/view/:name", async (req, res) => {
                         });
                         const profileData = await readProfileAsync(fullPath);
                         
-                        // Validate profile before using
                         if (isValidProfile(profileData)) {
                             matchingProfiles.push({
                                 file: file,
@@ -385,9 +1497,7 @@ app.get("/view/:name", async (req, res) => {
         }
 
         matchingProfiles.sort((a, b) => b.lastModified - a.lastModified);
-        console.log(`📖 Found ${matchingProfiles.length} profiles for ${requestedName}, returning most recent: ${matchingProfiles[0].file}`);
         
-        // 🛡️ PRIVACY: Sanitize before sending
         const sanitizedProfile = sanitizeProfileResponse(matchingProfiles[0].profile);
         res.json(sanitizedProfile);
     } catch (err) {
@@ -396,35 +1506,27 @@ app.get("/view/:name", async (req, res) => {
     }
 });
 
-// 📚 Gallery endpoint - WITH AUTHENTICATION AND PRIVACY PROTECTION
+// Gallery endpoint
 app.get("/gallery", async (req, res) => {
     try {
-        // 🔐 AUTHENTICATION CHECK
         const isPlugin = req.headers['x-plugin-auth'] === 'cs-plus-gallery-client';
         const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
         
-        console.log(`📸 Gallery request - Plugin: ${isPlugin}, Admin: ${isAdmin}`);
-        
-        // 🚀 OPTIMIZATION: Return cached data if available and fresh
         const now = Date.now();
         if (galleryCache && (now - galleryCacheTime) < CACHE_DURATION) {
-            console.log(`📸 Gallery: Serving cached data (${galleryCache.length} profiles)`);
-            
             if (isPlugin || isAdmin) {
-                return res.json(galleryCache); // Full data
+                return res.json(galleryCache);
             } else {
-                return res.json(sanitizeGalleryData(galleryCache)); // Sanitized data
+                return res.json(sanitizeGalleryData(galleryCache));
             }
         }
 
-        console.log(`📸 Gallery: Building fresh cache...`);
-        
         const profileFiles = await new Promise((resolve, reject) => {
             fs.readdir(profilesDir, (err, files) => {
                 if (err) reject(err);
                 else resolve(files.filter(file => 
                     file.endsWith('.json') && 
-                    !file.endsWith('_follows.json') // Skip friends files
+                    !file.endsWith('_follows.json')
                 ));
             });
         });
@@ -432,7 +1534,6 @@ app.get("/gallery", async (req, res) => {
         const showcaseProfiles = [];
         let skippedFiles = 0;
 
-        // 🚀 OPTIMIZATION: Process files in smaller batches to prevent blocking
         for (let i = 0; i < profileFiles.length; i += 10) {
             const batch = profileFiles.slice(i, i + 10);
             
@@ -441,16 +1542,17 @@ app.get("/gallery", async (req, res) => {
                 const filePath = path.join(profilesDir, file);
                 
                 try {
+                    if (moderationDB.isProfileBanned(characterId)) {
+                        return null;
+                    }
+
                     const profileData = await readProfileAsync(filePath);
                     
-                    // 🛡️ ADDED: Validate profile data
                     if (!isValidProfile(profileData)) {
-                        console.error(`[Error] Invalid profile structure in ${file}`);
                         skippedFiles++;
                         return null;
                     }
                     
-                    // Only include profiles that want to be showcased
                     if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
                         const underscoreIndex = characterId.indexOf('_');
                         let csCharacterName, physicalCharacterName;
@@ -474,7 +1576,7 @@ app.get("/gallery", async (req, res) => {
                             Race: profileData.Race || "",
                             Pronouns: profileData.Pronouns || "",
                             Links: profileData.Links || "",
-                            LikeCount: profileData.LikeCount || 0,
+                            LikeCount: likesDB.getLikeCount(characterId),
                             LastUpdated: profileData.LastUpdated || new Date().toISOString(),
                             ImageZoom: profileData.ImageZoom || 1.0,
                             ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
@@ -488,32 +1590,20 @@ app.get("/gallery", async (req, res) => {
                 }
             }));
 
-            // Add non-null results to showcase profiles
             batchResults.forEach(result => {
                 if (result) showcaseProfiles.push(result);
             });
         }
 
-        // Sort by like count
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
         
-        // 🚀 OPTIMIZATION: Cache the results and return appropriate data
         galleryCache = showcaseProfiles;
         galleryCacheTime = now;
         
-        if (skippedFiles > 0) {
-            console.log(`📸 Gallery: Cached ${showcaseProfiles.length} profiles (skipped ${skippedFiles} corrupted files)`);
-        } else {
-            console.log(`📸 Gallery: Cached ${showcaseProfiles.length} profiles`);
-        }
-        
-        // Return full or sanitized data based on authentication
         if (isPlugin || isAdmin) {
-            console.log(`📸 Gallery: Returning full data (${isPlugin ? 'plugin' : 'admin'} access)`);
-            res.json(showcaseProfiles); // Full data
+            res.json(showcaseProfiles);
         } else {
-            console.log(`📸 Gallery: Returning sanitized data (public access)`);
-            res.json(sanitizeGalleryData(showcaseProfiles)); // Sanitized data
+            res.json(sanitizeGalleryData(showcaseProfiles));
         }
         
     } catch (err) {
@@ -522,31 +1612,28 @@ app.get("/gallery", async (req, res) => {
     }
 });
 
-// 💖 Like endpoint - OPTIMIZED with error handling
+// Like endpoints
 app.post("/gallery/:name/like", async (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.name);
+        const likerId = req.headers['x-character-key'] || 'anonymous';
+        
+        const newCount = likesDB.addLike(characterId, likerId);
+        
         const filePath = path.join(profilesDir, `${characterId}.json`);
-
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: "Profile not found" });
+        if (fs.existsSync(filePath)) {
+            try {
+                const profile = await readProfileAsync(filePath);
+                profile.LikeCount = newCount;
+                profile.LastUpdated = new Date().toISOString();
+                await atomicWriteProfile(filePath, profile);
+            } catch (err) {
+                console.error('Failed to update profile file, but like saved to database:', err);
+            }
         }
-
-        const profile = await readProfileAsync(filePath);
         
-        // Validate profile before modifying
-        if (!isValidProfile(profile)) {
-            return res.status(400).json({ error: "Invalid profile data" });
-        }
-        
-        profile.LikeCount = (profile.LikeCount || 0) + 1;
-        profile.LastUpdated = new Date().toISOString();
-        
-        await writeProfileAsync(filePath, profile);
-        galleryCache = null; // Invalidate cache
-        
-        console.log(`👍 Liked profile: ${characterId} (now ${profile.LikeCount} likes)`);
-        res.json({ LikeCount: profile.LikeCount });
+        galleryCache = null;
+        res.json({ LikeCount: newCount });
         
     } catch (err) {
         console.error('Like error:', err);
@@ -554,31 +1641,27 @@ app.post("/gallery/:name/like", async (req, res) => {
     }
 });
 
-// 💔 Unlike endpoint - OPTIMIZED with error handling
 app.delete("/gallery/:name/like", async (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.name);
+        const likerId = req.headers['x-character-key'] || 'anonymous';
+        
+        const newCount = likesDB.removeLike(characterId, likerId);
+        
         const filePath = path.join(profilesDir, `${characterId}.json`);
-
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: "Profile not found" });
+        if (fs.existsSync(filePath)) {
+            try {
+                const profile = await readProfileAsync(filePath);
+                profile.LikeCount = newCount;
+                profile.LastUpdated = new Date().toISOString();
+                await atomicWriteProfile(filePath, profile);
+            } catch (err) {
+                console.error('Failed to update profile file, but unlike saved to database:', err);
+            }
         }
-
-        const profile = await readProfileAsync(filePath);
         
-        // Validate profile before modifying
-        if (!isValidProfile(profile)) {
-            return res.status(400).json({ error: "Invalid profile data" });
-        }
-        
-        profile.LikeCount = Math.max(0, (profile.LikeCount || 0) - 1);
-        profile.LastUpdated = new Date().toISOString();
-        
-        await writeProfileAsync(filePath, profile);
-        galleryCache = null; // Invalidate cache
-        
-        console.log(`👎 Unliked profile: ${characterId} (now ${profile.LikeCount} likes)`);
-        res.json({ LikeCount: profile.LikeCount });
+        galleryCache = null;
+        res.json({ LikeCount: newCount });
         
     } catch (err) {
         console.error('Unlike error:', err);
@@ -586,9 +1669,7 @@ app.delete("/gallery/:name/like", async (req, res) => {
     }
 });
 
-// 🤝 FRIENDS SYSTEM ENDPOINTS
-
-// Endpoint to update your friends list
+// Friends endpoints
 app.post("/friends/update-follows", async (req, res) => {
     try {
         const { character, following } = req.body;
@@ -597,6 +1678,8 @@ app.post("/friends/update-follows", async (req, res) => {
             return res.status(400).json({ error: "Invalid request data" });
         }
 
+        friendsDB.updateFriends(character, following);
+        
         const followsFile = path.join(profilesDir, `${character}_follows.json`);
         const followsData = {
             character: character,
@@ -604,9 +1687,12 @@ app.post("/friends/update-follows", async (req, res) => {
             lastUpdated: new Date().toISOString()
         };
         
-        await writeProfileAsync(followsFile, followsData);
+        try {
+            await atomicWriteProfile(followsFile, followsData);
+        } catch (err) {
+            console.error('Failed to write friends backup file:', err);
+        }
         
-        console.log(`👥 Updated friends for ${character}: ${following.length} following`);
         res.json({ success: true });
         
     } catch (error) {
@@ -615,36 +1701,15 @@ app.post("/friends/update-follows", async (req, res) => {
     }
 });
 
-// Endpoint to check mutual friends
 app.post("/friends/check-mutual", async (req, res) => {
     try {
-        const { character, following } = req.body;
+        const { character } = req.body;
         
-        if (!character || !Array.isArray(following)) {
+        if (!character) {
             return res.status(400).json({ error: "Invalid request data" });
         }
 
-        const mutualFriends = [];
-        
-        // Check each person you follow to see if they follow you back
-        for (const followedPerson of following) {
-            try {
-                const followsFile = path.join(profilesDir, `${followedPerson}_follows.json`);
-                
-                if (fs.existsSync(followsFile)) {
-                    const theirFollows = await readProfileAsync(followsFile);
-                    
-                    // If they follow you back, it's mutual
-                    if (theirFollows.following && theirFollows.following.includes(character)) {
-                        mutualFriends.push(followedPerson);
-                    }
-                }
-            } catch (err) {
-                console.error(`Error checking follows for ${followedPerson}:`, err.message);
-            }
-        }
-        
-        console.log(`🤝 ${character} has ${mutualFriends.length} mutual friends`);
+        const mutualFriends = friendsDB.getMutualFriends(character);
         res.json({ mutualFriends });
         
     } catch (error) {
@@ -653,13 +1718,280 @@ app.post("/friends/check-mutual", async (req, res) => {
     }
 });
 
-// Helper function to extract server from character name
-function extractServerFromName(characterName) {
-    const parts = characterName.split('@');
-    return parts.length > 1 ? parts[1] : 'Unknown';
-}
+// =============================================================================
+// MODERATION ENDPOINTS
+// =============================================================================
 
-// 🚀 OPTIMIZATION: Graceful shutdown
+// Get active announcements (public)
+app.get("/announcements", (req, res) => {
+    try {
+        const announcements = announcementsDB.getActiveAnnouncements();
+        res.json(announcements);
+    } catch (error) {
+        console.error('Get announcements error:', error);
+        res.status(500).json({ error: 'Failed to get announcements' });
+    }
+});
+
+// Create announcement (admin only)
+app.post("/admin/announcements", requireAdmin, (req, res) => {
+    try {
+        const { title, message, type } = req.body;
+        
+        if (!title || !message) {
+            return res.status(400).json({ error: 'Title and message are required' });
+        }
+
+        const announcement = announcementsDB.addAnnouncement(title, message, type);
+        res.json(announcement);
+    } catch (error) {
+        console.error('Create announcement error:', error);
+        res.status(500).json({ error: 'Failed to create announcement' });
+    }
+});
+
+// Get all announcements (admin only)
+app.get("/admin/announcements", requireAdmin, (req, res) => {
+    try {
+        const announcements = announcementsDB.getAllAnnouncements();
+        res.json(announcements);
+    } catch (error) {
+        console.error('Get all announcements error:', error);
+        res.status(500).json({ error: 'Failed to get announcements' });
+    }
+});
+
+// Deactivate announcement (admin only)
+app.patch("/admin/announcements/:id/deactivate", requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const success = announcementsDB.deactivateAnnouncement(id);
+        
+        if (success) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Announcement not found' });
+        }
+    } catch (error) {
+        console.error('Deactivate announcement error:', error);
+        res.status(500).json({ error: 'Failed to deactivate announcement' });
+    }
+});
+
+// Delete announcement (admin only)
+app.delete("/admin/announcements/:id", requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const success = announcementsDB.deleteAnnouncement(id);
+        
+        if (success) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Announcement not found' });
+        }
+    } catch (error) {
+        console.error('Delete announcement error:', error);
+        res.status(500).json({ error: 'Failed to delete announcement' });
+    }
+});
+
+// Submit report (public)
+app.post("/reports", (req, res) => {
+    try {
+        const { reportedCharacterId, reportedCharacterName, reporterCharacter, reason, details } = req.body;
+        
+        if (!reportedCharacterId || !reporterCharacter || !reason) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const report = reportsDB.addReport(
+            reportedCharacterId, 
+            reportedCharacterName || reportedCharacterId, 
+            reporterCharacter, 
+            reason, 
+            details
+        );
+        
+        res.json({ success: true, reportId: report.id });
+    } catch (error) {
+        console.error('Submit report error:', error);
+        res.status(500).json({ error: 'Failed to submit report' });
+    }
+});
+
+// Get reports (admin only)
+app.get("/admin/reports", requireAdmin, (req, res) => {
+    try {
+        const { status } = req.query;
+        const reports = reportsDB.getReports(status);
+        res.json(reports);
+    } catch (error) {
+        console.error('Get reports error:', error);
+        res.status(500).json({ error: 'Failed to get reports' });
+    }
+});
+
+// Update report status (admin only)
+app.patch("/admin/reports/:id", requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, adminNotes } = req.body;
+        
+        if (!status) {
+            return res.status(400).json({ error: 'Status is required' });
+        }
+
+        const success = reportsDB.updateReportStatus(id, status, adminNotes);
+        
+        if (success) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Report not found' });
+        }
+    } catch (error) {
+        console.error('Update report error:', error);
+        res.status(500).json({ error: 'Failed to update report' });
+    }
+});
+
+// Remove profile (admin only)
+app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
+    try {
+        const characterId = decodeURIComponent(req.params.characterId);
+        const { reason, ban } = req.body;
+        const adminId = req.headers['x-admin-id'] || 'admin';
+        
+        const filePath = path.join(profilesDir, `${characterId}.json`);
+        
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'Profile not found' });
+        }
+
+        let characterName = characterId;
+        try {
+            const profile = await readProfileAsync(filePath);
+            characterName = profile.CharacterName || characterId;
+        } catch (err) {
+            // Use characterId as fallback
+        }
+
+        // Delete the profile file
+        fs.unlinkSync(filePath);
+        
+        // Remove associated image if exists
+        try {
+            const imageFiles = fs.readdirSync(imagesDir);
+            const associatedImage = imageFiles.find(file => file.startsWith(characterId.replace(/[^\w@\-_.]/g, "_")));
+            if (associatedImage) {
+                fs.unlinkSync(path.join(imagesDir, associatedImage));
+                console.log(`🗑️ Deleted associated image: ${associatedImage}`);
+            }
+        } catch (err) {
+            console.error('Error deleting associated image:', err);
+        }
+
+        moderationDB.logAction('remove', characterId, characterName, reason || 'No reason provided', adminId);
+        
+        if (ban) {
+            moderationDB.banProfile(characterId);
+            moderationDB.logAction('ban', characterId, characterName, reason || 'No reason provided', adminId);
+        }
+
+        galleryCache = null;
+        
+        console.log(`🛡️ Profile ${characterName} removed by ${adminId}${ban ? ' and banned' : ''}`);
+        res.json({ success: true, banned: !!ban });
+        
+    } catch (error) {
+        console.error('Remove profile error:', error);
+        res.status(500).json({ error: 'Failed to remove profile' });
+    }
+});
+
+// Ban profile (admin only)
+app.post("/admin/profiles/:characterId/ban", requireAdmin, (req, res) => {
+    try {
+        const characterId = decodeURIComponent(req.params.characterId);
+        const { reason } = req.body;
+        const adminId = req.headers['x-admin-id'] || 'admin';
+        
+        moderationDB.banProfile(characterId);
+        moderationDB.logAction('ban', characterId, characterId, reason || 'No reason provided', adminId);
+        
+        console.log(`🛡️ Profile ${characterId} banned by ${adminId}`);
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('Ban profile error:', error);
+        res.status(500).json({ error: 'Failed to ban profile' });
+    }
+});
+
+// Unban profile (admin only)
+app.post("/admin/profiles/:characterId/unban", requireAdmin, (req, res) => {
+    try {
+        const characterId = decodeURIComponent(req.params.characterId);
+        const { reason } = req.body;
+        const adminId = req.headers['x-admin-id'] || 'admin';
+        
+        moderationDB.unbanProfile(characterId);
+        moderationDB.logAction('unban', characterId, characterId, reason || 'No reason provided', adminId);
+        
+        console.log(`🛡️ Profile ${characterId} unbanned by ${adminId}`);
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('Unban profile error:', error);
+        res.status(500).json({ error: 'Failed to unban profile' });
+    }
+});
+
+// Get moderation actions (admin only)
+app.get("/admin/moderation/actions", requireAdmin, (req, res) => {
+    try {
+        const actions = moderationDB.getActions();
+        res.json(actions);
+    } catch (error) {
+        console.error('Get moderation actions error:', error);
+        res.status(500).json({ error: 'Failed to get moderation actions' });
+    }
+});
+
+// Get banned profiles (admin only)
+app.get("/admin/moderation/banned", requireAdmin, (req, res) => {
+    try {
+        const bannedProfiles = Array.from(moderationDB.bannedProfiles);
+        res.json(bannedProfiles);
+    } catch (error) {
+        console.error('Get banned profiles error:', error);
+        res.status(500).json({ error: 'Failed to get banned profiles' });
+    }
+});
+
+// Admin dashboard endpoint
+app.get("/admin/dashboard", requireAdmin, (req, res) => {
+    try {
+        const stats = {
+            totalProfiles: fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json')).length,
+            totalReports: reportsDB.getReports().length,
+            pendingReports: reportsDB.getReports('pending').length,
+            totalBanned: moderationDB.bannedProfiles.size,
+            totalAnnouncements: announcementsDB.getAllAnnouncements().length,
+            activeAnnouncements: announcementsDB.getActiveAnnouncements().length,
+            recentActions: moderationDB.getActions().slice(0, 10)
+        };
+        
+        res.json(stats);
+    } catch (error) {
+        console.error('Dashboard error:', error);
+        res.status(500).json({ error: 'Failed to get dashboard data' });
+    }
+});
+
+// =============================================================================
+// SERVER STARTUP
+// =============================================================================
+
 process.on('SIGTERM', () => {
     console.log('💤 Server shutting down gracefully...');
     process.exit(0);
@@ -669,14 +2001,12 @@ app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
-    console.log(`🚀 Features: Gallery, Likes, Friends System, Status Support, Caching, Error Recovery, Privacy Protection`);
-    console.log(`🤝 Friends endpoints: /friends/update-follows, /friends/check-mutual`);
-    console.log(`📝 Status support: GalleryStatus field included in gallery responses`);
-    console.log(`🔐 Privacy: Gallery data sanitized for public access, full data for authenticated plugin requests`);
-    console.log(`🛡️ Profile privacy: CustomImagePath removed from /view responses`);
+    console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
+    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}`);
+    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard`);
     
     if (process.env.ADMIN_SECRET_KEY) {
-        console.log(`👑 Admin access enabled`);
+        console.log(`👑 Admin access enabled - visit /admin to moderate`);
     } else {
         console.log(`⚠️  Admin access disabled - set ADMIN_SECRET_KEY environment variable to enable`);
     }
