@@ -755,18 +755,48 @@ app.get("/admin", (req, res) => {
         .profile-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 10px;
+        }
+        
+        .profile-info {
+            flex: 1;
+        }
+        
+        .profile-image {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            object-fit: cover;
+            margin-left: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .profile-image-placeholder {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            margin-left: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #666;
         }
         
         .profile-name {
             font-weight: bold;
             color: #4CAF50;
+            font-size: 0.95em;
         }
         
-        .profile-server {
-            color: #ccc;
-            font-size: 0.9em;
+        .profile-id {
+            color: #aaa;
+            font-size: 0.8em;
+            margin-top: 2px;
+            font-family: monospace;
         }
         
         .profile-bio {
@@ -959,10 +989,10 @@ app.get("/admin", (req, res) => {
                 </div>
             </div>
             
-            <!-- ADDED: Refresh Stats Button -->
+            <!-- ENHANCED: Refresh All Button -->
             <div style="text-align: center; margin-bottom: 20px;">
                 <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
-                    🔄 Refresh Stats
+                    🔄 Refresh All
                 </button>
             </div>
             
@@ -1022,7 +1052,7 @@ app.get("/admin", (req, res) => {
         let adminKey = '';
         const serverUrl = window.location.origin;
         
-        function showTab(tabName) {
+        async function showTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
@@ -1035,7 +1065,7 @@ app.get("/admin", (req, res) => {
             event.target.classList.add('active');
             
             // Auto-refresh stats when switching tabs
-            refreshStats();
+            await refreshStats();
             
             switch(tabName) {
                 case 'profiles':
@@ -1071,17 +1101,18 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        // ADDED: Refresh stats function
+        // ENHANCED: Refresh stats AND current tab content
         async function refreshStats() {
             if (!adminKey) return;
             
             const refreshBtn = document.getElementById('refreshBtn');
             if (refreshBtn) {
-                refreshBtn.textContent = '🔄 Loading...';
+                refreshBtn.textContent = '🔄 Refreshing...';
                 refreshBtn.disabled = true;
             }
             
             try {
+                // Refresh stats
                 const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
@@ -1094,11 +1125,31 @@ app.get("/admin", (req, res) => {
                 document.getElementById('totalBanned').textContent = stats.totalBanned;
                 document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
                 
+                // Also refresh current tab content
+                const activeTab = document.querySelector('.tab.active');
+                if (activeTab) {
+                    const tabName = activeTab.textContent.toLowerCase().replace(' ', '');
+                    switch(tabName) {
+                        case 'galleryprofiles':
+                            await loadProfiles();
+                            break;
+                        case 'reports':
+                            await loadReports();
+                            break;
+                        case 'announcements':
+                            await loadAnnouncements();
+                            break;
+                        case 'moderationlog':
+                            await loadModerationLog();
+                            break;
+                    }
+                }
+                
             } catch (error) {
-                console.error('Error refreshing stats:', error);
+                console.error('Error refreshing:', error);
             } finally {
                 if (refreshBtn) {
-                    refreshBtn.textContent = '🔄 Refresh Stats';
+                    refreshBtn.textContent = '🔄 Refresh All';
                     refreshBtn.disabled = false;
                 }
             }
@@ -1120,13 +1171,24 @@ app.get("/admin", (req, res) => {
                 profiles.forEach(profile => {
                     const card = document.createElement('div');
                     card.className = 'profile-card';
+                    
+                    // Create image element or placeholder
+                    const imageHtml = profile.ProfileImageUrl 
+                        ? \`<img src="\${profile.ProfileImageUrl}" alt="\${profile.CharacterName}" class="profile-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                           <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                        : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                    
                     card.innerHTML = \`
                         <div class="profile-header">
-                            <div>
+                            <div class="profile-info">
                                 <div class="profile-name">\${profile.CharacterName}</div>
-                                <div class="profile-server">\${profile.Server}</div>
+                                <div class="profile-id">\${profile.CharacterId}</div>
+                                <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                                    <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
+                                    <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
+                                </div>
                             </div>
-                            <div>❤️ \${profile.LikeCount}</div>
+                            \${imageHtml}
                         </div>
                         <div class="profile-bio">\${profile.Bio || 'No bio'}</div>
                         <div class="profile-actions">
@@ -1166,7 +1228,7 @@ app.get("/admin", (req, res) => {
                     alert(\`\${characterName} has been removed\${ban ? ' and banned' : ''}\`);
                     loadProfiles();
                     // Auto-refresh stats after action
-                    refreshStats();
+                    await refreshStats();
                 } else {
                     alert('Error removing profile');
                 }
@@ -1192,7 +1254,7 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     alert(\`\${characterName} has been banned\`);
                     // Auto-refresh stats after action
-                    refreshStats();
+                    await refreshStats();
                 } else {
                     alert('Error banning profile');
                 }
@@ -1258,7 +1320,7 @@ app.get("/admin", (req, res) => {
                     alert('Report updated');
                     loadReports();
                     // Auto-refresh stats after action
-                    refreshStats();
+                    await refreshStats();
                 } else {
                     alert('Error updating report');
                 }
@@ -1293,7 +1355,7 @@ app.get("/admin", (req, res) => {
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
                     // Auto-refresh stats after action
-                    refreshStats();
+                    await refreshStats();
                 } else {
                     alert('Error creating announcement');
                 }
@@ -1349,7 +1411,7 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     loadAnnouncements();
                     // Auto-refresh stats after action
-                    refreshStats();
+                    await refreshStats();
                 } else {
                     alert('Error deactivating announcement');
                 }
@@ -1370,7 +1432,7 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     loadAnnouncements();
                     // Auto-refresh stats after action
-                    refreshStats();
+                    await refreshStats();
                 } else {
                     alert('Error deleting announcement');
                 }
