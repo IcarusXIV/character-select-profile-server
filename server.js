@@ -959,6 +959,13 @@ app.get("/admin", (req, res) => {
                 </div>
             </div>
             
+            <!-- ADDED: Refresh Stats Button -->
+            <div style="text-align: center; margin-bottom: 20px;">
+                <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
+                    🔄 Refresh Stats
+                </button>
+            </div>
+            
             <div class="tabs">
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
                 <button class="tab" onclick="showTab('reports')">Reports</button>
