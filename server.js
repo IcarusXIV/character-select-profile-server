@@ -750,6 +750,7 @@ app.get("/admin", (req, res) => {
             padding: 15px;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            height: 200px; /* Fixed height for button alignment */
             display: flex;
             flex-direction: column;
         }
@@ -816,7 +817,7 @@ app.get("/admin", (req, res) => {
             display: -webkit-box;
             -webkit-line-clamp: 2; /* Limit to 2 lines */
             -webkit-box-orient: vertical;
-            min-height: 2.4em; /* Ensures consistent spacing */
+            flex: 1; /* Takes up remaining space */
         }
         
         .profile-status {
@@ -833,7 +834,7 @@ app.get("/admin", (req, res) => {
         .profile-actions {
             display: flex;
             gap: 10px;
-            margin-top: 10px;
+            margin-top: auto; /* Pushes buttons to bottom */
         }
         
         /* Image Modal Styles */
