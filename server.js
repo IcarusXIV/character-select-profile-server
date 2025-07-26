@@ -1009,6 +1009,9 @@ app.get("/admin", (req, res) => {
             document.getElementById(tabName).classList.add('active');
             event.target.classList.add('active');
             
+            // Auto-refresh stats when switching tabs
+            refreshStats();
+            
             switch(tabName) {
                 case 'profiles':
                     loadProfiles();
@@ -1034,9 +1037,29 @@ app.get("/admin", (req, res) => {
             }
             
             try {
+                await refreshStats();
+                document.getElementById('dashboardContent').style.display = 'block';
+                loadProfiles();
+                
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        // ADDED: Refresh stats function
+        async function refreshStats() {
+            if (!adminKey) return;
+            
+            const refreshBtn = document.getElementById('refreshBtn');
+            if (refreshBtn) {
+                refreshBtn.textContent = '🔄 Loading...';
+                refreshBtn.disabled = true;
+            }
+            
+            try {
                 const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 if (!response.ok) {
-                    throw new Error('Invalid admin key or server error');
+                    throw new Error('Failed to load stats');
                 }
                 
                 const stats = await response.json();
@@ -1046,11 +1069,13 @@ app.get("/admin", (req, res) => {
                 document.getElementById('totalBanned').textContent = stats.totalBanned;
                 document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
                 
-                document.getElementById('dashboardContent').style.display = 'block';
-                loadProfiles();
-                
             } catch (error) {
-                alert(\`Error: \${error.message}\`);
+                console.error('Error refreshing stats:', error);
+            } finally {
+                if (refreshBtn) {
+                    refreshBtn.textContent = '🔄 Refresh Stats';
+                    refreshBtn.disabled = false;
+                }
             }
         }
         
@@ -1115,6 +1140,8 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     alert(\`\${characterName} has been removed\${ban ? ' and banned' : ''}\`);
                     loadProfiles();
+                    // Auto-refresh stats after action
+                    refreshStats();
                 } else {
                     alert('Error removing profile');
                 }
@@ -1139,6 +1166,8 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     alert(\`\${characterName} has been banned\`);
+                    // Auto-refresh stats after action
+                    refreshStats();
                 } else {
                     alert('Error banning profile');
                 }
@@ -1203,6 +1232,8 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     alert('Report updated');
                     loadReports();
+                    // Auto-refresh stats after action
+                    refreshStats();
                 } else {
                     alert('Error updating report');
                 }
@@ -1236,6 +1267,8 @@ app.get("/admin", (req, res) => {
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
+                    // Auto-refresh stats after action
+                    refreshStats();
                 } else {
                     alert('Error creating announcement');
                 }
@@ -1290,6 +1323,8 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     loadAnnouncements();
+                    // Auto-refresh stats after action
+                    refreshStats();
                 } else {
                     alert('Error deactivating announcement');
                 }
@@ -1309,6 +1344,8 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     loadAnnouncements();
+                    // Auto-refresh stats after action
+                    refreshStats();
                 } else {
                     alert('Error deleting announcement');
                 }
