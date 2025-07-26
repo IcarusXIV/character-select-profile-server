@@ -750,7 +750,6 @@ app.get("/admin", (req, res) => {
             padding: 15px;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            height: 280px; /* Fixed height for uniformity */
             display: flex;
             flex-direction: column;
         }
@@ -809,32 +808,32 @@ app.get("/admin", (req, res) => {
             font-family: monospace;
         }
         
-        .profile-bio {
+        .profile-content {
             margin: 10px 0;
             font-size: 0.9em;
             color: #ddd;
-            flex: 1; /* Takes up remaining space */
             overflow: hidden;
             display: -webkit-box;
-            -webkit-line-clamp: 3; /* Limit to 3 lines */
+            -webkit-line-clamp: 2; /* Limit to 2 lines */
             -webkit-box-orient: vertical;
+            min-height: 2.4em; /* Ensures consistent spacing */
         }
         
         .profile-status {
             background: rgba(76, 175, 80, 0.2);
             border: 1px solid #4CAF50;
             color: #4CAF50;
-            padding: 2px 8px;
+            padding: 4px 12px;
             border-radius: 12px;
-            font-size: 0.75em;
-            margin-top: 5px;
+            font-size: 0.85em;
             display: inline-block;
+            margin: 8px 0;
         }
         
         .profile-actions {
             display: flex;
             gap: 10px;
-            margin-top: auto; /* Pushes buttons to bottom */
+            margin-top: 10px;
         }
         
         /* Image Modal Styles */
@@ -1249,10 +1248,15 @@ app.get("/admin", (req, res) => {
                            <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
                         : \`<div class="profile-image-placeholder">🖼️</div>\`;
                     
-                    // Gallery status with appropriate styling
-                    const statusHtml = profile.GalleryStatus 
-                        ? \`<div class="profile-status">\${profile.GalleryStatus}</div>\`
-                        : '';
+                    // Show either Gallery Status OR Bio (Gallery Status takes priority)
+                    let contentHtml = '';
+                    if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
+                        contentHtml = \`<div class="profile-status">\${profile.GalleryStatus}</div>\`;
+                    } else if (profile.Bio && profile.Bio.trim()) {
+                        contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
+                    } else {
+                        contentHtml = \`<div class="profile-content">No bio</div>\`;
+                    }
                     
                     card.innerHTML = \`
                         <div class="profile-header">
@@ -1263,11 +1267,10 @@ app.get("/admin", (req, res) => {
                                     <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
                                     <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                                 </div>
-                                \${statusHtml}
                             </div>
                             \${imageHtml}
                         </div>
-                        <div class="profile-bio">\${profile.Bio || 'No bio'}</div>
+                        \${contentHtml}
                         <div class="profile-actions">
                             <button class="btn btn-danger" onclick="removeProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                 Remove
