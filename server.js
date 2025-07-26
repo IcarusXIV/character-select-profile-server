@@ -23,10 +23,14 @@ if (!fs.existsSync(profilesDir)) fs.mkdirSync(profilesDir, { recursive: true });
 const imagesDir = path.join(DATA_DIR, "public", "images");
 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 
+// Create uploads directory within the volume to avoid cross-device issues
+const uploadsDir = path.join(DATA_DIR, "uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
 // Static route to serve uploaded images
 app.use("/images", express.static(path.join(DATA_DIR, "public", "images")));
 
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: uploadsDir });
 
 // Gallery caching
 let galleryCache = null;
@@ -128,7 +132,7 @@ class FriendsDatabase {
 
     load() {
         try {
-            if (fs.existsExists(friendsDbFile)) {
+            if (fs.existsSync(friendsDbFile)) {
                 const data = JSON.parse(fs.readFileSync(friendsDbFile, 'utf-8'));
                 this.friends = new Map(data.friends.map(([k, v]) => [k, new Set(v)]));
                 console.log(`🤝 Loaded ${this.friends.size} friend records`);
@@ -443,6 +447,39 @@ function requireAdmin(req, res, next) {
 }
 
 // Helper functions (keeping all the existing ones)
+
+// Safe file move function that handles cross-device moves
+async function safeFileMove(sourcePath, destPath) {
+    try {
+        // Try rename first (fastest)
+        await new Promise((resolve, reject) => {
+            fs.rename(sourcePath, destPath, (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    } catch (err) {
+        if (err.code === 'EXDEV') {
+            // Cross-device link error, fall back to copy + delete
+            console.log('Cross-device move detected, using copy + delete');
+            await new Promise((resolve, reject) => {
+                fs.copyFile(sourcePath, destPath, (copyErr) => {
+                    if (copyErr) {
+                        reject(copyErr);
+                        return;
+                    }
+                    fs.unlink(sourcePath, (unlinkErr) => {
+                        if (unlinkErr) console.warn('Failed to delete temp file:', unlinkErr);
+                        resolve();
+                    });
+                });
+            });
+        } else {
+            throw err;
+        }
+    }
+}
+
 async function cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName) {
     try {
         const allFiles = await new Promise((resolve, reject) => {
@@ -1371,12 +1408,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
             const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
             const finalImagePath = path.join(imagesDir, safeFileName);
             
-            await new Promise((resolve, reject) => {
-                fs.rename(req.file.path, finalImagePath, (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
+            await safeFileMove(req.file.path, finalImagePath);
 
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
@@ -1435,12 +1467,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
             const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
             const finalImagePath = path.join(imagesDir, safeFileName);
             
-            await new Promise((resolve, reject) => {
-                fs.rename(req.file.path, finalImagePath, (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
+            await safeFileMove(req.file.path, finalImagePath);
             
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
