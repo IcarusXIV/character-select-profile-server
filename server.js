@@ -9,15 +9,22 @@ const crypto = require("crypto");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Create directories if they don't exist
-const profilesDir = path.join(__dirname, "profiles");
-if (!fs.existsSync(profilesDir)) fs.mkdirSync(profilesDir);
+// ===============================
+// 🚀 RAILWAY VOLUME SETUP
+// ===============================
+// Use mounted volume in production, local directory in development
+const DATA_DIR = process.env.NODE_ENV === 'production' ? '/app/data' : __dirname;
+console.log(`📁 Using data directory: ${DATA_DIR}`);
 
-const imagesDir = path.join(__dirname, "public", "images");
+// Create directories if they don't exist
+const profilesDir = path.join(DATA_DIR, "profiles");
+if (!fs.existsSync(profilesDir)) fs.mkdirSync(profilesDir, { recursive: true });
+
+const imagesDir = path.join(DATA_DIR, "public", "images");
 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 
 // Static route to serve uploaded images
-app.use("/images", express.static(path.join(__dirname, "public", "images")));
+app.use("/images", express.static(path.join(DATA_DIR, "public", "images")));
 
 const upload = multer({ dest: "uploads/" });
 
@@ -30,12 +37,12 @@ app.use(require('compression')());
 app.use(cors());
 app.use(bodyParser.json());
 
-// Database files
-const likesDbFile = path.join(__dirname, "likes_database.json");
-const friendsDbFile = path.join(__dirname, "friends_database.json");
-const announcementsDbFile = path.join(__dirname, "announcements_database.json");
-const reportsDbFile = path.join(__dirname, "reports_database.json");
-const moderationDbFile = path.join(__dirname, "moderation_database.json");
+// Database files - ALL NOW PERSISTENT WITH VOLUMES
+const likesDbFile = path.join(DATA_DIR, "likes_database.json");
+const friendsDbFile = path.join(DATA_DIR, "friends_database.json");
+const announcementsDbFile = path.join(DATA_DIR, "announcements_database.json");
+const reportsDbFile = path.join(DATA_DIR, "reports_database.json");
+const moderationDbFile = path.join(DATA_DIR, "moderation_database.json");
 
 // 💾 DATABASE CLASSES
 class LikesDatabase {
@@ -121,7 +128,7 @@ class FriendsDatabase {
 
     load() {
         try {
-            if (fs.existsSync(friendsDbFile)) {
+            if (fs.existsExists(friendsDbFile)) {
                 const data = JSON.parse(fs.readFileSync(friendsDbFile, 'utf-8'));
                 this.friends = new Map(data.friends.map(([k, v]) => [k, new Set(v)]));
                 console.log(`🤝 Loaded ${this.friends.size} friend records`);
@@ -600,7 +607,7 @@ function extractServerFromName(characterName) {
 }
 
 // =============================================================================
-// 🖥️ ADMIN DASHBOARD - BUILT-IN HTML INTERFACE
+// 🖥️ ADMIN DASHBOARD - BUILT-IN HTML INTERFACE (WITH FIXES)
 // =============================================================================
 
 app.get("/admin", (req, res) => {
@@ -776,6 +783,22 @@ app.get("/admin", (req, res) => {
             color: #fff;
         }
         
+        /* FIXED: Better dropdown styling for visibility */
+        .input-group select {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+        
+        .input-group select option {
+            background: #2c2c54;
+            color: #fff;
+            padding: 8px;
+        }
+        
+        .input-group select option:hover {
+            background: #4CAF50;
+        }
+        
         .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -848,7 +871,8 @@ app.get("/admin", (req, res) => {
     <div class="container">
         <div class="header">
             <h1>🛡️ Character Select+ Admin Dashboard</h1>
-            <p>Manage your gallery, announcements, and reports</p>
+            <!-- FIXED: Changed "Manage your" to "Manage" -->
+            <p>Manage gallery, announcements, and reports</p>
         </div>
         
         <div class="auth-section">
@@ -863,7 +887,8 @@ app.get("/admin", (req, res) => {
             <div class="stats" id="statsSection">
                 <div class="stat-card">
                     <div class="stat-number" id="totalProfiles">-</div>
-                    <div>Total Profiles</div>
+                    <!-- FIXED: Updated label to be more accurate -->
+                    <div>Gallery Profiles</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-number" id="pendingReports">-</div>
@@ -1968,11 +1993,34 @@ app.get("/admin/moderation/banned", requireAdmin, (req, res) => {
     }
 });
 
-// Admin dashboard endpoint
-app.get("/admin/dashboard", requireAdmin, (req, res) => {
+// FIXED: Admin dashboard endpoint - now counts only showcase profiles
+app.get("/admin/dashboard", requireAdmin, async (req, res) => {
     try {
+        // Count all profiles
+        const allProfiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
+        
+        // Count only showcase/public profiles (same logic as gallery)
+        let showcaseCount = 0;
+        for (const file of allProfiles) {
+            try {
+                const characterId = file.replace('.json', '');
+                if (moderationDB.isProfileBanned(characterId)) continue;
+                
+                const filePath = path.join(profilesDir, file);
+                const profileData = await readProfileAsync(filePath);
+                
+                if (isValidProfile(profileData) && 
+                    (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2)) {
+                    showcaseCount++;
+                }
+            } catch (err) {
+                // Skip invalid profiles
+                continue;
+            }
+        }
+        
         const stats = {
-            totalProfiles: fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json')).length,
+            totalProfiles: showcaseCount, // Now shows only public profiles
             totalReports: reportsDB.getReports().length,
             pendingReports: reportsDB.getReports('pending').length,
             totalBanned: moderationDB.bannedProfiles.size,
@@ -2004,6 +2052,7 @@ app.listen(PORT, () => {
     console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
     console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}`);
     console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard`);
+    console.log(`🗂️ Using data directory: ${DATA_DIR}`);
     
     if (process.env.ADMIN_SECRET_KEY) {
         console.log(`👑 Admin access enabled - visit /admin to moderate`);
