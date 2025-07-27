@@ -1373,8 +1373,13 @@ app.get("/admin", (req, res) => {
         }
         
         async function loadDashboard() {
+            console.log('Load Dashboard button clicked!');
+            
             adminKey = document.getElementById('adminKey').value;
             adminName = document.getElementById('adminName').value;
+            
+            console.log('Admin Key:', adminKey ? 'Provided' : 'Missing');
+            console.log('Admin Name:', adminName ? 'Provided' : 'Missing');
             
             if (!adminKey) {
                 alert('Please enter your admin key');
@@ -1388,7 +1393,12 @@ app.get("/admin", (req, res) => {
             
             try {
                 console.log('Testing credentials before saving...');
-                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + encodeURIComponent(adminKey));
+                const testUrl = serverUrl + '/admin/dashboard?adminKey=' + encodeURIComponent(adminKey);
+                console.log('Test URL:', testUrl);
+                
+                const testResponse = await fetch(testUrl);
+                console.log('Response status:', testResponse.status);
+                
                 if (!testResponse.ok) {
                     throw new Error('Invalid admin key');
                 }
