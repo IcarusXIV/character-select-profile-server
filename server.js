@@ -445,8 +445,9 @@ function requireAdmin(req, res, next) {
         return res.status(403).json({ error: 'Admin access required' });
     }
     
-    // Store admin ID for moderation logging
-    req.adminId = req.headers['x-admin-id'] || 'admin';
+    // FIXED: Get admin ID from header, fallback to 'unknown'
+    req.adminId = req.headers['x-admin-id'] || req.body.adminId || 'unknown_admin';
+    console.log(`🛡️ Admin authenticated: ${req.adminId}`);
     next();
 }
 
@@ -1291,78 +1292,63 @@ app.get("/admin", (req, res) => {
         let allProfiles = []; // Store all profiles for search filtering
         const serverUrl = window.location.origin;
         
-        // Load saved admin credentials on page load
+                // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔄 Page loaded, checking for saved credentials...');
             
-            // Test if localStorage is working
             try {
-                localStorage.setItem('test', 'test');
-                localStorage.removeItem('test');
-                console.log('✅ localStorage is working');
+                const savedAdminKey = localStorage.getItem('cs_admin_key');
+                const savedAdminName = localStorage.getItem('cs_admin_name');
+                
+                console.log('📋 Saved credentials:', savedAdminKey ? 'Key found' : 'No key', savedAdminName ? 'Name found' : 'No name');
+                
+                if (savedAdminKey) {
+                    document.getElementById('adminKey').value = savedAdminKey;
+                    adminKey = savedAdminKey;
+                }
+                
+                if (savedAdminName) {
+                    document.getElementById('adminName').value = savedAdminName;
+                    adminName = savedAdminName;
+                }
+                
+                // Auto-load dashboard if both credentials are saved
+                if (savedAdminKey && savedAdminName) {
+                    console.log('🚀 Auto-loading dashboard with saved credentials...');
+                    setTimeout(() => {
+                        autoLoadDashboard();
+                    }, 100);
+                }
             } catch (e) {
-                console.error('❌ localStorage is not available:', e);
-                alert('Warning: Browser storage is disabled. Credentials cannot be saved.');
-                return;
-            }
-            
-            const savedAdminKey = localStorage.getItem('cs_admin_key');
-            const savedAdminName = localStorage.getItem('cs_admin_name');
-            
-            console.log('📋 Saved admin key:', savedAdminKey ? 'Found' : 'Not found');
-            console.log('📋 Saved admin name:', savedAdminName ? 'Found' : 'Not found');
-            
-            if (savedAdminKey) {
-                document.getElementById('adminKey').value = savedAdminKey;
-                adminKey = savedAdminKey;
-                console.log('✅ Admin key loaded from storage');
-            }
-            
-            if (savedAdminName) {
-                document.getElementById('adminName').value = savedAdminName;
-                adminName = savedAdminName;
-                console.log('✅ Admin name loaded from storage');
-            }
-            
-            // Auto-load dashboard if both credentials are saved
-            if (savedAdminKey && savedAdminName) {
-                console.log('🚀 Both credentials found, auto-loading dashboard...');
-                setTimeout(() => {
-                    autoLoadDashboard();
-                }, 500); // Increased delay
-            } else {
-                console.log('❌ Missing credentials, showing login form');
+                console.error('❌ Error loading saved credentials:', e);
             }
         });
         
         async function autoLoadDashboard() {
-            console.log('🔧 Attempting auto-load...');
             try {
-                console.log('📡 Testing admin credentials...');
-                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
+                // Test credentials first
+                const testResponse = await fetch(`${serverUrl}/admin/dashboard?adminKey=${adminKey}`);
                 
                 if (!testResponse.ok) {
-                    throw new Error('Invalid credentials');
+                    throw new Error('Invalid saved credentials');
                 }
                 
-                console.log('✅ Credentials valid, loading dashboard...');
+                console.log('✅ Saved credentials valid, loading dashboard...');
                 await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
-                const authSection = document.querySelector('.auth-section');
-                if (authSection) {
-                    authSection.style.display = 'none';
-                }
+                document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
                 console.log('🎉 Dashboard auto-loaded successfully');
+                
             } catch (error) {
                 console.error('❌ Auto-load failed:', error);
-                // If auto-load fails, show the auth section and clear bad credentials
-                const authSection = document.querySelector('.auth-section');
-                if (authSection) {
-                    authSection.style.display = 'block';
-                }
+                // Clear invalid credentials
                 localStorage.removeItem('cs_admin_key');
                 localStorage.removeItem('cs_admin_name');
+                adminKey = '';
+                adminName = '';
+                document.getElementById('adminKey').value = '';
+                document.getElementById('adminName').value = '';
                 alert('Saved credentials expired. Please log in again.');
             }
         }
@@ -1619,66 +1605,80 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        async function confirmRemoveProfile(characterId, characterName) {
-            if (!confirm(\`Are you sure you want to REMOVE "\${characterName}" from the gallery?\\n\\nThis will delete their profile from the gallery but they can upload again.\`)) {
+            async function confirmRemoveProfile(characterId, characterName) {
+            // SIMPLIFIED FLOW: Single confirmation with clear options
+            const action = confirm(`🗑️ REMOVE PROFILE\n\nCharacter: ${characterName}\n\nThis will remove their profile from the gallery.\nThey can still upload new profiles unless banned separately.\n\nClick OK to continue, Cancel to abort.`);
+            
+            if (!action) return;
+            
+            const reason = prompt(`📝 REMOVAL REASON\n\nWhy are you removing "${characterName}"?\n\n(This will be logged for moderation records)`);
+            if (!reason || reason.trim() === '') {
+                alert('❌ Removal cancelled - reason is required');
                 return;
             }
             
-            const reason = prompt(\`Why are you removing "\${characterName}" from the gallery?\`);
-            if (!reason) return;
-            
-            const alsoBan = confirm(\`Do you also want to BAN "\${characterName}" from uploading again?\\n\\nClick OK to ban them, Cancel to just remove from gallery.\`);
+            // FINAL CONFIRMATION
+            const finalConfirm = confirm(`⚠️ FINAL CONFIRMATION\n\nRemove "${characterName}" from gallery?\nReason: ${reason}\n\nThis action cannot be undone.\n\nClick OK to REMOVE PROFILE`);
+            if (!finalConfirm) return;
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
+                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Admin-Key': adminKey,
                         'X-Admin-Id': adminName
                     },
-                    body: JSON.stringify({ reason, ban: alsoBan })
+                    body: JSON.stringify({ reason, ban: false, adminId: adminName })
                 });
                 
                 if (response.ok) {
-                    alert(\`✅ "\${characterName}" has been removed from gallery\${alsoBan ? ' and banned' : ''}\`);
+                    alert(`✅ "${characterName}" has been removed from gallery`);
                     loadProfiles();
                     await refreshStats();
                 } else {
                     alert('❌ Error removing profile');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                alert(`❌ Error: ${error.message}`);
             }
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            if (!confirm(\`Are you sure you want to BAN "\${characterName}"?\\n\\nThis will prevent them from uploading any profiles to the gallery.\`)) {
+            // SIMPLIFIED FLOW: Single confirmation for ban
+            const action = confirm(`🚫 BAN PROFILE\n\nCharacter: ${characterName}\n\nThis will permanently ban them from uploading any profiles.\nTheir current profile will remain in the gallery unless removed separately.\n\nClick OK to continue, Cancel to abort.`);
+            
+            if (!action) return;
+            
+            const reason = prompt(`📝 BAN REASON\n\nWhy are you banning "${characterName}"?\n\n(This will be logged for moderation records)`);
+            if (!reason || reason.trim() === '') {
+                alert('❌ Ban cancelled - reason is required'); 
                 return;
             }
             
-            const reason = prompt(\`Why are you banning "\${characterName}"?\`);
-            if (!reason) return;
+            // FINAL CONFIRMATION
+            const finalConfirm = confirm(`⚠️ FINAL CONFIRMATION\n\nPermanently ban "${characterName}"?\nReason: ${reason}\n\nThey will not be able to upload new profiles.\n\nClick OK to BAN PROFILE`);
+            if (!finalConfirm) return;
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
+                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}/ban`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Admin-Key': adminKey,
                         'X-Admin-Id': adminName
                     },
-                    body: JSON.stringify({ reason })
+                    body: JSON.stringify({ reason, adminId: adminName })
                 });
                 
                 if (response.ok) {
-                    alert(\`✅ "\${characterName}" has been banned\`);
+                    alert(`✅ "${characterName}" has been banned`);
                     await refreshStats();
                 } else {
                     alert('❌ Error banning profile');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                alert(`❌ Error: ${error.message}`);
             }
         }
         
@@ -2034,11 +2034,22 @@ app.get("/admin", (req, res) => {
                             </div>
                         \` : '';
                         
+                        // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
+                        let statusContent = '';
+                        if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
+                            statusContent = \`<div style="background: rgba(76, 175, 80, 0.2); border: 1px solid #4CAF50; color: #4CAF50; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; margin: 4px 0;">\${profile.GalleryStatus}</div>\`;
+                        } else if (profile.Bio && profile.Bio.trim()) {
+                            statusContent = \`<div style="color: #ddd; font-size: 0.9em; margin: 4px 0; max-height: 60px; overflow: hidden;">\${profile.Bio}</div>\`;
+                        } else {
+                            statusContent = \`<div style="color: #999; font-style: italic; margin: 4px 0;">No bio</div>\`;
+                        }
+
                         profileHtml = \`
                             <div class="reported-profile">
                                 \${imageHtml}
                                 <div class="reported-profile-name">\${profile.CharacterName}</div>
                                 <div class="reported-profile-server">\${profile.Server}</div>
+                                \${statusContent}
                                 \${actionButtonsHtml}
                             </div>
                         \`;
