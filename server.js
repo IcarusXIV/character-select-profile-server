@@ -1572,22 +1572,22 @@ app.get("/admin", (req, res) => {
         
             async function confirmRemoveProfile(characterId, characterName) {
             // SIMPLIFIED FLOW: Single confirmation with clear options
-            const action = confirm(`🗑️ REMOVE PROFILE\n\nCharacter: ${characterName}\n\nThis will remove their profile from the gallery.\nThey can still upload new profiles unless banned separately.\n\nClick OK to continue, Cancel to abort.`);
+            const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
             
-            const reason = prompt(`📝 REMOVAL REASON\n\nWhy are you removing "${characterName}"?\n\n(This will be logged for moderation records)`);
+            const reason = prompt(\`📝 REMOVAL REASON\\n\\nWhy are you removing "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
                 alert('❌ Removal cancelled - reason is required');
                 return;
             }
             
             // FINAL CONFIRMATION
-            const finalConfirm = confirm(`⚠️ FINAL CONFIRMATION\n\nRemove "${characterName}" from gallery?\nReason: ${reason}\n\nThis action cannot be undone.\n\nClick OK to REMOVE PROFILE`);
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
             if (!finalConfirm) return;
             
             try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}`, {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1598,35 +1598,35 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(`✅ "${characterName}" has been removed from gallery`);
+                    alert(\`✅ "\${characterName}" has been removed from gallery\`);
                     loadProfiles();
                     await refreshStats();
                 } else {
                     alert('❌ Error removing profile');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
         async function confirmBanProfile(characterId, characterName) {
             // SIMPLIFIED FLOW: Single confirmation for ban
-            const action = confirm(`🚫 BAN PROFILE\n\nCharacter: ${characterName}\n\nThis will permanently ban them from uploading any profiles.\nTheir current profile will remain in the gallery unless removed separately.\n\nClick OK to continue, Cancel to abort.`);
+            const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
             
-            const reason = prompt(`📝 BAN REASON\n\nWhy are you banning "${characterName}"?\n\n(This will be logged for moderation records)`);
+            const reason = prompt(\`📝 BAN REASON\\n\\nWhy are you banning "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
                 alert('❌ Ban cancelled - reason is required'); 
                 return;
             }
             
             // FINAL CONFIRMATION
-            const finalConfirm = confirm(`⚠️ FINAL CONFIRMATION\n\nPermanently ban "${characterName}"?\nReason: ${reason}\n\nThey will not be able to upload new profiles.\n\nClick OK to BAN PROFILE`);
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
             if (!finalConfirm) return;
             
             try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}/ban`, {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1637,13 +1637,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(`✅ "${characterName}" has been banned`);
+                    alert(\`✅ "\${characterName}" has been banned\`);
                     await refreshStats();
                 } else {
                     alert('❌ Error banning profile');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
