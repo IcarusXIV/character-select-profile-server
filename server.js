@@ -1273,9 +1273,9 @@ app.get("/admin", (req, res) => {
         const serverUrl = window.location.origin;
         
         // Load saved admin credentials on page load
-        window.addEventListener('load', function() {
-            const savedAdminKey = sessionStorage.getItem('adminKey');
-            const savedAdminName = sessionStorage.getItem('adminName');
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedAdminKey = localStorage.getItem('cs_admin_key');
+            const savedAdminName = localStorage.getItem('cs_admin_name');
             
             if (savedAdminKey) {
                 document.getElementById('adminKey').value = savedAdminKey;
@@ -1287,11 +1287,30 @@ app.get("/admin", (req, res) => {
                 adminName = savedAdminName;
             }
             
-            // Auto-load dashboard if credentials are saved
+            // Auto-load dashboard if both credentials are saved
             if (savedAdminKey && savedAdminName) {
-                loadDashboard();
+                console.log('Auto-loading dashboard with saved credentials');
+                setTimeout(() => {
+                    autoLoadDashboard();
+                }, 100);
             }
         });
+        
+        async function autoLoadDashboard() {
+            try {
+                await refreshStats();
+                document.getElementById('dashboardContent').style.display = 'block';
+                document.querySelector('.auth-section').style.display = 'none';
+                loadProfiles();
+                console.log('Dashboard auto-loaded successfully');
+            } catch (error) {
+                console.error('Auto-load failed:', error);
+                // If auto-load fails, show the auth section
+                document.querySelector('.auth-section').style.display = 'block';
+                localStorage.removeItem('cs_admin_key');
+                localStorage.removeItem('cs_admin_name');
+            }
+        }
         
         async function loadDashboard() {
             adminKey = document.getElementById('adminKey').value;
@@ -1307,18 +1326,34 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            // Save credentials to session storage
-            sessionStorage.setItem('adminKey', adminKey);
-            sessionStorage.setItem('adminName', adminName);
+            // Save credentials to local storage (persists across sessions)
+            localStorage.setItem('cs_admin_key', adminKey);
+            localStorage.setItem('cs_admin_name', adminName);
             
             try {
                 await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
+                document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
                 
             } catch (error) {
                 alert(\`Error: \${error.message}\`);
+                // Clear saved credentials if login fails
+                localStorage.removeItem('cs_admin_key');
+                localStorage.removeItem('cs_admin_name');
             }
+        }
+        
+        // Add logout function
+        function logout() {
+            localStorage.removeItem('cs_admin_key');
+            localStorage.removeItem('cs_admin_name');
+            adminKey = '';
+            adminName = '';
+            document.getElementById('dashboardContent').style.display = 'none';
+            document.querySelector('.auth-section').style.display = 'block';
+            document.getElementById('adminKey').value = '';
+            document.getElementById('adminName').value = '';
         }
         
         function filterProfiles() {
