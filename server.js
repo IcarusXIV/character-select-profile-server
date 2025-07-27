@@ -1065,7 +1065,7 @@ app.get("/admin", (req, res) => {
         }
         
         .reported-profile {
-            width: 160px;
+            width: 140px;
             background: rgba(255, 255, 255, 0.05);
             border-radius: 8px;
             padding: 10px;
@@ -1289,63 +1289,92 @@ app.get("/admin", (req, res) => {
         let adminKey = '';
         let adminName = '';
         let allProfiles = []; // Store all profiles for search filtering
+        let allArchivedReports = []; // Store all archived reports for filtering
         const serverUrl = window.location.origin;
         
-        // Simpler credential persistence
+        // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🔄 Page loaded, checking localStorage...');
+            console.log('Page loaded, checking for saved credentials...');
             
+            // Test if localStorage is working
             try {
-                // Simple test and immediate check
-                const testKey = localStorage.getItem('cs_admin_key');
-                const testName = localStorage.getItem('cs_admin_name');
-                
-                console.log('🔑 Key found:', !!testKey);
-                console.log('👤 Name found:', !!testName);
-                
-                if (testKey && testName) {
-                    console.log('✅ Found saved credentials, filling form...');
-                    document.getElementById('adminKey').value = testKey;
-                    document.getElementById('adminName').value = testName;
-                    adminKey = testKey;
-                    adminName = testName;
-                    
-                    // Try auto-load immediately
-                    console.log('🚀 Attempting auto-login...');
-                    setTimeout(autoLoadDashboard, 100);
-                } else {
-                    console.log('❌ No saved credentials found');
+                localStorage.setItem('test', 'test');
+                const testValue = localStorage.getItem('test');
+                localStorage.removeItem('test');
+                if (testValue !== 'test') {
+                    throw new Error('localStorage read/write failed');
                 }
+                console.log('localStorage is working');
             } catch (e) {
-                console.error('❌ localStorage error:', e);
+                console.error('localStorage is not available:', e);
+                alert('Warning: Browser storage is disabled. Credentials cannot be saved.');
+                return;
+            }
+            
+            const savedAdminKey = localStorage.getItem('cs_admin_key');
+            const savedAdminName = localStorage.getItem('cs_admin_name');
+            
+            console.log('Checking saved credentials...');
+            console.log('Admin key found:', !!savedAdminKey);
+            console.log('Admin name found:', !!savedAdminName);
+            
+            if (savedAdminKey) {
+                document.getElementById('adminKey').value = savedAdminKey;
+                adminKey = savedAdminKey;
+                console.log('Admin key loaded from storage');
+            }
+            
+            if (savedAdminName) {
+                document.getElementById('adminName').value = savedAdminName;
+                adminName = savedAdminName;
+                console.log('Admin name loaded from storage');
+            }
+            
+            // Auto-load dashboard if both credentials are saved
+            if (savedAdminKey && savedAdminName) {
+                console.log('Both credentials found, auto-loading dashboard...');
+                setTimeout(function() {
+                    autoLoadDashboard();
+                }, 100);
+            } else {
+                console.log('Missing credentials, showing login form');
             }
         });
         
         async function autoLoadDashboard() {
+            console.log('Attempting auto-load...');
             try {
-                console.log('🧪 Testing saved credentials...');
-                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
+                console.log('Testing admin credentials...');
+                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + encodeURIComponent(adminKey));
                 
-                if (response.ok) {
-                    console.log('✅ Auto-login successful!');
-                    document.getElementById('dashboardContent').style.display = 'block';
-                    document.querySelector('.auth-section').style.display = 'none';
-                    await refreshStats();
-                    loadProfiles();
-                } else {
-                    throw new Error('Invalid saved credentials');
+                if (!testResponse.ok) {
+                    throw new Error('Invalid credentials');
                 }
+                
+                console.log('Credentials valid, loading dashboard...');
+                await refreshStats();
+                document.getElementById('dashboardContent').style.display = 'block';
+                const authSection = document.querySelector('.auth-section');
+                if (authSection) {
+                    authSection.style.display = 'none';
+                }
+                loadProfiles();
+                console.log('Dashboard auto-loaded successfully');
             } catch (error) {
-                console.error('❌ Auto-login failed:', error);
-                // Clear bad credentials
+                console.error('Auto-load failed:', error);
+                const authSection = document.querySelector('.auth-section');
+                if (authSection) {
+                    authSection.style.display = 'block';
+                }
                 localStorage.removeItem('cs_admin_key');
                 localStorage.removeItem('cs_admin_name');
+                alert('Saved credentials expired. Please log in again.');
             }
         }
         
         async function loadDashboard() {
-            adminKey = document.getElementById('adminKey').value.trim();
-            adminName = document.getElementById('adminName').value.trim();
+            adminKey = document.getElementById('adminKey').value;
+            adminName = document.getElementById('adminName').value;
             
             if (!adminKey) {
                 alert('Please enter your admin key');
@@ -1358,27 +1387,27 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                console.log('🔐 Manual login attempt...');
-                await refreshStats();
+                console.log('Testing credentials before saving...');
+                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + encodeURIComponent(adminKey));
+                if (!testResponse.ok) {
+                    throw new Error('Invalid admin key');
+                }
                 
-                // Save ONLY after successful login
-                console.log('💾 Saving credentials...');
+                console.log('Authentication successful, saving credentials...');
                 localStorage.setItem('cs_admin_key', adminKey);
                 localStorage.setItem('cs_admin_name', adminName);
-                console.log('✅ Credentials saved successfully');
+                console.log('Credentials saved to localStorage');
                 
+                await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
                 document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
                 
             } catch (error) {
-                console.error('❌ Manual login failed:', error);
-                alert(\`Login failed: \${error.message}\`);
+                console.error('Authentication failed:', error);
+                alert('Error: ' + error.message);
             }
         }
-        
-        // Remove logout function since it's not needed
-        // function logout() { ... }
         
         function filterProfiles() {
             const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
@@ -1410,54 +1439,44 @@ app.get("/admin", (req, res) => {
                 
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? \`<img src="\${profile.ProfileImageUrl}" 
-                            alt="\${profile.CharacterName}" 
-                            class="profile-image" 
-                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">' +
+                      '<div class="profile-image-placeholder" style="display: none;">🖼️</div>'
+                    : '<div class="profile-image-placeholder">🖼️</div>';
                 
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = \`<div class="profile-status">\${profile.GalleryStatus}</div>\`;
+                    contentHtml = '<div class="profile-status">' + profile.GalleryStatus + '</div>';
                 } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
+                    contentHtml = '<div class="profile-content">' + profile.Bio + '</div>';
                 } else {
-                    contentHtml = \`<div class="profile-content">No bio</div>\`;
+                    contentHtml = '<div class="profile-content">No bio</div>';
                 }
                 
                 // Add NSFW indicator if profile is marked as NSFW
                 const nsfwIndicator = profile.IsNSFW ? 
-                    \`<div style="margin-top: 5px;"><span style="background: rgba(255, 87, 34, 0.2); color: #ff5722; padding: 2px 6px; border-radius: 8px; font-size: 0.75em; border: 1px solid #ff5722;">🔞 NSFW</span></div>\` : '';
+                    '<div style="margin-top: 5px;"><span style="background: rgba(255, 87, 34, 0.2); color: #ff5722; padding: 2px 6px; border-radius: 8px; font-size: 0.75em; border: 1px solid #ff5722;">🔞 NSFW</span></div>' : '';
                 
-                card.innerHTML = \`
-                    <div class="profile-header">
-                        <div class="profile-info">
-                            <div class="profile-name">\${profile.CharacterName}</div>
-                            <div class="profile-id">\${profile.CharacterId}</div>
-                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
-                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
-                            </div>
-                        </div>
-                        \${imageHtml}
-                    </div>
-                    \${contentHtml}
-                    \${nsfwIndicator}
-                    <div class="profile-actions">
-                        <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                            Remove
-                        </button>
-                        <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                            Ban
-                        </button>
-                        <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
-                            \${profile.IsNSFW ? '18-' : '18+'}
-                        </button>
-                    </div>
-                \`;
+                card.innerHTML = '<div class="profile-header">' +
+                        '<div class="profile-info">' +
+                            '<div class="profile-name">' + profile.CharacterName + '</div>' +
+                            '<div class="profile-id">' + profile.CharacterId + '</div>' +
+                            '<div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">' +
+                                '<span style="color: #ccc; font-size: 0.9em;">' + profile.Server + '</span>' +
+                                '<span style="color: #4CAF50;">❤️ ' + profile.LikeCount + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        imageHtml +
+                    '</div>' +
+                    contentHtml +
+                    nsfwIndicator +
+                    '<div class="profile-actions">' +
+                        '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
+                        '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>' +
+                        '<button class="btn btn-nsfw ' + (profile.IsNSFW ? 'active' : '') + '" onclick="toggleNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\', ' + (profile.IsNSFW || false) + ')">' +
+                            (profile.IsNSFW ? '18-' : '18+') +
+                        '</button>' +
+                    '</div>';
                 grid.appendChild(card);
             });
         }
@@ -1527,7 +1546,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
+                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + encodeURIComponent(adminKey));
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
                 }
@@ -1582,7 +1601,7 @@ app.get("/admin", (req, res) => {
             grid.innerHTML = '';
             
             try {
-                const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
+                const response = await fetch(serverUrl + '/gallery?admin=true&key=' + encodeURIComponent(adminKey));
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
@@ -1590,20 +1609,20 @@ app.get("/admin", (req, res) => {
                 renderProfileCards(profiles);
                 
             } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
+                loading.innerHTML = '<div class="error">Error loading profiles: ' + error.message + '</div>';
             }
         }
         
         async function confirmRemoveProfile(characterId, characterName) {
-            const reason = prompt(`Why are you removing "${characterName}" from the gallery?`);
+            const reason = prompt('Why are you removing "' + characterName + '" from the gallery?');
             if (!reason) return;
             
-            if (!confirm(`Confirm: Remove "${characterName}" from the gallery?\n\nReason: ${reason}\n\nThey will be able to upload again unless separately banned.`)) {
+            if (!confirm('Remove "' + characterName + '" from the gallery?\n\nThis will delete their profile from the gallery but they can upload again.')) {
                 return;
             }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}`, {
+                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1614,27 +1633,27 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(`✅ "${characterName}" has been removed from gallery`);
+                    alert('Profile "' + characterName + '" has been removed from gallery');
                     loadProfiles();
                     await refreshStats();
                 } else {
-                    alert('❌ Error removing profile');
+                    alert('Error removing profile');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert('Error: ' + error.message);
             }
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            const reason = prompt(`Why are you banning "${characterName}"?`);
+            const reason = prompt('Why are you banning "' + characterName + '"?');
             if (!reason) return;
             
-            if (!confirm(`Confirm: Ban "${characterName}" from uploading?\n\nReason: ${reason}\n\nThis will prevent them from uploading any profiles.`)) {
+            if (!confirm('Ban "' + characterName + '" from uploading?\n\nThis will prevent them from uploading any profiles to the gallery.')) {
                 return;
             }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}/ban`, {
+                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/ban', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1645,13 +1664,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(`✅ "${characterName}" has been banned`);
+                    alert('User "' + characterName + '" has been banned');
                     await refreshStats();
                 } else {
-                    alert('❌ Error banning profile');
+                    alert('Error banning user');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert('Error: ' + error.message);
             }
         }
         
@@ -1856,7 +1875,7 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/reports?status=pending&adminKey=\${adminKey}\`);
+                const response = await fetch(serverUrl + '/admin/reports?status=pending&adminKey=' + encodeURIComponent(adminKey));
                 const reports = await response.json();
                 
                 loading.style.display = 'none';
@@ -1869,12 +1888,9 @@ app.get("/admin", (req, res) => {
                 await renderReports(reports, container);
                 
             } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading reports: \${error.message}</div>\`;
+                loading.innerHTML = '<div class="error">Error loading reports: ' + error.message + '</div>';
             }
         }
-        
-        // Global variable to store all archived reports for filtering
-        let allArchivedReports = [];
         
         async function loadArchivedReports() {
             const loading = document.getElementById('archivedLoading');
@@ -1884,7 +1900,7 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/reports?adminKey=\${adminKey}\`);
+                const response = await fetch(serverUrl + '/admin/reports?adminKey=' + encodeURIComponent(adminKey));
                 const allReports = await response.json();
                 
                 // Filter for resolved and dismissed reports
@@ -1902,7 +1918,7 @@ app.get("/admin", (req, res) => {
                 await renderReports(allArchivedReports, container, true);
                 
             } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading archived reports: \${error.message}</div>\`;
+                loading.innerHTML = '<div class="error">Error loading archived reports: ' + error.message + '</div>';
             }
         }
         
@@ -2120,7 +2136,7 @@ app.get("/admin", (req, res) => {
             const adminNotes = prompt('Add admin notes (optional):');
             
             try {
-                const response = await fetch(`${serverUrl}/admin/reports/${reportId}`, {
+                const response = await fetch(\`\${serverUrl}/admin/reports/\${reportId}\`, {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2139,7 +2155,7 @@ app.get("/admin", (req, res) => {
                     alert('❌ Error updating report');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2154,7 +2170,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements`, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2174,7 +2190,7 @@ app.get("/admin", (req, res) => {
                     alert('❌ Error creating announcement');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2217,7 +2233,7 @@ app.get("/admin", (req, res) => {
         
         async function deactivateAnnouncement(id) {
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements/${id}/deactivate`, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}/deactivate\`, {
                     method: 'PATCH',
                     headers: { 
                         'X-Admin-Key': adminKey,
@@ -2232,7 +2248,7 @@ app.get("/admin", (req, res) => {
                     alert('❌ Error deactivating announcement');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2240,7 +2256,7 @@ app.get("/admin", (req, res) => {
             if (!confirm('Are you sure you want to delete this announcement?')) return;
             
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements/${id}`, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
                     method: 'DELETE',
                     headers: { 
                         'X-Admin-Key': adminKey,
@@ -2255,7 +2271,7 @@ app.get("/admin", (req, res) => {
                     alert('❌ Error deleting announcement');
                 }
             } catch (error) {
-                alert(`❌ Error: ${error.message}`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
