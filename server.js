@@ -1354,13 +1354,8 @@ app.get("/admin", (req, res) => {
         }
         
         async function loadDashboard() {
-            console.log('Load Dashboard button clicked!');
-            
             adminKey = document.getElementById('adminKey').value;
             adminName = document.getElementById('adminName').value;
-            
-            console.log('Admin key:', adminKey ? 'provided' : 'missing');
-            console.log('Admin name:', adminName ? 'provided' : 'missing');
             
             if (!adminKey) {
                 alert('Please enter your admin key');
@@ -1374,9 +1369,7 @@ app.get("/admin", (req, res) => {
             
             try {
                 console.log('Testing credentials before saving...');
-                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + encodeURIComponent(adminKey));
-                console.log('Response status:', testResponse.status);
-                
+                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
                 if (!testResponse.ok) {
                     throw new Error('Invalid admin key');
                 }
@@ -1386,12 +1379,10 @@ app.get("/admin", (req, res) => {
                 localStorage.setItem('cs_admin_name', adminName);
                 console.log('Credentials saved to localStorage');
                 
-                console.log('Loading dashboard...');
                 await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
                 document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
-                console.log('Dashboard loaded successfully!');
                 
             } catch (error) {
                 console.error('Authentication failed:', error);
