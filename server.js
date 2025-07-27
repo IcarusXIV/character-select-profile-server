@@ -567,7 +567,8 @@ function sanitizeGalleryData(profiles) {
         LikeCount: profile.LikeCount,
         LastUpdated: profile.LastUpdated,
         ImageZoom: profile.ImageZoom,
-        ImageOffset: profile.ImageOffset
+        ImageOffset: profile.ImageOffset,
+        IsNSFW: profile.IsNSFW || false // Include NSFW flag for client filtering
     }));
 }
 
@@ -833,8 +834,25 @@ app.get("/admin", (req, res) => {
         
         .profile-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             margin-top: auto; /* Pushes buttons to bottom */
+            flex-wrap: wrap;
+        }
+        
+        .btn-nsfw {
+            background: #ff5722;
+            color: white;
+            font-size: 0.8em;
+            padding: 6px 10px;
+        }
+        
+        .btn-nsfw:hover {
+            background: #d84315;
+        }
+        
+        .btn-nsfw.active {
+            background: #d84315;
+            box-shadow: 0 0 0 2px rgba(255, 87, 34, 0.3);
         }
         
         /* Image Modal Styles */
@@ -995,6 +1013,121 @@ app.get("/admin", (req, res) => {
             padding: 15px;
             margin-bottom: 15px;
             border-left: 4px solid #ff9800;
+            display: flex;
+            gap: 15px;
+        }
+        
+        .report-card.reason-spam {
+            border-left-color: #ff5722;
+        }
+        
+        .report-card.reason-inappropriate {
+            border-left-color: #f44336;
+        }
+        
+        .report-card.reason-malicious {
+            border-left-color: #e91e63;
+        }
+        
+        .report-card.reason-harassment {
+            border-left-color: #9c27b0;
+        }
+        
+        .report-card.reason-other {
+            border-left-color: #ff9800;
+        }
+        
+        .report-info {
+            flex: 1;
+        }
+        
+        .reported-profile {
+            width: 120px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        
+        .reported-profile-image {
+            width: 80px;
+            height: 80px;
+            border-radius: 8px;
+            object-fit: cover;
+            margin-bottom: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .reported-profile-image:hover {
+            border-color: #4CAF50;
+            transform: scale(1.05);
+        }
+        
+        .reported-profile-placeholder {
+            width: 80px;
+            height: 80px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            margin-bottom: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #666;
+        }
+        
+        .reported-profile-name {
+            font-size: 0.85em;
+            color: #4CAF50;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .reported-profile-server {
+            font-size: 0.75em;
+            color: #ccc;
+        }
+        
+        .reason-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        
+        .reason-badge.reason-spam {
+            background: rgba(255, 87, 34, 0.2);
+            color: #ff5722;
+            border: 1px solid #ff5722;
+        }
+        
+        .reason-badge.reason-inappropriate {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+            border: 1px solid #f44336;
+        }
+        
+        .reason-badge.reason-malicious {
+            background: rgba(233, 30, 99, 0.2);
+            color: #e91e63;
+            border: 1px solid #e91e63;
+        }
+        
+        .reason-badge.reason-harassment {
+            background: rgba(156, 39, 176, 0.2);
+            color: #9c27b0;
+            border: 1px solid #9c27b0;
+        }
+        
+        .reason-badge.reason-other {
+            background: rgba(255, 152, 0, 0.2);
+            color: #ff9800;
+            border: 1px solid #ff9800;
         }
         
         .report-header {
@@ -1059,7 +1192,8 @@ app.get("/admin", (req, res) => {
             
             <div class="tabs">
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
-                <button class="tab" onclick="showTab('reports')">Reports</button>
+                <button class="tab" onclick="showTab('reports')">Pending Reports</button>
+                <button class="tab" onclick="showTab('archived')">Archived Reports</button>
                 <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('moderation')">Moderation Log</button>
             </div>
@@ -1071,9 +1205,19 @@ app.get("/admin", (req, res) => {
             </div>
             
             <div id="reports" class="tab-content">
-                <h3>Reports</h3>
+                <h3>Pending Reports</h3>
                 <div class="loading" id="reportsLoading">Loading reports...</div>
                 <div id="reportsContainer"></div>
+            </div>
+            
+            <div id="archived" class="tab-content">
+                <h3>Archived Reports</h3>
+                <div class="input-group" style="max-width: 400px; margin-bottom: 20px;">
+                    <label for="reportSearch">Search by Character Name:</label>
+                    <input type="text" id="reportSearch" placeholder="Type character name..." oninput="filterArchivedReports()">
+                </div>
+                <div class="loading" id="archivedLoading">Loading archived reports...</div>
+                <div id="archivedContainer"></div>
             </div>
             
             <div id="announcements" class="tab-content">
@@ -1141,6 +1285,9 @@ app.get("/admin", (req, res) => {
                 case 'reports':
                     loadReports();
                     break;
+                case 'archived':
+                    loadArchivedReports();
+                    break;
                 case 'announcements':
                     loadAnnouncements();
                     break;
@@ -1200,8 +1347,11 @@ app.get("/admin", (req, res) => {
                         case 'galleryprofiles':
                             await loadProfiles();
                             break;
-                        case 'reports':
+                        case 'pendingreports':
                             await loadReports();
+                            break;
+                        case 'archivedreports':
+                            await loadArchivedReports();
                             break;
                         case 'announcements':
                             await loadAnnouncements();
@@ -1259,6 +1409,10 @@ app.get("/admin", (req, res) => {
                         contentHtml = \`<div class="profile-content">No bio</div>\`;
                     }
                     
+                    // Add NSFW indicator if profile is marked as NSFW
+                    const nsfwIndicator = profile.IsNSFW ? 
+                        \`<div style="margin-top: 5px;"><span style="background: rgba(255, 87, 34, 0.2); color: #ff5722; padding: 2px 6px; border-radius: 8px; font-size: 0.75em; border: 1px solid #ff5722;">🔞 NSFW</span></div>\` : '';
+                    
                     card.innerHTML = \`
                         <div class="profile-header">
                             <div class="profile-info">
@@ -1272,12 +1426,16 @@ app.get("/admin", (req, res) => {
                             \${imageHtml}
                         </div>
                         \${contentHtml}
+                        \${nsfwIndicator}
                         <div class="profile-actions">
                             <button class="btn btn-danger" onclick="removeProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                 Remove
                             </button>
                             <button class="btn btn-warning" onclick="banProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                 Ban
+                            </button>
+                            <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
+                                \${profile.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
                             </button>
                         </div>
                     \`;
@@ -1372,36 +1530,250 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/reports?adminKey=\${adminKey}\`);
+                const response = await fetch(\`\${serverUrl}/admin/reports?status=pending&adminKey=\${adminKey}\`);
                 const reports = await response.json();
                 
                 loading.style.display = 'none';
                 
-                reports.forEach(report => {
-                    const card = document.createElement('div');
-                    card.className = 'report-card';
-                    card.innerHTML = \`
-                        <div class="report-header">
-                            <strong>\${report.reportedCharacterName}</strong>
-                            <span class="btn btn-\${report.status === 'pending' ? 'warning' : 'primary'}">\${report.status}</span>
-                        </div>
-                        <p><strong>Reason:</strong> \${report.reason}</p>
-                        <p><strong>Details:</strong> \${report.details || 'None'}</p>
-                        <p><strong>Reported by:</strong> \${report.reporterCharacter}</p>
-                        <p><strong>Date:</strong> \${new Date(report.createdAt).toLocaleDateString()}</p>
-                        \${report.status === 'pending' ? \`
-                            <div style="margin-top: 10px;">
-                                <button class="btn btn-primary" onclick="updateReport('\${report.id}', 'resolved')">Mark Resolved</button>
-                                <button class="btn btn-warning" onclick="updateReport('\${report.id}', 'dismissed')">Dismiss</button>
-                            </div>
-                        \` : ''}
-                    \`;
-                    container.appendChild(card);
-                });
+                if (reports.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">🎉 No pending reports!</div>';
+                    return;
+                }
+                
+                await renderReports(reports, container);
                 
             } catch (error) {
                 loading.innerHTML = \`<div class="error">Error loading reports: \${error.message}</div>\`;
             }
+        }
+        
+        // Global variable to store all archived reports for filtering
+        let allArchivedReports = [];
+        
+        async function loadArchivedReports() {
+            const loading = document.getElementById('archivedLoading');
+            const container = document.getElementById('archivedContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/reports?adminKey=\${adminKey}\`);
+                const allReports = await response.json();
+                
+                // Filter for resolved and dismissed reports
+                allArchivedReports = allReports.filter(report => 
+                    report.status === 'resolved' || report.status === 'dismissed'
+                );
+                
+                loading.style.display = 'none';
+                
+                if (allArchivedReports.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">📁 No archived reports</div>';
+                    return;
+                }
+                
+                await renderReports(allArchivedReports, container, true);
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading archived reports: \${error.message}</div>\`;
+            }
+        }
+        
+        function filterArchivedReports() {
+            const searchTerm = document.getElementById('reportSearch').value.toLowerCase();
+            const container = document.getElementById('archivedContainer');
+            
+            if (!searchTerm) {
+                renderReports(allArchivedReports, container, true);
+                return;
+            }
+            
+            const filteredReports = allArchivedReports.filter(report =>
+                report.reportedCharacterName.toLowerCase().includes(searchTerm) ||
+                report.reporterCharacter.toLowerCase().includes(searchTerm)
+            );
+            
+            renderReports(filteredReports, container, true);
+        }
+        
+        async function renderReports(reports, container, isArchived = false) {
+            container.innerHTML = '';
+            
+            // Group reports by reported character for archived view
+            if (isArchived) {
+                const groupedReports = {};
+                reports.forEach(report => {
+                    if (!groupedReports[report.reportedCharacterName]) {
+                        groupedReports[report.reportedCharacterName] = [];
+                    }
+                    groupedReports[report.reportedCharacterName].push(report);
+                });
+                
+                // Add summary header for archived reports
+                const summary = document.createElement('div');
+                summary.style.cssText = 'background: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px; color: #ccc;';
+                const uniqueReported = Object.keys(groupedReports).length;
+                const totalReports = reports.length;
+                const repeatOffenders = Object.entries(groupedReports).filter(([name, reports]) => reports.length > 1);
+                
+                summary.innerHTML = \`
+                    📊 \${totalReports} archived reports for \${uniqueReported} characters
+                    \${repeatOffenders.length > 0 ? \`<br>⚠️ \${repeatOffenders.length} characters with multiple reports\` : ''}
+                \`;
+                container.appendChild(summary);
+                
+                // Show repeat offenders if any
+                if (repeatOffenders.length > 0) {
+                    const repeatDiv = document.createElement('div');
+                    repeatDiv.style.cssText = 'background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; padding: 10px; border-radius: 8px; margin-bottom: 15px;';
+                    repeatDiv.innerHTML = \`
+                        <strong>🔄 Multiple Reports:</strong><br>
+                        \${repeatOffenders.map(([name, reps]) => \`\${name} (\${reps.length} reports)\`).join(', ')}
+                    \`;
+                    container.appendChild(repeatDiv);
+                }
+            }
+            
+            // Process reports and fetch profile data
+            for (const report of reports) {
+                const card = document.createElement('div');
+                
+                // Get reason class for color coding
+                const reasonClass = getReasonClass(report.reason);
+                card.className = \`report-card \${reasonClass}\`;
+                
+                // Try to fetch reported profile data
+                let profileHtml = '';
+                try {
+                    const profileResponse = await fetch(\`\${serverUrl}/view/\${encodeURIComponent(report.reportedCharacterId)}\`);
+                    if (profileResponse.ok) {
+                        const profile = await profileResponse.json();
+                        const imageHtml = profile.ProfileImageUrl 
+                            ? \`<img src="\${profile.ProfileImageUrl}" 
+                                    alt="\${profile.CharacterName}" 
+                                    class="reported-profile-image" 
+                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
+                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                               <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
+                            : \`<div class="reported-profile-placeholder">🖼️</div>\`;
+                        
+                        // Extract server from character name or use the one from profile
+                        const serverName = extractServerFromProfileId(report.reportedCharacterId);
+                        
+                        profileHtml = \`
+                            <div class="reported-profile">
+                                \${imageHtml}
+                                <div class="reported-profile-name">\${profile.CharacterName}</div>
+                                <div class="reported-profile-server">\${serverName}</div>
+                            </div>
+                        \`;
+                    } else {
+                        // Profile not found or private
+                        profileHtml = \`
+                            <div class="reported-profile">
+                                <div class="reported-profile-placeholder">❌</div>
+                                <div class="reported-profile-name">Profile Missing</div>
+                                <div class="reported-profile-server">Removed/Private</div>
+                            </div>
+                        \`;
+                    }
+                } catch (err) {
+                    // Error fetching profile
+                    profileHtml = \`
+                        <div class="reported-profile">
+                            <div class="reported-profile-placeholder">⚠️</div>
+                            <div class="reported-profile-name">Error Loading</div>
+                            <div class="reported-profile-server">-</div>
+                        </div>
+                    \`;
+                }
+                
+                const actionButtons = report.status === 'pending' ? \`
+                    <div style="margin-top: 10px;">
+                        <button class="btn btn-primary" onclick="updateReport('\${report.id}', 'resolved')">Mark Resolved</button>
+                        <button class="btn btn-warning" onclick="updateReport('\${report.id}', 'dismissed')">Dismiss</button>
+                    </div>
+                \` : \`
+                    <div style="margin-top: 10px;">
+                        <span style="color: #4CAF50; font-size: 0.9em;">✅ \${report.status.toUpperCase()}</span>
+                        \${report.reviewedAt ? \` on \${new Date(report.reviewedAt).toLocaleDateString()}\` : ''}
+                        \${report.adminNotes ? \`<br><strong>Admin Notes:</strong> \${report.adminNotes}\` : ''}
+                    </div>
+                \`;
+                
+                card.innerHTML = \`
+                    <div class="report-info">
+                        <div class="report-header">
+                            <strong>\${report.reportedCharacterName}</strong>
+                            <span class="btn btn-\${report.status === 'pending' ? 'warning' : (report.status === 'resolved' ? 'primary' : 'secondary')}">\${report.status}</span>
+                        </div>
+                        <div class="reason-badge \${reasonClass}">\${report.reason}</div>
+                        <p><strong>Details:</strong> \${report.details || 'None'}</p>
+                        <p><strong>Reported by:</strong> \${report.reporterCharacter}</p>
+                        <p><strong>Date:</strong> \${new Date(report.createdAt).toLocaleDateString()}</p>
+                        \${actionButtons}
+                    </div>
+                    \${profileHtml}
+                \`;
+                container.appendChild(card);
+            }
+        }
+        
+        async function toggleNSFW(characterId, characterName, currentNSFW) {
+            const newNSFW = !currentNSFW;
+            const action = newNSFW ? 'mark as NSFW' : 'remove NSFW flag from';
+            
+            if (!confirm(\`Are you sure you want to \${action} \${characterName}?\`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/nsfw\`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ isNSFW: newNSFW })
+                });
+                
+                if (response.ok) {
+                    alert(\`\${characterName} has been \${newNSFW ? 'marked as NSFW' : 'unmarked from NSFW'}\`);
+                    loadProfiles(); // Refresh the profiles
+                } else {
+                    alert('Error updating NSFW status');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        // Helper function to get CSS class based on report reason
+        function getReasonClass(reason) {
+            const reasonLower = reason.toLowerCase();
+            if (reasonLower.includes('spam')) return 'reason-spam';
+            if (reasonLower.includes('inappropriate') || reasonLower.includes('content')) return 'reason-inappropriate';
+            if (reasonLower.includes('malicious') || reasonLower.includes('link')) return 'reason-malicious';
+            if (reasonLower.includes('harassment') || reasonLower.includes('abuse')) return 'reason-harassment';
+            return 'reason-other';
+        }
+        
+        // Helper function to extract server from profile ID
+        function extractServerFromProfileId(profileId) {
+            // Try to extract from character ID that might contain server info
+            const parts = profileId.split('@');
+            if (parts.length > 1) {
+                return parts[parts.length - 1];
+            }
+            // If no @ symbol, try to extract from underscore format
+            const underscoreParts = profileId.split('_');
+            if (underscoreParts.length > 1) {
+                const lastPart = underscoreParts[underscoreParts.length - 1];
+                const serverParts = lastPart.split('@');
+                return serverParts.length > 1 ? serverParts[1] : 'Unknown';
+            }
+            return 'Unknown';
         }
         
         async function updateReport(reportId, status) {
@@ -1419,7 +1791,9 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     alert('Report updated');
-                    loadReports();
+                    // Refresh both pending and archived reports
+                    await loadReports();
+                    await loadArchivedReports();
                     // Auto-refresh stats after action
                     await refreshStats();
                 } else {
@@ -1788,13 +2162,21 @@ app.get("/gallery", async (req, res) => {
     try {
         const isPlugin = req.headers['x-plugin-auth'] === 'cs-plus-gallery-client';
         const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
+        const showNSFW = req.query.nsfw === 'true'; // Client can request NSFW content
         
         const now = Date.now();
         if (galleryCache && (now - galleryCacheTime) < CACHE_DURATION) {
+            let profiles = galleryCache;
+            
+            // Apply NSFW filter if requested
+            if (!showNSFW && !isAdmin) {
+                profiles = profiles.filter(profile => !profile.IsNSFW);
+            }
+            
             if (isPlugin || isAdmin) {
-                return res.json(galleryCache);
+                return res.json(profiles);
             } else {
-                return res.json(sanitizeGalleryData(galleryCache));
+                return res.json(sanitizeGalleryData(profiles));
             }
         }
 
@@ -1856,7 +2238,8 @@ app.get("/gallery", async (req, res) => {
                             LikeCount: likesDB.getLikeCount(characterId),
                             LastUpdated: profileData.LastUpdated || new Date().toISOString(),
                             ImageZoom: profileData.ImageZoom || 1.0,
-                            ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 }
+                            ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                            IsNSFW: profileData.IsNSFW || false // Include NSFW flag
                         };
                     }
                     return null;
@@ -1877,10 +2260,16 @@ app.get("/gallery", async (req, res) => {
         galleryCache = showcaseProfiles;
         galleryCacheTime = now;
         
+        // Apply NSFW filter
+        let filteredProfiles = showcaseProfiles;
+        if (!showNSFW && !isAdmin) {
+            filteredProfiles = showcaseProfiles.filter(profile => !profile.IsNSFW);
+        }
+        
         if (isPlugin || isAdmin) {
-            res.json(showcaseProfiles);
+            res.json(filteredProfiles);
         } else {
-            res.json(sanitizeGalleryData(showcaseProfiles));
+            res.json(sanitizeGalleryData(filteredProfiles));
         }
         
     } catch (err) {
@@ -2182,6 +2571,50 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('Remove profile error:', error);
         res.status(500).json({ error: 'Failed to remove profile' });
+    }
+});
+
+// Update profile NSFW status (admin only)
+app.patch("/admin/profiles/:characterId/nsfw", requireAdmin, async (req, res) => {
+    try {
+        const characterId = decodeURIComponent(req.params.characterId);
+        const { isNSFW } = req.body;
+        const adminId = req.headers['x-admin-id'] || 'admin';
+        
+        const filePath = path.join(profilesDir, `${characterId}.json`);
+        
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'Profile not found' });
+        }
+
+        // Read current profile
+        const profile = await readProfileAsync(filePath);
+        
+        // Update NSFW status
+        profile.IsNSFW = isNSFW;
+        profile.LastUpdated = new Date().toISOString();
+        
+        // Save updated profile
+        await atomicWriteProfile(filePath, profile);
+        
+        // Log moderation action
+        moderationDB.logAction(
+            isNSFW ? 'mark_nsfw' : 'unmark_nsfw', 
+            characterId, 
+            profile.CharacterName || characterId, 
+            `Profile ${isNSFW ? 'marked as' : 'unmarked from'} NSFW`, 
+            adminId
+        );
+        
+        // Clear gallery cache to reflect changes
+        galleryCache = null;
+        
+        console.log(`🛡️ Profile ${profile.CharacterName} ${isNSFW ? 'marked as' : 'unmarked from'} NSFW by ${adminId}`);
+        res.json({ success: true, isNSFW });
+        
+    } catch (error) {
+        console.error('Update NSFW status error:', error);
+        res.status(500).json({ error: 'Failed to update NSFW status' });
     }
 });
 
