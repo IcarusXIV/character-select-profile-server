@@ -843,11 +843,21 @@ app.get("/admin", (req, res) => {
             flex-wrap: wrap;
         }
         
+        .profile-actions .btn {
+            font-size: 0.75em;
+            padding: 6px 8px;
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
         .btn-nsfw {
             background: #ff5722;
             color: white;
-            font-size: 0.8em;
-            padding: 6px 10px;
+            font-size: 0.75em;
+            padding: 6px 8px;
         }
         
         .btn-nsfw:hover {
@@ -921,6 +931,15 @@ app.get("/admin", (req, res) => {
         
         .btn-warning:hover {
             background: #f57c00;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
         }
         
         .btn-primary {
@@ -1110,7 +1129,7 @@ app.get("/admin", (req, res) => {
         
         .reported-profile-actions .btn {
             font-size: 0.7em;
-            padding: 4px 8px;
+            padding: 4px 6px;
         }
         
         .reason-badge {
@@ -1183,6 +1202,9 @@ app.get("/admin", (req, res) => {
             <div style="text-align: center; margin-bottom: 20px;">
                 <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
                     🔄 Refresh All
+                </button>
+                <button class="btn btn-secondary" onclick="logout()" style="margin-left: 10px;">
+                    🚪 Logout
                 </button>
             </div>
             
@@ -1273,42 +1295,67 @@ app.get("/admin", (req, res) => {
         const serverUrl = window.location.origin;
         
         // Load saved admin credentials on page load
-        window.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🔄 Page loaded, checking for saved credentials...');
+            
             const savedAdminKey = localStorage.getItem('cs_admin_key');
             const savedAdminName = localStorage.getItem('cs_admin_name');
+            
+            console.log('📋 Saved admin key:', savedAdminKey ? 'Found' : 'Not found');
+            console.log('📋 Saved admin name:', savedAdminName ? 'Found' : 'Not found');
             
             if (savedAdminKey) {
                 document.getElementById('adminKey').value = savedAdminKey;
                 adminKey = savedAdminKey;
+                console.log('✅ Admin key loaded from storage');
             }
             
             if (savedAdminName) {
                 document.getElementById('adminName').value = savedAdminName;
                 adminName = savedAdminName;
+                console.log('✅ Admin name loaded from storage');
             }
             
             // Auto-load dashboard if both credentials are saved
             if (savedAdminKey && savedAdminName) {
-                console.log('Auto-loading dashboard with saved credentials');
+                console.log('🚀 Both credentials found, auto-loading dashboard...');
                 setTimeout(() => {
                     autoLoadDashboard();
-                }, 100);
+                }, 500); // Increased delay
+            } else {
+                console.log('❌ Missing credentials, showing login form');
             }
         });
         
         async function autoLoadDashboard() {
+            console.log('🔧 Attempting auto-load...');
             try {
+                console.log('📡 Testing admin credentials...');
+                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
+                
+                if (!testResponse.ok) {
+                    throw new Error('Invalid credentials');
+                }
+                
+                console.log('✅ Credentials valid, loading dashboard...');
                 await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
+                const authSection = document.querySelector('.auth-section');
+                if (authSection) {
+                    authSection.style.display = 'none';
+                }
                 loadProfiles();
-                console.log('Dashboard auto-loaded successfully');
+                console.log('🎉 Dashboard auto-loaded successfully');
             } catch (error) {
-                console.error('Auto-load failed:', error);
-                // If auto-load fails, show the auth section
-                document.querySelector('.auth-section').style.display = 'block';
+                console.error('❌ Auto-load failed:', error);
+                // If auto-load fails, show the auth section and clear bad credentials
+                const authSection = document.querySelector('.auth-section');
+                if (authSection) {
+                    authSection.style.display = 'block';
+                }
                 localStorage.removeItem('cs_admin_key');
                 localStorage.removeItem('cs_admin_name');
+                alert('Saved credentials expired. Please log in again.');
             }
         }
         
@@ -1424,13 +1471,13 @@ app.get("/admin", (req, res) => {
                     \${nsfwIndicator}
                     <div class="profile-actions">
                         <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                            Remove from Gallery
+                            Remove
                         </button>
                         <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                            Ban User
+                            Ban
                         </button>
                         <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
-                            \${profile.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
+                            \${profile.IsNSFW ? '18-' : '18+'}
                         </button>
                     </div>
                 \`;
