@@ -1182,6 +1182,7 @@ app.get("/admin", (req, res) => {
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
                 <button class="tab" onclick="showTab('reports')">Pending Reports</button>
                 <button class="tab" onclick="showTab('archived')">Archived Reports</button>
+                <button class="tab" onclick="showTab('banned')">Banned Profiles</button>
                 <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('moderation')">Moderation Log</button>
             </div>
@@ -1206,6 +1207,12 @@ app.get("/admin", (req, res) => {
                 </div>
                 <div class="loading" id="archivedLoading">Loading archived reports...</div>
                 <div id="archivedContainer"></div>
+            </div>
+            
+            <div id="banned" class="tab-content">
+                <h3>Banned Profiles</h3>
+                <div class="loading" id="bannedLoading">Loading banned profiles...</div>
+                <div id="bannedContainer"></div>
             </div>
             
             <div id="announcements" class="tab-content">
@@ -1276,6 +1283,9 @@ app.get("/admin", (req, res) => {
                 case 'archived':
                     loadArchivedReports();
                     break;
+                case 'banned':
+                    loadBannedProfiles();
+                    break;
                 case 'announcements':
                     loadAnnouncements();
                     break;
@@ -1337,6 +1347,9 @@ app.get("/admin", (req, res) => {
                             break;
                         case 'archivedreports':
                             await loadArchivedReports();
+                            break;
+                        case 'bannedprofiles':
+                            await loadBannedProfiles();
                             break;
                         case 'announcements':
                             await loadAnnouncements();
@@ -1502,6 +1515,126 @@ app.get("/admin", (req, res) => {
                 }
             } catch (error) {
                 alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function unbanProfile(characterId, characterName) {
+            const reason = prompt(\`Why are you unbanning \${characterName || characterId}?\`);
+            if (!reason) return;
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/unban\`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ reason })
+                });
+                
+                if (response.ok) {
+                    alert(\`\${characterName || characterId} has been unbanned\`);
+                    await loadBannedProfiles();
+                    await refreshStats();
+                } else {
+                    alert('Error unbanning profile');
+                }
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        async function loadBannedProfiles() {
+            const loading = document.getElementById('bannedLoading');
+            const container = document.getElementById('bannedContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/moderation/banned?adminKey=\${adminKey}\`);
+                const bannedIds = await response.json();
+                
+                loading.style.display = 'none';
+                
+                if (bannedIds.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">🎉 No banned profiles!</div>';
+                    return;
+                }
+                
+                // Try to get profile info for each banned ID
+                const galleryResponse = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
+                const allProfiles = galleryResponse.ok ? await galleryResponse.json() : [];
+                
+                bannedIds.forEach(bannedId => {
+                    const card = document.createElement('div');
+                    card.className = 'profile-card';
+                    card.style.borderLeft = '4px solid #f44336';
+                    
+                    // Try to find profile info
+                    const profile = allProfiles.find(p => p.CharacterId === bannedId);
+                    
+                    if (profile) {
+                        // Profile still exists - show full info
+                        const imageHtml = profile.ProfileImageUrl 
+                            ? \`<img src="\${profile.ProfileImageUrl}" 
+                                    alt="\${profile.CharacterName}" 
+                                    class="profile-image" 
+                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
+                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                               <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                            : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                        
+                        card.innerHTML = \`
+                            <div class="profile-header">
+                                <div class="profile-info">
+                                    <div class="profile-name" style="color: #f44336;">🚫 \${profile.CharacterName}</div>
+                                    <div class="profile-id">\${profile.CharacterId}</div>
+                                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                                        <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
+                                        <span style="color: #f44336;">BANNED</span>
+                                    </div>
+                                </div>
+                                \${imageHtml}
+                            </div>
+                            <div class="profile-content">
+                                \${profile.Bio || profile.GalleryStatus || 'No bio'}
+                            </div>
+                            <div class="profile-actions">
+                                <button class="btn btn-primary" onclick="unbanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                                    Unban
+                                </button>
+                            </div>
+                        \`;
+                    } else {
+                        // Profile doesn't exist anymore - show basic info
+                        card.innerHTML = \`
+                            <div class="profile-header">
+                                <div class="profile-info">
+                                    <div class="profile-name" style="color: #f44336;">🚫 \${bannedId}</div>
+                                    <div class="profile-id">Profile Removed</div>
+                                    <div style="margin-top: 8px;">
+                                        <span style="color: #f44336;">BANNED</span>
+                                    </div>
+                                </div>
+                                <div class="profile-image-placeholder">❌</div>
+                            </div>
+                            <div class="profile-content">
+                                Profile was removed but ban still active
+                            </div>
+                            <div class="profile-actions">
+                                <button class="btn btn-primary" onclick="unbanProfile('\${bannedId}', '\${bannedId}')">
+                                    Unban
+                                </button>
+                            </div>
+                        \`;
+                    }
+                    
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading banned profiles: \${error.message}</div>\`;
             }
         }
         
