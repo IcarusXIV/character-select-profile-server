@@ -663,7 +663,7 @@ function extractServerFromName(characterName) {
 }
 
 // =============================================================================
-// 🖥️ ADMIN DASHBOARD - BUILT-IN HTML INTERFACE (WITH FIXES)
+// 🖥️ ADMIN DASHBOARD - BUILT-IN HTML INTERFACE (FIXED VERSION)
 // =============================================================================
 
 app.get("/admin", (req, res) => {
@@ -1042,12 +1042,14 @@ app.get("/admin", (req, res) => {
         }
         
         .reported-profile {
-            width: 120px;
+            width: 140px;
             background: rgba(255, 255, 255, 0.05);
             border-radius: 8px;
             padding: 10px;
             text-align: center;
             flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
         }
         
         .reported-profile-image {
@@ -1092,6 +1094,19 @@ app.get("/admin", (req, res) => {
         .reported-profile-server {
             font-size: 0.8em;
             color: #aaa;
+            margin-bottom: 8px;
+        }
+        
+        .reported-profile-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: auto;
+        }
+        
+        .reported-profile-actions .btn {
+            font-size: 0.7em;
+            padding: 4px 8px;
         }
         
         .reason-badge {
@@ -1126,7 +1141,6 @@ app.get("/admin", (req, res) => {
     <div class="container">
         <div class="header">
             <h1>🛡️ Character Select+ Admin Dashboard</h1>
-            <!-- FIXED: Changed "Manage your" to "Manage" -->
             <p>Manage gallery, announcements, and reports</p>
         </div>
         
@@ -1142,7 +1156,6 @@ app.get("/admin", (req, res) => {
             <div class="stats" id="statsSection">
                 <div class="stat-card">
                     <div class="stat-number" id="totalProfiles">-</div>
-                    <!-- FIXED: Updated label to be more accurate -->
                     <div>Gallery Profiles</div>
                 </div>
                 <div class="stat-card">
@@ -1159,7 +1172,6 @@ app.get("/admin", (req, res) => {
                 </div>
             </div>
             
-            <!-- ENHANCED: Refresh All Button -->
             <div style="text-align: center; margin-bottom: 20px;">
                 <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
                     🔄 Refresh All
@@ -1291,7 +1303,6 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        // ENHANCED: Refresh stats AND current tab content
         async function refreshStats() {
             if (!adminKey) return;
             
@@ -1302,7 +1313,6 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                // Refresh stats
                 const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
@@ -1315,7 +1325,6 @@ app.get("/admin", (req, res) => {
                 document.getElementById('totalBanned').textContent = stats.totalBanned;
                 document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
                 
-                // Also refresh current tab content
                 const activeTab = document.querySelector('.tab.active');
                 if (activeTab) {
                     const tabName = activeTab.textContent.toLowerCase().replace(' ', '');
@@ -1462,7 +1471,6 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     alert(\`\${characterName} has been removed\${ban ? ' and banned' : ''}\`);
                     loadProfiles();
-                    // Auto-refresh stats after action
                     await refreshStats();
                 } else {
                     alert('Error removing profile');
@@ -1488,7 +1496,6 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     alert(\`\${characterName} has been banned\`);
-                    // Auto-refresh stats after action
                     await refreshStats();
                 } else {
                     alert('Error banning profile');
@@ -1619,40 +1626,55 @@ app.get("/admin", (req, res) => {
                 const reasonClass = getReasonClass(report.reason);
                 card.className = \`report-card \${reasonClass}\`;
                 
-                // Try to fetch reported profile data
+                // Try to fetch reported profile data with admin credentials
                 let profileHtml = '';
+                let profileData = null;
                 try {
-                    const profileResponse = await fetch(\`\${serverUrl}/view/\${encodeURIComponent(report.reportedCharacterId)}\`);
+                    const profileResponse = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                     if (profileResponse.ok) {
-                        const profile = await profileResponse.json();
-                        const imageHtml = profile.ProfileImageUrl 
-                            ? \`<img src="\${profile.ProfileImageUrl}" 
-                                    alt="\${profile.CharacterName}" 
-                                    class="reported-profile-image" 
-                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                               <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
-                            : \`<div class="reported-profile-placeholder">🖼️</div>\`;
+                        const allProfiles = await profileResponse.json();
+                        profileData = allProfiles.find(p => p.CharacterId === report.reportedCharacterId);
                         
-                        // Extract server from character name or use the one from profile
-                        const serverName = extractServerFromProfileId(report.reportedCharacterId);
-                        
-                        profileHtml = \`
-                            <div class="reported-profile">
-                                \${imageHtml}
-                                <div class="reported-profile-name">\${profile.CharacterName}</div>
-                                <div class="reported-profile-server">\${serverName}</div>
-                            </div>
-                        \`;
+                        if (profileData) {
+                            const imageHtml = profileData.ProfileImageUrl 
+                                ? \`<img src="\${profileData.ProfileImageUrl}" 
+                                        alt="\${profileData.CharacterName}" 
+                                        class="reported-profile-image" 
+                                        onclick="openImageModal('\${profileData.ProfileImageUrl}', '\${profileData.CharacterName}')"
+                                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                   <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
+                                : \`<div class="reported-profile-placeholder">🖼️</div>\`;
+                            
+                            profileHtml = \`
+                                <div class="reported-profile">
+                                    \${imageHtml}
+                                    <div class="reported-profile-name">\${profileData.CharacterName}</div>
+                                    <div class="reported-profile-server">\${profileData.Server}</div>
+                                    <div class="reported-profile-actions">
+                                        <button class="btn btn-danger" onclick="removeProfile('\${profileData.CharacterId}', '\${profileData.CharacterName}')">
+                                            Remove
+                                        </button>
+                                        <button class="btn btn-warning" onclick="banProfile('\${profileData.CharacterId}', '\${profileData.CharacterName}')">
+                                            Ban
+                                        </button>
+                                        <button class="btn btn-nsfw \${profileData.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profileData.CharacterId}', '\${profileData.CharacterName}', \${profileData.IsNSFW || false})">
+                                            \${profileData.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
+                                        </button>
+                                    </div>
+                                </div>
+                            \`;
+                        } else {
+                            // Profile not found in gallery
+                            profileHtml = \`
+                                <div class="reported-profile">
+                                    <div class="reported-profile-placeholder">❌</div>
+                                    <div class="reported-profile-name">Profile Missing</div>
+                                    <div class="reported-profile-server">Removed/Private</div>
+                                </div>
+                            \`;
+                        }
                     } else {
-                        // Profile not found or private
-                        profileHtml = \`
-                            <div class="reported-profile">
-                                <div class="reported-profile-placeholder">❌</div>
-                                <div class="reported-profile-name">Profile Missing</div>
-                                <div class="reported-profile-server">Removed/Private</div>
-                            </div>
-                        \`;
+                        throw new Error('Failed to fetch gallery');
                     }
                 } catch (err) {
                     // Error fetching profile
@@ -1717,6 +1739,15 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     alert(\`\${characterName} has been \${newNSFW ? 'marked as NSFW' : 'unmarked from NSFW'}\`);
                     loadProfiles(); // Refresh the profiles
+                    // Refresh current tab if it's reports
+                    const activeTab = document.querySelector('.tab.active');
+                    if (activeTab && (activeTab.textContent.includes('Reports'))) {
+                        if (activeTab.textContent.includes('Pending')) {
+                            loadReports();
+                        } else if (activeTab.textContent.includes('Archived')) {
+                            loadArchivedReports();
+                        }
+                    }
                 } else {
                     alert('Error updating NSFW status');
                 }
@@ -1735,23 +1766,6 @@ app.get("/admin", (req, res) => {
             return 'reason-other';
         }
         
-        // Helper function to extract server from profile ID
-        function extractServerFromProfileId(profileId) {
-            // Try to extract from character ID that might contain server info
-            const parts = profileId.split('@');
-            if (parts.length > 1) {
-                return parts[parts.length - 1];
-            }
-            // If no @ symbol, try to extract from underscore format
-            const underscoreParts = profileId.split('_');
-            if (underscoreParts.length > 1) {
-                const lastPart = underscoreParts[underscoreParts.length - 1];
-                const serverParts = lastPart.split('@');
-                return serverParts.length > 1 ? serverParts[1] : 'Unknown';
-            }
-            return 'Unknown';
-        }
-        
         async function updateReport(reportId, status) {
             const adminNotes = prompt('Add admin notes (optional):');
             
@@ -1767,10 +1781,8 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     alert('Report updated');
-                    // Refresh both pending and archived reports
                     await loadReports();
                     await loadArchivedReports();
-                    // Auto-refresh stats after action
                     await refreshStats();
                 } else {
                     alert('Error updating report');
@@ -1805,7 +1817,6 @@ app.get("/admin", (req, res) => {
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
-                    // Auto-refresh stats after action
                     await refreshStats();
                 } else {
                     alert('Error creating announcement');
@@ -1861,7 +1872,6 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     loadAnnouncements();
-                    // Auto-refresh stats after action
                     await refreshStats();
                 } else {
                     alert('Error deactivating announcement');
@@ -1882,7 +1892,6 @@ app.get("/admin", (req, res) => {
                 
                 if (response.ok) {
                     loadAnnouncements();
-                    // Auto-refresh stats after action
                     await refreshStats();
                 } else {
                     alert('Error deleting announcement');
@@ -2654,7 +2663,7 @@ app.get("/admin/moderation/banned", requireAdmin, (req, res) => {
     }
 });
 
-// FIXED: Admin dashboard endpoint - now counts only showcase profiles
+// Admin dashboard endpoint
 app.get("/admin/dashboard", requireAdmin, async (req, res) => {
     try {
         // Count all profiles
