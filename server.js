@@ -338,11 +338,12 @@ class ReportsDatabase {
         return this.reports;
     }
 
-    updateReportStatus(reportId, status, adminNotes = null) {
+    updateReportStatus(reportId, status, adminNotes = null, adminId = 'admin') {
         const report = this.reports.find(r => r.id === reportId);
         if (report) {
             report.status = status;
             report.reviewedAt = new Date().toISOString();
+            report.reviewedBy = adminId;
             report.adminNotes = adminNotes;
             this.save();
             return true;
@@ -443,6 +444,9 @@ function requireAdmin(req, res, next) {
     if (adminKey !== process.env.ADMIN_SECRET_KEY) {
         return res.status(403).json({ error: 'Admin access required' });
     }
+    
+    // Store admin ID for moderation logging
+    req.adminId = req.headers['x-admin-id'] || 'admin';
     next();
 }
 
@@ -1149,6 +1153,10 @@ app.get("/admin", (req, res) => {
                 <label for="adminKey">Admin Secret Key:</label>
                 <input type="password" id="adminKey" placeholder="Enter your admin secret key">
             </div>
+            <div class="input-group">
+                <label for="adminName">Your Admin Name:</label>
+                <input type="text" id="adminName" placeholder="Your name (for moderation logs)" value="">
+            </div>
             <button class="btn btn-primary" onclick="loadDashboard()">Load Dashboard</button>
         </div>
         
@@ -1189,6 +1197,10 @@ app.get("/admin", (req, res) => {
             
             <div id="profiles" class="tab-content active">
                 <h3>Gallery Profiles</h3>
+                <div class="input-group" style="max-width: 400px; margin-bottom: 20px;">
+                    <label for="profileSearch">Search Profiles:</label>
+                    <input type="text" id="profileSearch" placeholder="Search by name, server, or ID..." oninput="filterProfiles()">
+                </div>
                 <div class="loading" id="profilesLoading">Loading profiles...</div>
                 <div class="profile-grid" id="profilesGrid"></div>
             </div>
@@ -1256,7 +1268,140 @@ app.get("/admin", (req, res) => {
 
     <script>
         let adminKey = '';
+        let adminName = '';
+        let allProfiles = []; // Store all profiles for search filtering
         const serverUrl = window.location.origin;
+        
+        // Load saved admin credentials on page load
+        window.addEventListener('load', function() {
+            const savedAdminKey = sessionStorage.getItem('adminKey');
+            const savedAdminName = sessionStorage.getItem('adminName');
+            
+            if (savedAdminKey) {
+                document.getElementById('adminKey').value = savedAdminKey;
+                adminKey = savedAdminKey;
+            }
+            
+            if (savedAdminName) {
+                document.getElementById('adminName').value = savedAdminName;
+                adminName = savedAdminName;
+            }
+            
+            // Auto-load dashboard if credentials are saved
+            if (savedAdminKey && savedAdminName) {
+                loadDashboard();
+            }
+        });
+        
+        async function loadDashboard() {
+            adminKey = document.getElementById('adminKey').value;
+            adminName = document.getElementById('adminName').value;
+            
+            if (!adminKey) {
+                alert('Please enter your admin key');
+                return;
+            }
+            
+            if (!adminName) {
+                alert('Please enter your admin name');
+                return;
+            }
+            
+            // Save credentials to session storage
+            sessionStorage.setItem('adminKey', adminKey);
+            sessionStorage.setItem('adminName', adminName);
+            
+            try {
+                await refreshStats();
+                document.getElementById('dashboardContent').style.display = 'block';
+                loadProfiles();
+                
+            } catch (error) {
+                alert(\`Error: \${error.message}\`);
+            }
+        }
+        
+        function filterProfiles() {
+            const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
+            const grid = document.getElementById('profilesGrid');
+            
+            if (!searchTerm) {
+                renderProfileCards(allProfiles);
+                return;
+            }
+            
+            const filteredProfiles = allProfiles.filter(profile =>
+                profile.CharacterName.toLowerCase().includes(searchTerm) ||
+                profile.Server.toLowerCase().includes(searchTerm) ||
+                profile.CharacterId.toLowerCase().includes(searchTerm) ||
+                (profile.Bio && profile.Bio.toLowerCase().includes(searchTerm)) ||
+                (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm))
+            );
+            
+            renderProfileCards(filteredProfiles);
+        }
+        
+        function renderProfileCards(profiles) {
+            const grid = document.getElementById('profilesGrid');
+            grid.innerHTML = '';
+            
+            profiles.forEach(profile => {
+                const card = document.createElement('div');
+                card.className = 'profile-card';
+                
+                // Create clickable image element or placeholder
+                const imageHtml = profile.ProfileImageUrl 
+                    ? \`<img src="\${profile.ProfileImageUrl}" 
+                            alt="\${profile.CharacterName}" 
+                            class="profile-image" 
+                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
+                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                
+                // Show either Gallery Status OR Bio (Gallery Status takes priority)
+                let contentHtml = '';
+                if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
+                    contentHtml = \`<div class="profile-status">\${profile.GalleryStatus}</div>\`;
+                } else if (profile.Bio && profile.Bio.trim()) {
+                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
+                } else {
+                    contentHtml = \`<div class="profile-content">No bio</div>\`;
+                }
+                
+                // Add NSFW indicator if profile is marked as NSFW
+                const nsfwIndicator = profile.IsNSFW ? 
+                    \`<div style="margin-top: 5px;"><span style="background: rgba(255, 87, 34, 0.2); color: #ff5722; padding: 2px 6px; border-radius: 8px; font-size: 0.75em; border: 1px solid #ff5722;">🔞 NSFW</span></div>\` : '';
+                
+                card.innerHTML = \`
+                    <div class="profile-header">
+                        <div class="profile-info">
+                            <div class="profile-name">\${profile.CharacterName}</div>
+                            <div class="profile-id">\${profile.CharacterId}</div>
+                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
+                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
+                            </div>
+                        </div>
+                        \${imageHtml}
+                    </div>
+                    \${contentHtml}
+                    \${nsfwIndicator}
+                    <div class="profile-actions">
+                        <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                            Remove from Gallery
+                        </button>
+                        <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                            Ban User
+                        </button>
+                        <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
+                            \${profile.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
+                        </button>
+                    </div>
+                \`;
+                grid.appendChild(card);
+            });
+        }
         
         async function showTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(content => {
@@ -1382,66 +1527,74 @@ app.get("/admin", (req, res) => {
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
-                
-                profiles.forEach(profile => {
-                    const card = document.createElement('div');
-                    card.className = 'profile-card';
-                    
-                    // Create clickable image element or placeholder
-                    const imageHtml = profile.ProfileImageUrl 
-                        ? \`<img src="\${profile.ProfileImageUrl}" 
-                                alt="\${profile.CharacterName}" 
-                                class="profile-image" 
-                                onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                                onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                           <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                        : \`<div class="profile-image-placeholder">🖼️</div>\`;
-                    
-                    // Show either Gallery Status OR Bio (Gallery Status takes priority)
-                    let contentHtml = '';
-                    if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                        contentHtml = \`<div class="profile-status">\${profile.GalleryStatus}</div>\`;
-                    } else if (profile.Bio && profile.Bio.trim()) {
-                        contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
-                    } else {
-                        contentHtml = \`<div class="profile-content">No bio</div>\`;
-                    }
-                    
-                    // Add NSFW indicator if profile is marked as NSFW
-                    const nsfwIndicator = profile.IsNSFW ? 
-                        \`<div style="margin-top: 5px;"><span style="background: rgba(255, 87, 34, 0.2); color: #ff5722; padding: 2px 6px; border-radius: 8px; font-size: 0.75em; border: 1px solid #ff5722;">🔞 NSFW</span></div>\` : '';
-                    
-                    card.innerHTML = \`
-                        <div class="profile-header">
-                            <div class="profile-info">
-                                <div class="profile-name">\${profile.CharacterName}</div>
-                                <div class="profile-id">\${profile.CharacterId}</div>
-                                <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                    <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
-                                    <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
-                                </div>
-                            </div>
-                            \${imageHtml}
-                        </div>
-                        \${contentHtml}
-                        \${nsfwIndicator}
-                        <div class="profile-actions">
-                            <button class="btn btn-danger" onclick="removeProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                                Remove
-                            </button>
-                            <button class="btn btn-warning" onclick="banProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                                Ban
-                            </button>
-                            <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
-                                \${profile.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
-                            </button>
-                        </div>
-                    \`;
-                    grid.appendChild(card);
-                });
+                allProfiles = profiles; // Store for search functionality
+                renderProfileCards(profiles);
                 
             } catch (error) {
                 loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
+            }
+        }
+        
+        async function confirmRemoveProfile(characterId, characterName) {
+            if (!confirm(\`Are you sure you want to REMOVE "\${characterName}" from the gallery?\\n\\nThis will delete their profile from the gallery but they can upload again.\`)) {
+                return;
+            }
+            
+            const reason = prompt(\`Why are you removing "\${characterName}" from the gallery?\`);
+            if (!reason) return;
+            
+            const alsoBan = confirm(\`Do you also want to BAN "\${characterName}" from uploading again?\\n\\nClick OK to ban them, Cancel to just remove from gallery.\`);
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason, ban: alsoBan })
+                });
+                
+                if (response.ok) {
+                    alert(\`✅ "\${characterName}" has been removed from gallery\${alsoBan ? ' and banned' : ''}\`);
+                    loadProfiles();
+                    await refreshStats();
+                } else {
+                    alert('❌ Error removing profile');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
+            }
+        }
+        
+        async function confirmBanProfile(characterId, characterName) {
+            if (!confirm(\`Are you sure you want to BAN "\${characterName}"?\\n\\nThis will prevent them from uploading any profiles to the gallery.\`)) {
+                return;
+            }
+            
+            const reason = prompt(\`Why are you banning "\${characterName}"?\`);
+            if (!reason) return;
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason })
+                });
+                
+                if (response.ok) {
+                    alert(\`✅ "\${characterName}" has been banned\`);
+                    await refreshStats();
+                } else {
+                    alert('❌ Error banning profile');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -1835,6 +1988,7 @@ app.get("/admin", (req, res) => {
                     <div style="margin-top: 10px;">
                         <span style="color: #4CAF50; font-size: 0.9em;">✅ \${report.status.toUpperCase()}</span>
                         \${report.reviewedAt ? \` on \${new Date(report.reviewedAt).toLocaleDateString()}\` : ''}
+                        \${report.reviewedBy ? \` by \${report.reviewedBy}\` : ''}
                         \${report.adminNotes ? \`<br><strong>Admin Notes:</strong> \${report.adminNotes}\` : ''}
                     </div>
                 \`;
@@ -1913,21 +2067,22 @@ app.get("/admin", (req, res) => {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
                     },
                     body: JSON.stringify({ status, adminNotes })
                 });
                 
                 if (response.ok) {
-                    alert('Report updated');
+                    alert('✅ Report updated');
                     await loadReports();
                     await loadArchivedReports();
                     await refreshStats();
                 } else {
-                    alert('Error updating report');
+                    alert('❌ Error updating report');
                 }
             } catch (error) {
-                alert(\`Error: \${error.message}\`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -1946,22 +2101,23 @@ app.get("/admin", (req, res) => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
                     },
                     body: JSON.stringify({ title, message, type })
                 });
                 
                 if (response.ok) {
-                    alert('Announcement created');
+                    alert('✅ Announcement created');
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('Error creating announcement');
+                    alert('❌ Error creating announcement');
                 }
             } catch (error) {
-                alert(\`Error: \${error.message}\`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2006,17 +2162,20 @@ app.get("/admin", (req, res) => {
             try {
                 const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}/deactivate\`, {
                     method: 'PATCH',
-                    headers: { 'X-Admin-Key': adminKey }
+                    headers: { 
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    }
                 });
                 
                 if (response.ok) {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('Error deactivating announcement');
+                    alert('❌ Error deactivating announcement');
                 }
             } catch (error) {
-                alert(\`Error: \${error.message}\`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2026,17 +2185,20 @@ app.get("/admin", (req, res) => {
             try {
                 const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
                     method: 'DELETE',
-                    headers: { 'X-Admin-Key': adminKey }
+                    headers: { 
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    }
                 });
                 
                 if (response.ok) {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('Error deleting announcement');
+                    alert('❌ Error deleting announcement');
                 }
             } catch (error) {
-                alert(\`Error: \${error.message}\`);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2626,12 +2788,13 @@ app.patch("/admin/reports/:id", requireAdmin, (req, res) => {
     try {
         const { id } = req.params;
         const { status, adminNotes } = req.body;
+        const adminId = req.adminId;
         
         if (!status) {
             return res.status(400).json({ error: 'Status is required' });
         }
 
-        const success = reportsDB.updateReportStatus(id, status, adminNotes);
+        const success = reportsDB.updateReportStatus(id, status, adminNotes, adminId);
         
         if (success) {
             res.json({ success: true });
@@ -2649,7 +2812,7 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.characterId);
         const { reason, ban } = req.body;
-        const adminId = req.headers['x-admin-id'] || 'admin';
+        const adminId = req.adminId;
         
         const filePath = path.join(profilesDir, `${characterId}.json`);
         
@@ -2703,7 +2866,7 @@ app.patch("/admin/profiles/:characterId/nsfw", requireAdmin, async (req, res) =>
     try {
         const characterId = decodeURIComponent(req.params.characterId);
         const { isNSFW } = req.body;
-        const adminId = req.headers['x-admin-id'] || 'admin';
+        const adminId = req.adminId;
         
         const filePath = path.join(profilesDir, `${characterId}.json`);
         
@@ -2747,7 +2910,7 @@ app.post("/admin/profiles/:characterId/ban", requireAdmin, (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.characterId);
         const { reason } = req.body;
-        const adminId = req.headers['x-admin-id'] || 'admin';
+        const adminId = req.adminId;
         
         moderationDB.banProfile(characterId);
         moderationDB.logAction('ban', characterId, characterId, reason || 'No reason provided', adminId);
@@ -2766,7 +2929,7 @@ app.post("/admin/profiles/:characterId/unban", requireAdmin, (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.characterId);
         const { reason } = req.body;
-        const adminId = req.headers['x-admin-id'] || 'admin';
+        const adminId = req.adminId;
         
         moderationDB.unbanProfile(characterId);
         moderationDB.logAction('unban', characterId, characterId, reason || 'No reason provided', adminId);
