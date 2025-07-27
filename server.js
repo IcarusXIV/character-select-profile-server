@@ -1203,9 +1203,6 @@ app.get("/admin", (req, res) => {
                 <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
                     🔄 Refresh All
                 </button>
-                <button class="btn btn-secondary" onclick="logout()" style="margin-left: 10px;">
-                    🚪 Logout
-                </button>
             </div>
             
             <div class="tabs">
@@ -1298,6 +1295,17 @@ app.get("/admin", (req, res) => {
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔄 Page loaded, checking for saved credentials...');
             
+            // Test if localStorage is working
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                console.log('✅ localStorage is working');
+            } catch (e) {
+                console.error('❌ localStorage is not available:', e);
+                alert('Warning: Browser storage is disabled. Credentials cannot be saved.');
+                return;
+            }
+            
             const savedAdminKey = localStorage.getItem('cs_admin_key');
             const savedAdminName = localStorage.getItem('cs_admin_name');
             
@@ -1373,35 +1381,29 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            // Save credentials to local storage (persists across sessions)
-            localStorage.setItem('cs_admin_key', adminKey);
-            localStorage.setItem('cs_admin_name', adminName);
-            
             try {
+                console.log('🔐 Testing credentials before saving...');
                 await refreshStats();
+                
+                // Only save credentials AFTER successful authentication
+                console.log('✅ Authentication successful, saving credentials...');
+                localStorage.setItem('cs_admin_key', adminKey);
+                localStorage.setItem('cs_admin_name', adminName);
+                console.log('💾 Credentials saved to localStorage');
+                
                 document.getElementById('dashboardContent').style.display = 'block';
                 document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
                 
             } catch (error) {
+                console.error('❌ Authentication failed:', error);
                 alert(\`Error: \${error.message}\`);
-                // Clear saved credentials if login fails
-                localStorage.removeItem('cs_admin_key');
-                localStorage.removeItem('cs_admin_name');
+                // Don't save credentials if login fails
             }
         }
         
-        // Add logout function
-        function logout() {
-            localStorage.removeItem('cs_admin_key');
-            localStorage.removeItem('cs_admin_name');
-            adminKey = '';
-            adminName = '';
-            document.getElementById('dashboardContent').style.display = 'none';
-            document.querySelector('.auth-section').style.display = 'block';
-            document.getElementById('adminKey').value = '';
-            document.getElementById('adminName').value = '';
-        }
+        // Remove logout function since it's not needed
+        // function logout() { ... }
         
         function filterProfiles() {
             const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
