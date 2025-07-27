@@ -1327,7 +1327,7 @@ app.get("/admin", (req, res) => {
         async function autoLoadDashboard() {
             try {
                 // Test credentials first
-                const testResponse = await fetch(`${serverUrl}/admin/dashboard?adminKey=${adminKey}`);
+                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 
                 if (!testResponse.ok) {
                     throw new Error('Invalid saved credentials');
