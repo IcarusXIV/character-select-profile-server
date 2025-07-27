@@ -1633,7 +1633,17 @@ app.get("/admin", (req, res) => {
                     const profileResponse = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                     if (profileResponse.ok) {
                         const allProfiles = await profileResponse.json();
-                        profileData = allProfiles.find(p => p.CharacterId === report.reportedCharacterId);
+                        
+                        // Try multiple matching strategies
+                        profileData = allProfiles.find(p => 
+                            p.CharacterId === report.reportedCharacterId || 
+                            p.CharacterName === report.reportedCharacterName ||
+                            p.CharacterId.includes(report.reportedCharacterName.replace(/\s+/g, '_')) ||
+                            report.reportedCharacterId.includes(p.CharacterName.replace(/\s+/g, '_'))
+                        );
+                        
+                        console.log('Looking for profile:', report.reportedCharacterId, report.reportedCharacterName);
+                        console.log('Found profile:', profileData ? profileData.CharacterId : 'Not found');
                         
                         if (profileData) {
                             const imageHtml = profileData.ProfileImageUrl 
@@ -1664,19 +1674,57 @@ app.get("/admin", (req, res) => {
                                 </div>
                             \`;
                         } else {
-                            // Profile not found in gallery
-                            profileHtml = \`
-                                <div class="reported-profile">
-                                    <div class="reported-profile-placeholder">❌</div>
-                                    <div class="reported-profile-name">Profile Missing</div>
-                                    <div class="reported-profile-server">Removed/Private</div>
-                                </div>
-                            \`;
+                            // Profile not found in gallery - try direct view endpoint as fallback
+                            try {
+                                const directResponse = await fetch(\`\${serverUrl}/view/\${encodeURIComponent(report.reportedCharacterId)}\`);
+                                if (directResponse.ok) {
+                                    const directProfile = await directResponse.json();
+                                    const imageHtml = directProfile.ProfileImageUrl 
+                                        ? \`<img src="\${directProfile.ProfileImageUrl}" 
+                                                alt="\${directProfile.CharacterName}" 
+                                                class="reported-profile-image" 
+                                                onclick="openImageModal('\${directProfile.ProfileImageUrl}', '\${directProfile.CharacterName}')"
+                                                onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                           <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
+                                        : \`<div class="reported-profile-placeholder">🖼️</div>\`;
+                                    
+                                    profileHtml = \`
+                                        <div class="reported-profile">
+                                            \${imageHtml}
+                                            <div class="reported-profile-name">\${directProfile.CharacterName}</div>
+                                            <div class="reported-profile-server">Private/Not in Gallery</div>
+                                            <div class="reported-profile-actions">
+                                                <button class="btn btn-danger" onclick="removeProfile('\${report.reportedCharacterId}', '\${directProfile.CharacterName}')">
+                                                    Remove
+                                                </button>
+                                                <button class="btn btn-warning" onclick="banProfile('\${report.reportedCharacterId}', '\${directProfile.CharacterName}')">
+                                                    Ban
+                                                </button>
+                                                <button class="btn btn-nsfw \${directProfile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${report.reportedCharacterId}', '\${directProfile.CharacterName}', \${directProfile.IsNSFW || false})">
+                                                    \${directProfile.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    \`;
+                                } else {
+                                    throw new Error('Profile not found in direct view either');
+                                }
+                            } catch (directErr) {
+                                // Profile truly not found
+                                profileHtml = \`
+                                    <div class="reported-profile">
+                                        <div class="reported-profile-placeholder">❌</div>
+                                        <div class="reported-profile-name">Profile Missing</div>
+                                        <div class="reported-profile-server">Removed/Private</div>
+                                    </div>
+                                \`;
+                            }
                         }
                     } else {
                         throw new Error('Failed to fetch gallery');
                     }
                 } catch (err) {
+                    console.error('Error fetching profile for report:', err);
                     // Error fetching profile
                     profileHtml = \`
                         <div class="reported-profile">
