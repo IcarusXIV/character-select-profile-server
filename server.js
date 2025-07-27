@@ -1047,6 +1047,7 @@ app.get("/admin", (req, res) => {
             border-radius: 8px;
             padding: 10px;
             text-align: center;
+            flex-shrink: 0;
         }
         
         .reported-profile-image {
@@ -1054,10 +1055,11 @@ app.get("/admin", (req, res) => {
             height: 80px;
             border-radius: 8px;
             object-fit: cover;
-            margin-bottom: 8px;
+            margin: 0 auto 8px auto;
             border: 2px solid rgba(255, 255, 255, 0.3);
             cursor: pointer;
             transition: all 0.3s;
+            display: block;
         }
         
         .reported-profile-image:hover {
@@ -1070,7 +1072,7 @@ app.get("/admin", (req, res) => {
             height: 80px;
             border-radius: 8px;
             background: rgba(255, 255, 255, 0.1);
-            margin-bottom: 8px;
+            margin: 0 auto 8px auto;
             border: 2px solid rgba(255, 255, 255, 0.3);
             display: flex;
             align-items: center;
@@ -1080,54 +1082,28 @@ app.get("/admin", (req, res) => {
         }
         
         .reported-profile-name {
-            font-size: 0.85em;
+            font-size: 0.9em;
             color: #4CAF50;
             font-weight: bold;
             margin-bottom: 4px;
+            word-break: break-word;
         }
         
         .reported-profile-server {
-            font-size: 0.75em;
-            color: #ccc;
+            font-size: 0.8em;
+            color: #aaa;
         }
         
         .reason-badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 4px 12px;
             border-radius: 12px;
-            font-size: 0.8em;
+            font-size: 0.85em;
             font-weight: bold;
             margin-bottom: 8px;
-        }
-        
-        .reason-badge.reason-spam {
-            background: rgba(255, 87, 34, 0.2);
-            color: #ff5722;
-            border: 1px solid #ff5722;
-        }
-        
-        .reason-badge.reason-inappropriate {
-            background: rgba(244, 67, 54, 0.2);
-            color: #f44336;
-            border: 1px solid #f44336;
-        }
-        
-        .reason-badge.reason-malicious {
-            background: rgba(233, 30, 99, 0.2);
-            color: #e91e63;
-            border: 1px solid #e91e63;
-        }
-        
-        .reason-badge.reason-harassment {
-            background: rgba(156, 39, 176, 0.2);
-            color: #9c27b0;
-            border: 1px solid #9c27b0;
-        }
-        
-        .reason-badge.reason-other {
-            background: rgba(255, 152, 0, 0.2);
-            color: #ff9800;
-            border: 1px solid #ff9800;
+            background: rgba(255, 255, 255, 0.1);
+            color: #ddd;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
         .report-header {
