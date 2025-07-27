@@ -1293,47 +1293,59 @@ app.get("/admin", (req, res) => {
         
         // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Page loaded, checking for saved credentials...');
+            console.log('🔄 Page loaded, checking for saved credentials...');
             
             // Test if localStorage is working
             try {
                 localStorage.setItem('test', 'test');
                 localStorage.removeItem('test');
-                console.log('localStorage is working');
+                console.log('✅ localStorage is working');
             } catch (e) {
-                console.error('localStorage is not available:', e);
+                console.error('❌ localStorage is not available:', e);
+                alert('Warning: Browser storage is disabled. Credentials cannot be saved.');
                 return;
             }
             
             const savedAdminKey = localStorage.getItem('cs_admin_key');
             const savedAdminName = localStorage.getItem('cs_admin_name');
             
-            console.log('Saved admin key:', savedAdminKey ? 'Found' : 'Not found');
-            console.log('Saved admin name:', savedAdminName ? 'Found' : 'Not found');
+            console.log('📋 Saved admin key:', savedAdminKey ? 'Found' : 'Not found');
+            console.log('📋 Saved admin name:', savedAdminName ? 'Found' : 'Not found');
             
-            if (savedAdminKey && savedAdminName) {
+            if (savedAdminKey) {
                 document.getElementById('adminKey').value = savedAdminKey;
-                document.getElementById('adminName').value = savedAdminName;
                 adminKey = savedAdminKey;
+                console.log('✅ Admin key loaded from storage');
+            }
+            
+            if (savedAdminName) {
+                document.getElementById('adminName').value = savedAdminName;
                 adminName = savedAdminName;
-                console.log('Both credentials found, auto-loading dashboard...');
-                setTimeout(autoLoadDashboard, 500);
+                console.log('✅ Admin name loaded from storage');
+            }
+            
+            // Auto-load dashboard if both credentials are saved
+            if (savedAdminKey && savedAdminName) {
+                console.log('🚀 Both credentials found, auto-loading dashboard...');
+                setTimeout(() => {
+                    autoLoadDashboard();
+                }, 500); // Increased delay
             } else {
-                console.log('Missing credentials, showing login form');
+                console.log('❌ Missing credentials, showing login form');
             }
         });
         
         async function autoLoadDashboard() {
-            console.log('Attempting auto-load...');
+            console.log('🔧 Attempting auto-load...');
             try {
-                console.log('Testing admin credentials...');
-                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
+                console.log('📡 Testing admin credentials...');
+                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 
                 if (!testResponse.ok) {
                     throw new Error('Invalid credentials');
                 }
                 
-                console.log('Credentials valid, loading dashboard...');
+                console.log('✅ Credentials valid, loading dashboard...');
                 await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
                 const authSection = document.querySelector('.auth-section');
@@ -1341,15 +1353,17 @@ app.get("/admin", (req, res) => {
                     authSection.style.display = 'none';
                 }
                 loadProfiles();
-                console.log('Dashboard auto-loaded successfully');
+                console.log('🎉 Dashboard auto-loaded successfully');
             } catch (error) {
-                console.error('Auto-load failed:', error);
+                console.error('❌ Auto-load failed:', error);
+                // If auto-load fails, show the auth section and clear bad credentials
                 const authSection = document.querySelector('.auth-section');
                 if (authSection) {
                     authSection.style.display = 'block';
                 }
                 localStorage.removeItem('cs_admin_key');
                 localStorage.removeItem('cs_admin_name');
+                alert('Saved credentials expired. Please log in again.');
             }
         }
         
@@ -1368,27 +1382,28 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                console.log('Testing credentials before saving...');
-                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
-                if (!testResponse.ok) {
-                    throw new Error('Invalid admin key');
-                }
+                console.log('🔐 Testing credentials before saving...');
+                await refreshStats();
                 
-                console.log('Authentication successful, saving credentials...');
+                // Only save credentials AFTER successful authentication
+                console.log('✅ Authentication successful, saving credentials...');
                 localStorage.setItem('cs_admin_key', adminKey);
                 localStorage.setItem('cs_admin_name', adminName);
-                console.log('Credentials saved to localStorage');
+                console.log('💾 Credentials saved to localStorage');
                 
-                await refreshStats();
                 document.getElementById('dashboardContent').style.display = 'block';
                 document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
                 
             } catch (error) {
-                console.error('Authentication failed:', error);
-                alert('Error: ' + error.message);
+                console.error('❌ Authentication failed:', error);
+                alert(\`Error: \${error.message}\`);
+                // Don't save credentials if login fails
             }
         }
+        
+        // Remove logout function since it's not needed
+        // function logout() { ... }
         
         function filterProfiles() {
             const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
@@ -1605,46 +1620,48 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmRemoveProfile(characterId, characterName) {
-            const reason = prompt('Why are you removing "' + characterName + '" from the gallery?');
-            if (!reason) return;
-            
-            if (!confirm('Confirm: Remove "' + characterName + '" from the gallery?\\n\\nThis will delete their profile from the gallery but they can upload again.')) {
+            if (!confirm(\`Are you sure you want to REMOVE "\${characterName}" from the gallery?\\n\\nThis will delete their profile from the gallery but they can upload again.\`)) {
                 return;
             }
             
+            const reason = prompt(\`Why are you removing "\${characterName}" from the gallery?\`);
+            if (!reason) return;
+            
+            const alsoBan = confirm(\`Do you also want to BAN "\${characterName}" from uploading again?\\n\\nClick OK to ban them, Cancel to just remove from gallery.\`);
+            
             try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Admin-Key': adminKey,
                         'X-Admin-Id': adminName
                     },
-                    body: JSON.stringify({ reason, ban: false })
+                    body: JSON.stringify({ reason, ban: alsoBan })
                 });
                 
                 if (response.ok) {
-                    alert('Profile "' + characterName + '" has been removed from gallery');
+                    alert(\`✅ "\${characterName}" has been removed from gallery\${alsoBan ? ' and banned' : ''}\`);
                     loadProfiles();
                     await refreshStats();
                 } else {
-                    alert('Error removing profile');
+                    alert('❌ Error removing profile');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            const reason = prompt('Why are you banning "' + characterName + '"?');
-            if (!reason) return;
-            
-            if (!confirm('Confirm: Ban "' + characterName + '"?\\n\\nThis will prevent them from uploading any profiles to the gallery.')) {
+            if (!confirm(\`Are you sure you want to BAN "\${characterName}"?\\n\\nThis will prevent them from uploading any profiles to the gallery.\`)) {
                 return;
             }
             
+            const reason = prompt(\`Why are you banning "\${characterName}"?\`);
+            if (!reason) return;
+            
             try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/ban', {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1655,13 +1672,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('User "' + characterName + '" has been banned');
+                    alert(\`✅ "\${characterName}" has been banned\`);
                     await refreshStats();
                 } else {
-                    alert('Error banning user');
+                    alert('❌ Error banning profile');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2037,39 +2054,43 @@ app.get("/admin", (req, res) => {
                     }
                 } catch (error) {
                     // Error fetching
-                    profileHtml = 
-                        '<div class="reported-profile">' +
-                            '<div class="reported-profile-placeholder">⚠️</div>' +
-                            '<div class="reported-profile-name">Error Loading</div>' +
-                            '<div class="reported-profile-server">-</div>' +
-                        '</div>';
+                    profileHtml = \`
+                        <div class="reported-profile">
+                            <div class="reported-profile-placeholder">⚠️</div>
+                            <div class="reported-profile-name">Error Loading</div>
+                            <div class="reported-profile-server">-</div>
+                        </div>
+                    \`;
                 }
                 
-                const actionButtons = report.status === 'pending' ? 
-                    '<div style="margin-top: 10px;">' +
-                        '<button class="btn btn-primary" onclick="updateReport(\'' + report.id + '\', \'resolved\')">Mark Resolved</button>' +
-                        '<button class="btn btn-warning" onclick="updateReport(\'' + report.id + '\', \'dismissed\')">Dismiss</button>' +
-                    '</div>' : 
-                    '<div style="margin-top: 10px;">' +
-                        '<span style="color: #4CAF50; font-size: 0.9em;">✅ ' + report.status.toUpperCase() + '</span>' +
-                        (report.reviewedAt ? ' on ' + new Date(report.reviewedAt).toLocaleDateString() : '') +
-                        (report.reviewedBy ? ' by ' + report.reviewedBy : '') +
-                        (report.adminNotes ? '<br><strong>Admin Notes:</strong> ' + report.adminNotes : '') +
-                    '</div>';
+                const actionButtons = report.status === 'pending' ? \`
+                    <div style="margin-top: 10px;">
+                        <button class="btn btn-primary" onclick="updateReport('\${report.id}', 'resolved')">Mark Resolved</button>
+                        <button class="btn btn-warning" onclick="updateReport('\${report.id}', 'dismissed')">Dismiss</button>
+                    </div>
+                \` : \`
+                    <div style="margin-top: 10px;">
+                        <span style="color: #4CAF50; font-size: 0.9em;">✅ \${report.status.toUpperCase()}</span>
+                        \${report.reviewedAt ? \` on \${new Date(report.reviewedAt).toLocaleDateString()}\` : ''}
+                        \${report.reviewedBy ? \` by \${report.reviewedBy}\` : ''}
+                        \${report.adminNotes ? \`<br><strong>Admin Notes:</strong> \${report.adminNotes}\` : ''}
+                    </div>
+                \`;
                 
-                card.innerHTML = 
-                    '<div class="report-info">' +
-                        '<div class="report-header">' +
-                            '<strong>' + report.reportedCharacterName + '</strong>' +
-                            '<span class="btn btn-' + (report.status === 'pending' ? 'warning' : (report.status === 'resolved' ? 'primary' : 'secondary')) + '">' + report.status + '</span>' +
-                        '</div>' +
-                        '<div class="reason-badge ' + reasonClass + '">' + report.reason + '</div>' +
-                        '<p><strong>Details:</strong> ' + (report.details || 'None') + '</p>' +
-                        '<p><strong>Reported by:</strong> ' + report.reporterCharacter + '</p>' +
-                        '<p><strong>Date:</strong> ' + new Date(report.createdAt).toLocaleDateString() + '</p>' +
-                        actionButtons +
-                    '</div>' +
-                    profileHtml;
+                card.innerHTML = \`
+                    <div class="report-info">
+                        <div class="report-header">
+                            <strong>\${report.reportedCharacterName}</strong>
+                            <span class="btn btn-\${report.status === 'pending' ? 'warning' : (report.status === 'resolved' ? 'primary' : 'secondary')}">\${report.status}</span>
+                        </div>
+                        <div class="reason-badge \${reasonClass}">\${report.reason}</div>
+                        <p><strong>Details:</strong> \${report.details || 'None'}</p>
+                        <p><strong>Reported by:</strong> \${report.reporterCharacter}</p>
+                        <p><strong>Date:</strong> \${new Date(report.createdAt).toLocaleDateString()}</p>
+                        \${actionButtons}
+                    </div>
+                    \${profileHtml}
+                \`;
                 container.appendChild(card);
             }
         }
@@ -2126,7 +2147,7 @@ app.get("/admin", (req, res) => {
             const adminNotes = prompt('Add admin notes (optional):');
             
             try {
-                const response = await fetch(serverUrl + '/admin/reports/' + reportId, {
+                const response = await fetch(\`\${serverUrl}/admin/reports/\${reportId}\`, {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2137,15 +2158,15 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('Report updated');
+                    alert('✅ Report updated');
                     await loadReports();
                     await loadArchivedReports();
                     await refreshStats();
                 } else {
-                    alert('Error updating report');
+                    alert('❌ Error updating report');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2160,7 +2181,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(serverUrl + '/admin/announcements', {
+                const response = await fetch(\`\${serverUrl}/admin/announcements\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2171,16 +2192,16 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('Announcement created');
+                    alert('✅ Announcement created');
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('Error creating announcement');
+                    alert('❌ Error creating announcement');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2223,7 +2244,7 @@ app.get("/admin", (req, res) => {
         
         async function deactivateAnnouncement(id) {
             try {
-                const response = await fetch(serverUrl + '/admin/announcements/' + id + '/deactivate', {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}/deactivate\`, {
                     method: 'PATCH',
                     headers: { 
                         'X-Admin-Key': adminKey,
@@ -2235,10 +2256,10 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('Error deactivating announcement');
+                    alert('❌ Error deactivating announcement');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2246,7 +2267,7 @@ app.get("/admin", (req, res) => {
             if (!confirm('Are you sure you want to delete this announcement?')) return;
             
             try {
-                const response = await fetch(serverUrl + '/admin/announcements/' + id, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
                     method: 'DELETE',
                     headers: { 
                         'X-Admin-Key': adminKey,
@@ -2258,10 +2279,10 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('Error deleting announcement');
+                    alert('❌ Error deleting announcement');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
