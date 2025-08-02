@@ -1555,16 +1555,13 @@ app.get("/admin", (req, res) => {
                     contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
-                // Action buttons - NSFW profiles don't get NSFW toggle button
+                // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
                 const actionButtons = profile.IsNSFW ? \`
                     <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Remove
                     </button>
                     <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Ban
-                    </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', true)">
-                        Remove NSFW
                     </button>
                 \` : \`
                     <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
@@ -1726,7 +1723,6 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmRemoveProfile(characterId, characterName) {
-            // SIMPLIFIED FLOW: Single confirmation with clear options
             const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
@@ -1737,7 +1733,6 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            // FINAL CONFIRMATION
             const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
             if (!finalConfirm) return;
             
@@ -1765,7 +1760,6 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            // SIMPLIFIED FLOW: Single confirmation for ban
             const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
@@ -1776,7 +1770,6 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            // FINAL CONFIRMATION
             const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
             if (!finalConfirm) return;
             
@@ -2086,7 +2079,7 @@ app.get("/admin", (req, res) => {
                                <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
                             : \`<div class="reported-profile-placeholder">🖼️</div>\`;
                         
-                        // Only show action buttons for pending reports (not archived)
+                        // FIXED: Only show action buttons for pending reports, and NO NSFW BUTTON for NSFW profiles
                         const actionButtonsHtml = !isArchived ? \`
                             <div class="reported-profile-actions">
                                 <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
@@ -2095,9 +2088,7 @@ app.get("/admin", (req, res) => {
                                 <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                     Ban
                                 </button>
-                                <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
-                                    \${profile.IsNSFW ? 'Remove NSFW' : 'Mark NSFW'}
-                                </button>
+                                \${profile.IsNSFW ? '' : \`<button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">Mark NSFW</button>\`}
                             </div>
                         \` : '';
                         
@@ -2174,10 +2165,13 @@ app.get("/admin", (req, res) => {
         }
         
         async function toggleNSFW(characterId, characterName, currentNSFW) {
-            const newNSFW = !currentNSFW;
-            const action = newNSFW ? 'mark as NSFW' : 'remove NSFW flag from';
+            // Only allow marking as NSFW, not removing NSFW flag
+            if (currentNSFW) {
+                alert('NSFW profiles cannot be unmarked. Use Remove button if needed.');
+                return;
+            }
             
-            if (!confirm(\`Are you sure you want to \${action} \${characterName}?\`)) {
+            if (!confirm(\`Are you sure you want to mark \${characterName} as NSFW?\`)) {
                 return;
             }
             
@@ -2188,11 +2182,11 @@ app.get("/admin", (req, res) => {
                         'Content-Type': 'application/json',
                         'X-Admin-Key': adminKey
                     },
-                    body: JSON.stringify({ isNSFW: newNSFW })
+                    body: JSON.stringify({ isNSFW: true })
                 });
                 
                 if (response.ok) {
-                    alert(\`\${characterName} has been \${newNSFW ? 'marked as NSFW' : 'unmarked from NSFW'}\`);
+                    alert(\`\${characterName} has been marked as NSFW\`);
                     loadProfiles(); // Refresh the profiles
                     // Refresh current tab if it's reports
                     const activeTab = document.querySelector('.tab.active');
