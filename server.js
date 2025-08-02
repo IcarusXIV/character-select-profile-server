@@ -1981,6 +1981,11 @@ app.get("/admin", (req, res) => {
             document.getElementById('imageFilter').value = '';
             document.getElementById('likesFilter').value = '';
             document.getElementById('sortFilter').value = 'likes';
+            
+            // Clear saved filters and page
+            localStorage.removeItem('cs_admin_filters');
+            localStorage.removeItem('cs_admin_current_page');
+            
             applyFilters();
         }
         
@@ -2053,10 +2058,12 @@ app.get("/admin", (req, res) => {
             
             if (newPage >= 1 && newPage <= totalPages) {
                 currentPage = newPage;
-                renderProfilesPage();
                 
-                // Scroll to top of profiles
-                document.getElementById('profilesGrid').scrollIntoView({ behavior: 'smooth' });
+                // Save current page to localStorage for persistence
+                localStorage.setItem('cs_admin_current_page', currentPage);
+                
+                renderProfilesPage();
+                // Removed the annoying scroll to top behavior
             }
         }
         
