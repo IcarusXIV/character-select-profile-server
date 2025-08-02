@@ -659,6 +659,8 @@ const friendsDB = new FriendsDatabase();
 const announcementsDB = new AnnouncementsDatabase();
 const reportsDB = new ReportsDatabase();
 const moderationDB = new ModerationDatabase();
+const activityDB = new ActivityDatabase();
+const autoFlagDB = new AutoFlaggingDatabase();
 
 // Admin authentication middleware
 function requireAdmin(req, res, next) {
@@ -1456,6 +1458,131 @@ app.get("/admin", (req, res) => {
             color: #ccc;
             font-size: 0.9em;
         }
+        
+        /* Activity Feed Styles */
+        .activity-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid #4CAF50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .activity-item.upload {
+            border-left-color: #2196F3;
+        }
+        
+        .activity-item.like {
+            border-left-color: #ff5722;
+        }
+        
+        .activity-item.report {
+            border-left-color: #ff9800;
+        }
+        
+        .activity-item.moderation {
+            border-left-color: #9c27b0;
+        }
+        
+        .activity-item.flag {
+            border-left-color: #f44336;
+        }
+        
+        .activity-content {
+            flex: 1;
+        }
+        
+        .activity-message {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .activity-metadata {
+            font-size: 0.85em;
+            color: #aaa;
+        }
+        
+        .activity-time {
+            font-size: 0.8em;
+            color: #666;
+            white-space: nowrap;
+            margin-left: 15px;
+        }
+        
+        /* Advanced Filtering Styles */
+        .filter-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .filter-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .filter-active {
+            background: rgba(76, 175, 80, 0.2);
+            border-color: #4CAF50;
+        }
+        
+        /* Flagged Content Styles */
+        .flagged-card {
+            background: rgba(244, 67, 54, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #f44336;
+        }
+        
+        .flagged-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .flagged-keywords {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-family: monospace;
+            margin: 5px 5px 5px 0;
+            display: inline-block;
+        }
+        
+        .flagged-content {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 0.9em;
+            max-height: 100px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -1505,6 +1632,8 @@ app.get("/admin", (req, res) => {
             
             <div class="tabs">
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
+                <button class="tab" onclick="showTab('activity')">Activity Feed</button>
+                <button class="tab" onclick="showTab('flagged')">Auto-Flagged</button>
                 <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('reports')">Pending Reports</button>
                 <button class="tab" onclick="showTab('archived')">Archived Reports</button>
@@ -1514,10 +1643,64 @@ app.get("/admin", (req, res) => {
             
             <div id="profiles" class="tab-content active">
                 <h3>Gallery Profiles</h3>
-                <div class="input-group" style="max-width: 400px; margin-bottom: 20px;">
-                    <label for="profileSearch">Search Profiles:</label>
-                    <input type="text" id="profileSearch" placeholder="Search by name, server, or ID..." oninput="filterProfiles()">
+                
+                <!-- Advanced Filtering Section -->
+                <div class="filter-section">
+                    <h4>🔍 Advanced Filters</h4>
+                    <div class="filter-grid">
+                        <div class="input-group">
+                            <label for="profileSearch">Search:</label>
+                            <input type="text" id="profileSearch" placeholder="Name, server, bio..." oninput="applyFilters()">
+                        </div>
+                        <div class="input-group">
+                            <label for="serverFilter">Server:</label>
+                            <select id="serverFilter" onchange="applyFilters()">
+                                <option value="">All Servers</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="nsfwFilter">NSFW Status:</label>
+                            <select id="nsfwFilter" onchange="applyFilters()">
+                                <option value="">All Profiles</option>
+                                <option value="false">Safe Only</option>
+                                <option value="true">NSFW Only</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="imageFilter">Has Image:</label>
+                            <select id="imageFilter" onchange="applyFilters()">
+                                <option value="">All</option>
+                                <option value="true">With Image</option>
+                                <option value="false">No Image</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="likesFilter">Like Count:</label>
+                            <select id="likesFilter" onchange="applyFilters()">
+                                <option value="">Any</option>
+                                <option value="0">No Likes</option>
+                                <option value="1-5">1-5 Likes</option>
+                                <option value="6-20">6-20 Likes</option>
+                                <option value="21+">21+ Likes</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="sortFilter">Sort By:</label>
+                            <select id="sortFilter" onchange="applyFilters()">
+                                <option value="likes">Most Liked</option>
+                                <option value="newest">Newest First</option>
+                                <option value="oldest">Oldest First</option>
+                                <option value="name">Name A-Z</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="filter-controls">
+                        <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+                        <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
+                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
+                    </div>
                 </div>
+                
                 <div class="pagination" id="profilesPagination" style="display: none;">
                     <button id="prevPageBtn" onclick="changePage(-1)">Previous</button>
                     <div class="pagination-info">
@@ -1535,6 +1718,44 @@ app.get("/admin", (req, res) => {
                     </div>
                     <button onclick="changePage(1)">Next</button>
                 </div>
+            </div>
+            
+            <div id="activity" class="tab-content">
+                <h3>📊 Activity Feed</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
+                    <select id="activityTypeFilter" onchange="loadActivityFeed()">
+                        <option value="">All Activity</option>
+                        <option value="upload">Profile Uploads</option>
+                        <option value="like">Profile Likes</option>
+                        <option value="report">Reports</option>
+                        <option value="moderation">Moderation Actions</option>
+                        <option value="flag">Auto-Flagged Content</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadActivityFeed()" id="refreshActivityBtn">
+                        🔄 Refresh
+                    </button>
+                    <label style="color: #ccc; margin-left: auto;">
+                        <input type="checkbox" id="autoRefreshActivity" onchange="toggleAutoRefresh()"> Auto-refresh (30s)
+                    </label>
+                </div>
+                <div class="loading" id="activityLoading">Loading activity...</div>
+                <div id="activityContainer"></div>
+            </div>
+            
+            <div id="flagged" class="tab-content">
+                <h3>🚩 Auto-Flagged Content</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
+                    <select id="flagStatusFilter" onchange="loadFlaggedProfiles()">
+                        <option value="pending">Pending Review</option>
+                        <option value="">All Flagged</option>
+                        <option value="approved">Approved</option>
+                        <option value="removed">Removed</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadFlaggedProfiles()">🔄 Refresh</button>
+                    <button class="btn btn-secondary" onclick="showKeywordManager()">Manage Keywords</button>
+                </div>
+                <div class="loading" id="flaggedLoading">Loading flagged content...</div>
+                <div id="flaggedContainer"></div>
             </div>
             
             <div id="announcements" class="tab-content">
@@ -1606,6 +1827,8 @@ app.get("/admin", (req, res) => {
         let currentPage = 1;
         const profilesPerPage = 24; // 4x6 grid looks good
         const serverUrl = window.location.origin;
+        let activityRefreshInterval = null;
+        let availableServers = new Set();
         
         // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -1668,23 +1891,119 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        function filterProfiles() {
+        function applyFilters() {
             const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
+            const serverFilter = document.getElementById('serverFilter').value;
+            const nsfwFilter = document.getElementById('nsfwFilter').value;
+            const imageFilter = document.getElementById('imageFilter').value;
+            const likesFilter = document.getElementById('likesFilter').value;
+            const sortFilter = document.getElementById('sortFilter').value;
             
-            if (!searchTerm) {
-                filteredProfiles = [...allProfiles];
-            } else {
-                filteredProfiles = allProfiles.filter(profile =>
+            let filtered = [...allProfiles];
+            
+            // Apply search filter
+            if (searchTerm) {
+                filtered = filtered.filter(profile =>
                     profile.CharacterName.toLowerCase().includes(searchTerm) ||
                     profile.Server.toLowerCase().includes(searchTerm) ||
                     profile.CharacterId.toLowerCase().includes(searchTerm) ||
                     (profile.Bio && profile.Bio.toLowerCase().includes(searchTerm)) ||
-                    (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm))
+                    (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm)) ||
+                    (profile.Race && profile.Race.toLowerCase().includes(searchTerm)) ||
+                    (profile.Tags && profile.Tags.toLowerCase().includes(searchTerm))
                 );
             }
             
-            currentPage = 1; // Reset to first page when filtering
+            // Apply server filter
+            if (serverFilter) {
+                filtered = filtered.filter(profile => profile.Server === serverFilter);
+            }
+            
+            // Apply NSFW filter
+            if (nsfwFilter !== '') {
+                const isNSFW = nsfwFilter === 'true';
+                filtered = filtered.filter(profile => !!profile.IsNSFW === isNSFW);
+            }
+            
+            // Apply image filter
+            if (imageFilter !== '') {
+                const hasImage = imageFilter === 'true';
+                filtered = filtered.filter(profile => !!profile.ProfileImageUrl === hasImage);
+            }
+            
+            // Apply likes filter
+            if (likesFilter) {
+                switch(likesFilter) {
+                    case '0':
+                        filtered = filtered.filter(profile => profile.LikeCount === 0);
+                        break;
+                    case '1-5':
+                        filtered = filtered.filter(profile => profile.LikeCount >= 1 && profile.LikeCount <= 5);
+                        break;
+                    case '6-20':
+                        filtered = filtered.filter(profile => profile.LikeCount >= 6 && profile.LikeCount <= 20);
+                        break;
+                    case '21+':
+                        filtered = filtered.filter(profile => profile.LikeCount >= 21);
+                        break;
+                }
+            }
+            
+            // Apply sorting
+            switch(sortFilter) {
+                case 'likes':
+                    filtered.sort((a, b) => b.LikeCount - a.LikeCount);
+                    break;
+                case 'newest':
+                    filtered.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
+                    break;
+                case 'oldest':
+                    filtered.sort((a, b) => new Date(a.LastUpdated) - new Date(b.LastUpdated));
+                    break;
+                case 'name':
+                    filtered.sort((a, b) => a.CharacterName.localeCompare(b.CharacterName));
+                    break;
+            }
+            
+            filteredProfiles = filtered;
+            currentPage = 1;
+            
+            // Update results display
+            document.getElementById('filterResults').textContent = \`\${filtered.length} profiles found\`;
+            
             renderProfilesPage();
+        }
+        
+        function clearFilters() {
+            document.getElementById('profileSearch').value = '';
+            document.getElementById('serverFilter').value = '';
+            document.getElementById('nsfwFilter').value = '';
+            document.getElementById('imageFilter').value = '';
+            document.getElementById('likesFilter').value = '';
+            document.getElementById('sortFilter').value = 'likes';
+            applyFilters();
+        }
+        
+        function populateServerDropdown() {
+            const serverSelect = document.getElementById('serverFilter');
+            const currentValue = serverSelect.value;
+            
+            // Clear existing options except "All Servers"
+            serverSelect.innerHTML = '<option value="">All Servers</option>';
+            
+            // Add server options
+            const sortedServers = Array.from(availableServers).sort();
+            sortedServers.forEach(server => {
+                const option = document.createElement('option');
+                option.value = server;
+                option.textContent = server;
+                serverSelect.appendChild(option);
+            });
+            
+            // Restore previous selection if valid
+            if (sortedServers.includes(currentValue)) {
+                serverSelect.value = currentValue;
+            }
         }
         
         function renderProfilesPage() {
@@ -1837,6 +2156,12 @@ app.get("/admin", (req, res) => {
                 case 'profiles':
                     loadProfiles();
                     break;
+                case 'activity':
+                    loadActivityFeed();
+                    break;
+                case 'flagged':
+                    loadFlaggedProfiles();
+                    break;
                 case 'announcements':
                     loadAnnouncements();
                     break;
@@ -1934,13 +2259,254 @@ app.get("/admin", (req, res) => {
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
-                allProfiles = profiles; // Store for search functionality
-                filteredProfiles = [...profiles]; // Initialize filtered profiles
-                currentPage = 1; // Reset to first page
-                renderProfilesPage();
+                allProfiles = profiles;
+                
+                // Populate available servers
+                availableServers.clear();
+                profiles.forEach(profile => {
+                    if (profile.Server) {
+                        availableServers.add(profile.Server);
+                    }
+                });
+                populateServerDropdown();
+                
+                // Apply initial filters
+                applyFilters();
                 
             } catch (error) {
                 loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
+            }
+        }
+        
+        // Activity Feed Functions
+        async function loadActivityFeed() {
+            const loading = document.getElementById('activityLoading');
+            const container = document.getElementById('activityContainer');
+            const typeFilter = document.getElementById('activityTypeFilter').value;
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                let url = \`\${serverUrl}/admin/activity?adminKey=\${adminKey}\`;
+                if (typeFilter) {
+                    url += \`&type=\${typeFilter}\`;
+                }
+                
+                const response = await fetch(url);
+                const activities = await response.json();
+                
+                loading.style.display = 'none';
+                
+                if (activities.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">📭 No activity to show</div>';
+                    return;
+                }
+                
+                activities.forEach(activity => {
+                    const item = document.createElement('div');
+                    item.className = \`activity-item \${activity.type}\`;
+                    
+                    const timeAgo = getTimeAgo(activity.timestamp);
+                    let metadataText = '';
+                    
+                    if (activity.metadata) {
+                        const meta = activity.metadata;
+                        switch(activity.type) {
+                            case 'upload':
+                                metadataText = \`Server: \${meta.server || 'Unknown'}\${meta.hasImage ? ' • Has Image' : ''}\`;
+                                break;
+                            case 'like':
+                                metadataText = \`Total Likes: \${meta.newCount || 0}\`;
+                                break;
+                            case 'report':
+                                metadataText = \`Reason: \${meta.reason || 'Unknown'} • Reporter: \${meta.reporterCharacter || 'Anonymous'}\`;
+                                break;
+                            case 'moderation':
+                                metadataText = \`Action: \${meta.action || 'Unknown'} • Admin: \${meta.adminId || 'Unknown'}\`;
+                                break;
+                            case 'flag':
+                                metadataText = \`Keywords: \${meta.keywords ? meta.keywords.join(', ') : 'Unknown'}\`;
+                                break;
+                        }
+                    }
+                    
+                    item.innerHTML = \`
+                        <div class="activity-content">
+                            <div class="activity-message">\${activity.message}</div>
+                            \${metadataText ? \`<div class="activity-metadata">\${metadataText}</div>\` : ''}
+                        </div>
+                        <div class="activity-time">\${timeAgo}</div>
+                    \`;
+                    
+                    container.appendChild(item);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading activity: \${error.message}</div>\`;
+            }
+        }
+        
+        function toggleAutoRefresh() {
+            const checkbox = document.getElementById('autoRefreshActivity');
+            const refreshBtn = document.getElementById('refreshActivityBtn');
+            
+            if (checkbox.checked) {
+                activityRefreshInterval = setInterval(() => {
+                    if (document.querySelector('.tab.active').onclick.toString().includes('activity')) {
+                        loadActivityFeed();
+                    }
+                }, 30000); // 30 seconds
+                refreshBtn.textContent = '🔄 Auto-refreshing (30s)';
+            } else {
+                if (activityRefreshInterval) {
+                    clearInterval(activityRefreshInterval);
+                    activityRefreshInterval = null;
+                }
+                refreshBtn.textContent = '🔄 Refresh';
+            }
+        }
+        
+        function getTimeAgo(timestamp) {
+            const now = new Date();
+            const time = new Date(timestamp);
+            const diffMs = now - time;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+            
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return \`\${diffMins}m ago\`;
+            if (diffHours < 24) return \`\${diffHours}h ago\`;
+            if (diffDays < 7) return \`\${diffDays}d ago\`;
+            
+            return time.toLocaleDateString();
+        }
+        
+        // Auto-Flagging Functions
+        async function loadFlaggedProfiles() {
+            const loading = document.getElementById('flaggedLoading');
+            const container = document.getElementById('flaggedContainer');
+            const statusFilter = document.getElementById('flagStatusFilter').value;
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                let url = \`\${serverUrl}/admin/flagged?adminKey=\${adminKey}\`;
+                if (statusFilter) {
+                    url += \`&status=\${statusFilter}\`;
+                }
+                
+                const response = await fetch(url);
+                const flaggedProfiles = await response.json();
+                
+                loading.style.display = 'none';
+                
+                if (flaggedProfiles.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">🎉 No flagged content!</div>';
+                    return;
+                }
+                
+                flaggedProfiles.forEach(flag => {
+                    const card = document.createElement('div');
+                    card.className = 'flagged-card';
+                    
+                    const timeAgo = getTimeAgo(flag.flaggedAt);
+                    const keywordsHtml = flag.flaggedKeywords.map(kw => 
+                        \`<span class="flagged-keywords">\${kw}</span>\`
+                    ).join('');
+                    
+                    const statusBadge = flag.status === 'pending' ? 
+                        '<span style="background: rgba(255, 152, 0, 0.2); color: #ff9800; padding: 4px 8px; border-radius: 4px;">⏳ PENDING</span>' :
+                        flag.status === 'approved' ?
+                        '<span style="background: rgba(76, 175, 80, 0.2); color: #4CAF50; padding: 4px 8px; border-radius: 4px;">✅ APPROVED</span>' :
+                        '<span style="background: rgba(244, 67, 54, 0.2); color: #f44336; padding: 4px 8px; border-radius: 4px;">❌ REMOVED</span>';
+                    
+                    const actionButtons = flag.status === 'pending' ? \`
+                        <div style="margin-top: 10px;">
+                            <button class="btn btn-primary" onclick="updateFlagStatus('\${flag.id}', 'approved')">Approve</button>
+                            <button class="btn btn-danger" onclick="updateFlagStatus('\${flag.id}', 'removed')">Remove</button>
+                            <button class="btn btn-warning" onclick="confirmRemoveProfile('\${flag.characterId}', '\${flag.characterName}')">Remove Profile</button>
+                        </div>
+                    \` : '';
+                    
+                    card.innerHTML = \`
+                        <div class="flagged-header">
+                            <strong>\${flag.characterName}</strong>
+                            \${statusBadge}
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>Flagged Keywords:</strong><br>
+                            \${keywordsHtml}
+                        </div>
+                        <div class="flagged-content">
+                            \${flag.content}
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
+                            <strong>Flagged:</strong> \${timeAgo}
+                            \${flag.reviewedBy ? \` • <strong>Reviewed by:</strong> \${flag.reviewedBy}\` : ''}
+                        </div>
+                        \${actionButtons}
+                    \`;
+                    
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = \`<div class="error">Error loading flagged content: \${error.message}</div>\`;
+            }
+        }
+        
+        async function updateFlagStatus(flagId, status) {
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/flagged/\${flagId}\`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ status })
+                });
+                
+                if (response.ok) {
+                    alert(\`✅ Flag \${status}\`);
+                    loadFlaggedProfiles();
+                } else {
+                    alert('❌ Error updating flag status');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
+            }
+        }
+        
+        function showKeywordManager() {
+            // Simple keyword manager for now
+            const newKeyword = prompt('Add new keyword to auto-flag list:\\n(Leave empty to cancel)');
+            if (newKeyword && newKeyword.trim()) {
+                addFlagKeyword(newKeyword.trim());
+            }
+        }
+        
+        async function addFlagKeyword(keyword) {
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/flagged/keywords\`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ keyword })
+                });
+                
+                if (response.ok) {
+                    alert(\`✅ Added keyword: "\${keyword}"\`);
+                } else {
+                    alert('❌ Error adding keyword');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -2682,6 +3248,17 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
 
+        // Auto-flag check for problematic content
+        autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
+
+        // Log activity
+        activityDB.logActivity('upload', `NEW PROFILE: ${csCharacterName}`, {
+            characterId,
+            characterName: csCharacterName,
+            server: extractServerFromName(physicalCharacterName),
+            hasImage: !!req.file
+        });
+
         console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
         res.json(profile);
     } catch (error) {
@@ -2740,6 +3317,17 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
 
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
+
+        // Auto-flag check for problematic content
+        autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
+
+        // Log activity
+        activityDB.logActivity('upload', `UPDATED PROFILE: ${csCharacterName}`, {
+            characterId,
+            characterName: csCharacterName,
+            server: extractServerFromName(physicalCharacterName),
+            hasImage: !!req.file
+        });
 
         console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
         res.json(profile);
@@ -2950,6 +3538,24 @@ app.post("/gallery/:name/like", async (req, res) => {
         
         const newCount = likesDB.addLike(characterId, likerId);
         
+        // Log activity for new likes only
+        if (newCount > (likesDB.getLikeCount(characterId) - 1)) {
+            try {
+                const filePath = path.join(profilesDir, `${characterId}.json`);
+                if (fs.existsSync(filePath)) {
+                    const profile = await readProfileAsync(filePath);
+                    activityDB.logActivity('like', `LIKED: ${profile.CharacterName || characterId}`, {
+                        characterId,
+                        characterName: profile.CharacterName || characterId,
+                        likerId,
+                        newCount
+                    });
+                }
+            } catch (err) {
+                // Silent fail for activity logging
+            }
+        }
+        
         const filePath = path.join(profilesDir, `${characterId}.json`);
         if (fs.existsSync(filePath)) {
             try {
@@ -3141,6 +3747,15 @@ app.post("/reports", (req, res) => {
             reason, 
             details
         );
+        
+        // Log activity
+        activityDB.logActivity('report', `REPORTED: ${reportedCharacterName || reportedCharacterId}`, {
+            reportId: report.id,
+            reportedCharacterId,
+            reportedCharacterName: reportedCharacterName || reportedCharacterId,
+            reporterCharacter,
+            reason
+        });
         
         res.json({ success: true, reportId: report.id });
     } catch (error) {
@@ -3376,13 +3991,101 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
             totalBanned: moderationDB.bannedProfiles.size,
             totalAnnouncements: announcementsDB.getAllAnnouncements().length,
             activeAnnouncements: announcementsDB.getActiveAnnouncements().length,
-            recentActions: moderationDB.getActions().slice(0, 10)
+            recentActions: moderationDB.getActions().slice(0, 10),
+            pendingFlags: autoFlagDB.getFlaggedProfiles('pending').length
         };
         
         res.json(stats);
     } catch (error) {
         console.error('Dashboard error:', error);
         res.status(500).json({ error: 'Failed to get dashboard data' });
+    }
+});
+
+// Activity Feed endpoints
+app.get("/admin/activity", requireAdmin, (req, res) => {
+    try {
+        const { type, limit } = req.query;
+        let activities;
+        
+        if (type) {
+            activities = activityDB.getActivitiesByType(type, parseInt(limit) || 50);
+        } else {
+            activities = activityDB.getActivities(parseInt(limit) || 50);
+        }
+        
+        res.json(activities);
+    } catch (error) {
+        console.error('Get activity error:', error);
+        res.status(500).json({ error: 'Failed to get activity' });
+    }
+});
+
+// Auto-flagging endpoints
+app.get("/admin/flagged", requireAdmin, (req, res) => {
+    try {
+        const { status } = req.query;
+        const flaggedProfiles = autoFlagDB.getFlaggedProfiles(status);
+        res.json(flaggedProfiles);
+    } catch (error) {
+        console.error('Get flagged profiles error:', error);
+        res.status(500).json({ error: 'Failed to get flagged profiles' });
+    }
+});
+
+app.patch("/admin/flagged/:id", requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const adminId = req.adminId;
+        
+        const success = autoFlagDB.updateFlagStatus(id, status, adminId);
+        
+        if (success) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Flag not found' });
+        }
+    } catch (error) {
+        console.error('Update flag status error:', error);
+        res.status(500).json({ error: 'Failed to update flag status' });
+    }
+});
+
+app.post("/admin/flagged/keywords", requireAdmin, (req, res) => {
+    try {
+        const { keyword } = req.body;
+        
+        if (!keyword || typeof keyword !== 'string') {
+            return res.status(400).json({ error: 'Valid keyword is required' });
+        }
+        
+        const success = autoFlagDB.addKeyword(keyword);
+        
+        if (success) {
+            res.json({ success: true, message: 'Keyword added' });
+        } else {
+            res.status(400).json({ error: 'Keyword already exists' });
+        }
+    } catch (error) {
+        console.error('Add keyword error:', error);
+        res.status(500).json({ error: 'Failed to add keyword' });
+    }
+});
+
+app.delete("/admin/flagged/keywords/:keyword", requireAdmin, (req, res) => {
+    try {
+        const { keyword } = req.params;
+        const success = autoFlagDB.removeKeyword(decodeURIComponent(keyword));
+        
+        if (success) {
+            res.json({ success: true, message: 'Keyword removed' });
+        } else {
+            res.status(404).json({ error: 'Keyword not found' });
+        }
+    } catch (error) {
+        console.error('Remove keyword error:', error);
+        res.status(500).json({ error: 'Failed to remove keyword' });
     }
 });
 
@@ -3400,8 +4103,8 @@ app.listen(PORT, () => {
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
     console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
-    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}`);
-    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard`);
+    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}`);
+    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging`);
     console.log(`🗂️ Using data directory: ${DATA_DIR}`);
     
     if (process.env.ADMIN_SECRET_KEY) {
