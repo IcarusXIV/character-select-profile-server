@@ -47,6 +47,8 @@ const friendsDbFile = path.join(DATA_DIR, "friends_database.json");
 const announcementsDbFile = path.join(DATA_DIR, "announcements_database.json");
 const reportsDbFile = path.join(DATA_DIR, "reports_database.json");
 const moderationDbFile = path.join(DATA_DIR, "moderation_database.json");
+const activityDbFile = path.join(DATA_DIR, "activity_database.json");
+const flaggedDbFile = path.join(DATA_DIR, "flagged_database.json");
 
 // 💾 DATABASE CLASSES
 class LikesDatabase {
@@ -409,6 +411,16 @@ class ModerationDatabase {
         this.actions.unshift(moderationAction);
         this.save();
         console.log(`🛡️ Moderation: ${action} on ${characterName} by ${adminId}`);
+        
+        // Log to activity feed
+        activityDB.logActivity('moderation', `${action.toUpperCase()}: ${characterName}`, {
+            action,
+            characterId,
+            characterName,
+            adminId,
+            reason
+        });
+        
         return moderationAction;
     }
 
@@ -428,6 +440,216 @@ class ModerationDatabase {
 
     getActions() {
         return this.actions;
+    }
+}
+
+class ActivityDatabase {
+    constructor() {
+        this.activities = [];
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(activityDbFile)) {
+                const data = JSON.parse(fs.readFileSync(activityDbFile, 'utf-8'));
+                this.activities = data.activities || [];
+                console.log(`📊 Loaded ${this.activities.length} activity entries`);
+            }
+        } catch (err) {
+            console.error('Error loading activity database:', err);
+            this.activities = [];
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                activities: this.activities.slice(0, 1000), // Keep only latest 1000 entries
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = activityDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(activityDbFile)) {
+                fs.copyFileSync(activityDbFile, activityDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, activityDbFile);
+        } catch (err) {
+            console.error('Error saving activity database:', err);
+        }
+    }
+
+    logActivity(type, message, metadata = {}) {
+        const activity = {
+            id: crypto.randomUUID(),
+            type, // 'upload', 'like', 'report', 'moderation', 'flag'
+            message,
+            metadata,
+            timestamp: new Date().toISOString()
+        };
+        
+        this.activities.unshift(activity);
+        
+        // Keep only latest 1000 activities
+        if (this.activities.length > 1000) {
+            this.activities = this.activities.slice(0, 1000);
+        }
+        
+        this.save();
+        return activity;
+    }
+
+    getActivities(limit = 50) {
+        return this.activities.slice(0, limit);
+    }
+
+    getActivitiesByType(type, limit = 50) {
+        return this.activities.filter(a => a.type === type).slice(0, limit);
+    }
+}
+
+class AutoFlaggingDatabase {
+    constructor() {
+        this.flaggedProfiles = [];
+        this.flaggedKeywords = [
+            // Racism
+            'white power', 'racial purity', 'master race', 'white supremacy',
+            // Transphobia  
+            'tr*nny', 'tr@nny', 'tranny', 'tr4nny', '41%', 'attack helicopter',
+            'real women', 'biological women', 'men in dresses',
+            // Homophobia
+            'f*ggot', 'f@ggot', 'faggot', 'f4ggot',
+            // General hate
+            'kill yourself', 'kys', 'rope yourself', 'gas the',
+            // Slurs (partial list)
+            'n*gger', 'n@gger', 'nigger', 'n1gger'
+        ];
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(flaggedDbFile)) {
+                const data = JSON.parse(fs.readFileSync(flaggedDbFile, 'utf-8'));
+                this.flaggedProfiles = data.flaggedProfiles || [];
+                this.flaggedKeywords = data.flaggedKeywords || this.flaggedKeywords;
+                console.log(`🚩 Loaded ${this.flaggedProfiles.length} flagged profiles`);
+            }
+        } catch (err) {
+            console.error('Error loading flagging database:', err);
+            this.flaggedProfiles = [];
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                flaggedProfiles: this.flaggedProfiles,
+                flaggedKeywords: this.flaggedKeywords,
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = flaggedDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(flaggedDbFile)) {
+                fs.copyFileSync(flaggedDbFile, flaggedDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, flaggedDbFile);
+        } catch (err) {
+            console.error('Error saving flagging database:', err);
+        }
+    }
+
+    scanProfile(characterId, characterName, bio, galleryStatus, tags) {
+        const content = `${bio || ''} ${galleryStatus || ''} ${tags || ''}`.toLowerCase();
+        const flaggedKeywords = [];
+        
+        for (const keyword of this.flaggedKeywords) {
+            if (content.includes(keyword.toLowerCase())) {
+                flaggedKeywords.push(keyword);
+            }
+        }
+        
+        if (flaggedKeywords.length > 0) {
+            const flag = {
+                id: crypto.randomUUID(),
+                characterId,
+                characterName,
+                content: content.substring(0, 500), // Store first 500 chars for review
+                flaggedKeywords,
+                status: 'pending',
+                flaggedAt: new Date().toISOString(),
+                reviewedAt: null,
+                reviewedBy: null
+            };
+            
+            this.flaggedProfiles.unshift(flag);
+            this.save();
+            
+            console.log(`🚩 Auto-flagged profile: ${characterName} for keywords: ${flaggedKeywords.join(', ')}`);
+            
+            // Log to activity feed
+            activityDB.logActivity('flag', `AUTO-FLAGGED: ${characterName}`, {
+                characterId,
+                characterName,
+                keywords: flaggedKeywords
+            });
+            
+            return flag;
+        }
+        
+        return null;
+    }
+
+    getFlaggedProfiles(status = null) {
+        if (status) {
+            return this.flaggedProfiles.filter(f => f.status === status);
+        }
+        return this.flaggedProfiles;
+    }
+
+    updateFlagStatus(flagId, status, reviewedBy) {
+        const flag = this.flaggedProfiles.find(f => f.id === flagId);
+        if (flag) {
+            flag.status = status;
+            flag.reviewedAt = new Date().toISOString();
+            flag.reviewedBy = reviewedBy;
+            this.save();
+            
+            // Log to activity feed
+            activityDB.logActivity('moderation', `FLAG ${status.toUpperCase()}: ${flag.characterName}`, {
+                flagId,
+                characterName: flag.characterName,
+                reviewedBy
+            });
+            
+            return true;
+        }
+        return false;
+    }
+
+    addKeyword(keyword) {
+        if (!this.flaggedKeywords.includes(keyword.toLowerCase())) {
+            this.flaggedKeywords.push(keyword.toLowerCase());
+            this.save();
+            return true;
+        }
+        return false;
+    }
+
+    removeKeyword(keyword) {
+        const index = this.flaggedKeywords.indexOf(keyword.toLowerCase());
+        if (index !== -1) {
+            this.flaggedKeywords.splice(index, 1);
+            this.save();
+            return true;
+        }
+        return false;
     }
 }
 
