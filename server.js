@@ -1555,28 +1555,25 @@ app.get("/admin", (req, res) => {
                     contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
-                // Action buttons - NSFW profiles don't get NSFW toggle button
-                const actionButtons = profile.IsNSFW ? \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                // Action buttons - NSFW profiles get ONLY Remove and Ban
+                const actionButtons = profile.IsNSFW ? `
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('${profile.CharacterId}', '${profile.CharacterName}')">
                         Remove
                     </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                    <button class="btn btn-warning" onclick="confirmBanProfile('${profile.CharacterId}', '${profile.CharacterName}')">
                         Ban
                     </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', true)">
-                        Remove NSFW
-                    </button>
-                \` : \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                ` : `
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('${profile.CharacterId}', '${profile.CharacterName}')">
                         Remove
                     </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                    <button class="btn btn-warning" onclick="confirmBanProfile('${profile.CharacterId}', '${profile.CharacterName}')">
                         Ban
                     </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('${profile.CharacterId}', '${profile.CharacterName}')">
                         Mark NSFW
                     </button>
-                \`;
+                `;
                 
                 card.innerHTML = \`
                     <div class="profile-header">
