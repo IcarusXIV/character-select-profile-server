@@ -668,7 +668,7 @@ function extractServerFromName(characterName) {
 }
 
 // =============================================================================
-// 🖥️ ADMIN DASHBOARD - BUILT-IN HTML INTERFACE (FIXED VERSION)
+// 🖥️ ADMIN DASHBOARD - IMPROVED VERSION WITH PHASE 1 FIXES
 // =============================================================================
 
 app.get("/admin", (req, res) => {
@@ -745,7 +745,7 @@ app.get("/admin", (req, res) => {
         
         .profile-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 20px;
             margin-top: 20px;
         }
@@ -756,7 +756,7 @@ app.get("/admin", (req, res) => {
             padding: 15px;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            height: 200px; /* Fixed height for button alignment */
+            height: 240px;
             display: flex;
             flex-direction: column;
         }
@@ -806,6 +806,20 @@ app.get("/admin", (req, res) => {
             font-weight: bold;
             color: #4CAF50;
             font-size: 0.95em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .nsfw-badge {
+            background: rgba(255, 87, 34, 0.2);
+            color: #ff5722;
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-size: 0.7em;
+            border: 1px solid #ff5722;
+            white-space: nowrap;
         }
         
         .profile-id {
@@ -819,28 +833,53 @@ app.get("/admin", (req, res) => {
             margin: 10px 0;
             font-size: 0.9em;
             color: #ddd;
-            overflow: hidden;
-            display: -webkit-box;
-            -webkit-line-clamp: 2; /* Limit to 2 lines */
-            -webkit-box-orient: vertical;
-            flex: 1; /* Takes up remaining space */
+            flex: 1;
+            overflow-y: auto;
+            max-height: 80px;
+            padding-right: 5px;
         }
         
-        .profile-status {
-            background: rgba(76, 175, 80, 0.2);
-            border: 1px solid #4CAF50;
+        .profile-content::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .profile-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+        
+        .profile-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+        
+        .profile-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+        
+        .gallery-status {
+            font-style: italic;
             color: #4CAF50;
-            padding: 4px 12px;
-            border-radius: 12px;
+            background: rgba(76, 175, 80, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            border-left: 3px solid #4CAF50;
+            margin: 4px 0;
             font-size: 0.85em;
-            display: inline-block;
-            margin: 8px 0;
+        }
+        
+        .gallery-status:before {
+            content: '"';
+        }
+        
+        .gallery-status:after {
+            content: '"';
         }
         
         .profile-actions {
             display: flex;
-            gap: 8px;
-            margin-top: auto; /* Pushes buttons to bottom */
+            gap: 6px;
+            margin-top: auto;
             flex-wrap: wrap;
         }
         
@@ -848,7 +887,7 @@ app.get("/admin", (req, res) => {
             font-size: 0.75em;
             padding: 6px 8px;
             flex: 1;
-            min-width: 0;
+            min-width: 60px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -971,7 +1010,6 @@ app.get("/admin", (req, res) => {
             color: #fff;
         }
         
-        /* FIXED: Better dropdown styling for visibility */
         .input-group select {
             background: rgba(255, 255, 255, 0.15);
             color: #fff;
@@ -1159,6 +1197,45 @@ app.get("/admin", (req, res) => {
             margin-bottom: 15px;
             border-left: 4px solid #2196F3;
         }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+            padding: 20px;
+        }
+        
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background: rgba(76, 175, 80, 0.3);
+            border-color: #4CAF50;
+        }
+        
+        .pagination button.active {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .pagination-info {
+            color: #ccc;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
@@ -1208,10 +1285,10 @@ app.get("/admin", (req, res) => {
             
             <div class="tabs">
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
+                <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('reports')">Pending Reports</button>
                 <button class="tab" onclick="showTab('archived')">Archived Reports</button>
                 <button class="tab" onclick="showTab('banned')">Banned Profiles</button>
-                <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('moderation')">Moderation Log</button>
             </div>
             
@@ -1221,30 +1298,23 @@ app.get("/admin", (req, res) => {
                     <label for="profileSearch">Search Profiles:</label>
                     <input type="text" id="profileSearch" placeholder="Search by name, server, or ID..." oninput="filterProfiles()">
                 </div>
+                <div class="pagination" id="profilesPagination" style="display: none;">
+                    <button id="prevPageBtn" onclick="changePage(-1)">Previous</button>
+                    <div class="pagination-info">
+                        <span id="pageInfo">Page 1 of 1</span>
+                        <span id="totalInfo">(0 profiles)</span>
+                    </div>
+                    <button id="nextPageBtn" onclick="changePage(1)">Next</button>
+                </div>
                 <div class="loading" id="profilesLoading">Loading profiles...</div>
                 <div class="profile-grid" id="profilesGrid"></div>
-            </div>
-            
-            <div id="reports" class="tab-content">
-                <h3>Pending Reports</h3>
-                <div class="loading" id="reportsLoading">Loading reports...</div>
-                <div id="reportsContainer"></div>
-            </div>
-            
-            <div id="archived" class="tab-content">
-                <h3>Archived Reports</h3>
-                <div class="input-group" style="max-width: 400px; margin-bottom: 20px;">
-                    <label for="reportSearch">Search by Character Name:</label>
-                    <input type="text" id="reportSearch" placeholder="Type character name..." oninput="filterArchivedReports()">
+                <div class="pagination" id="profilesPaginationBottom" style="display: none;">
+                    <button onclick="changePage(-1)">Previous</button>
+                    <div class="pagination-info">
+                        <span id="pageInfoBottom">Page 1 of 1</span>
+                    </div>
+                    <button onclick="changePage(1)">Next</button>
                 </div>
-                <div class="loading" id="archivedLoading">Loading archived reports...</div>
-                <div id="archivedContainer"></div>
-            </div>
-            
-            <div id="banned" class="tab-content">
-                <h3>Banned Profiles</h3>
-                <div class="loading" id="bannedLoading">Loading banned profiles...</div>
-                <div id="bannedContainer"></div>
             </div>
             
             <div id="announcements" class="tab-content">
@@ -1272,6 +1342,28 @@ app.get("/admin", (req, res) => {
                 <div id="announcementsContainer"></div>
             </div>
             
+            <div id="reports" class="tab-content">
+                <h3>Pending Reports</h3>
+                <div class="loading" id="reportsLoading">Loading reports...</div>
+                <div id="reportsContainer"></div>
+            </div>
+            
+            <div id="archived" class="tab-content">
+                <h3>Archived Reports</h3>
+                <div class="input-group" style="max-width: 400px; margin-bottom: 20px;">
+                    <label for="reportSearch">Search by Character Name:</label>
+                    <input type="text" id="reportSearch" placeholder="Type character name..." oninput="filterArchivedReports()">
+                </div>
+                <div class="loading" id="archivedLoading">Loading archived reports...</div>
+                <div id="archivedContainer"></div>
+            </div>
+            
+            <div id="banned" class="tab-content">
+                <h3>Banned Profiles</h3>
+                <div class="loading" id="bannedLoading">Loading banned profiles...</div>
+                <div id="bannedContainer"></div>
+            </div>
+            
             <div id="moderation" class="tab-content">
                 <h3>Moderation Actions</h3>
                 <div class="loading" id="moderationLoading">Loading moderation log...</div>
@@ -1290,9 +1382,12 @@ app.get("/admin", (req, res) => {
         let adminKey = '';
         let adminName = '';
         let allProfiles = []; // Store all profiles for search filtering
+        let filteredProfiles = []; // Store filtered profiles for pagination
+        let currentPage = 1;
+        const profilesPerPage = 24; // 4x6 grid looks good
         const serverUrl = window.location.origin;
         
-                // Load saved admin credentials on page load
+        // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔄 Page loaded, checking for saved credentials...');
             
@@ -1353,27 +1448,77 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        // Remove logout function since it's not needed
-        // function logout() { ... }
-        
         function filterProfiles() {
             const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
-            const grid = document.getElementById('profilesGrid');
             
             if (!searchTerm) {
-                renderProfileCards(allProfiles);
+                filteredProfiles = [...allProfiles];
+            } else {
+                filteredProfiles = allProfiles.filter(profile =>
+                    profile.CharacterName.toLowerCase().includes(searchTerm) ||
+                    profile.Server.toLowerCase().includes(searchTerm) ||
+                    profile.CharacterId.toLowerCase().includes(searchTerm) ||
+                    (profile.Bio && profile.Bio.toLowerCase().includes(searchTerm)) ||
+                    (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm))
+                );
+            }
+            
+            currentPage = 1; // Reset to first page when filtering
+            renderProfilesPage();
+        }
+        
+        function renderProfilesPage() {
+            const startIndex = (currentPage - 1) * profilesPerPage;
+            const endIndex = startIndex + profilesPerPage;
+            const pageProfiles = filteredProfiles.slice(startIndex, endIndex);
+            
+            renderProfileCards(pageProfiles);
+            updatePaginationControls();
+        }
+        
+        function updatePaginationControls() {
+            const totalPages = Math.ceil(filteredProfiles.length / profilesPerPage);
+            const pagination = document.getElementById('profilesPagination');
+            const paginationBottom = document.getElementById('profilesPaginationBottom');
+            
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                paginationBottom.style.display = 'none';
                 return;
             }
             
-            const filteredProfiles = allProfiles.filter(profile =>
-                profile.CharacterName.toLowerCase().includes(searchTerm) ||
-                profile.Server.toLowerCase().includes(searchTerm) ||
-                profile.CharacterId.toLowerCase().includes(searchTerm) ||
-                (profile.Bio && profile.Bio.toLowerCase().includes(searchTerm)) ||
-                (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm))
-            );
+            pagination.style.display = 'flex';
+            paginationBottom.style.display = 'flex';
             
-            renderProfileCards(filteredProfiles);
+            // Update page info
+            document.getElementById('pageInfo').textContent = \`Page \${currentPage} of \${totalPages}\`;
+            document.getElementById('pageInfoBottom').textContent = \`Page \${currentPage} of \${totalPages}\`;
+            document.getElementById('totalInfo').textContent = \`(\${filteredProfiles.length} profiles)\`;
+            
+            // Update buttons
+            const prevButtons = [document.getElementById('prevPageBtn'), paginationBottom.querySelector('button:first-child')];
+            const nextButtons = [document.getElementById('nextPageBtn'), paginationBottom.querySelector('button:last-child')];
+            
+            prevButtons.forEach(btn => {
+                btn.disabled = currentPage === 1;
+            });
+            
+            nextButtons.forEach(btn => {
+                btn.disabled = currentPage === totalPages;
+            });
+        }
+        
+        function changePage(direction) {
+            const totalPages = Math.ceil(filteredProfiles.length / profilesPerPage);
+            const newPage = currentPage + direction;
+            
+            if (newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                renderProfilesPage();
+                
+                // Scroll to top of profiles
+                document.getElementById('profilesGrid').scrollIntoView({ behavior: 'smooth' });
+            }
         }
         
         function renderProfileCards(profiles) {
@@ -1394,24 +1539,51 @@ app.get("/admin", (req, res) => {
                        <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
                     : \`<div class="profile-image-placeholder">🖼️</div>\`;
                 
+                // Format character name with NSFW badge if needed
+                const characterNameHtml = \`
+                    <div class="profile-name">
+                        \${profile.CharacterName}
+                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
+                    </div>
+                \`;
+                
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = \`<div class="profile-status">\${profile.GalleryStatus}</div>\`;
+                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
                 } else if (profile.Bio && profile.Bio.trim()) {
                     contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
                 } else {
-                    contentHtml = \`<div class="profile-content">No bio</div>\`;
+                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
-                // Add NSFW indicator if profile is marked as NSFW
-                const nsfwIndicator = profile.IsNSFW ? 
-                    \`<div style="margin-top: 5px;"><span style="background: rgba(255, 87, 34, 0.2); color: #ff5722; padding: 2px 6px; border-radius: 8px; font-size: 0.75em; border: 1px solid #ff5722;">🔞 NSFW</span></div>\` : '';
+                // Action buttons - NSFW profiles don't get NSFW toggle button
+                const actionButtons = profile.IsNSFW ? \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Remove
+                    </button>
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Ban
+                    </button>
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', true)">
+                        Remove NSFW
+                    </button>
+                \` : \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Remove
+                    </button>
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Ban
+                    </button>
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
+                        Mark NSFW
+                    </button>
+                \`;
                 
                 card.innerHTML = \`
                     <div class="profile-header">
                         <div class="profile-info">
-                            <div class="profile-name">\${profile.CharacterName}</div>
+                            \${characterNameHtml}
                             <div class="profile-id">\${profile.CharacterId}</div>
                             <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
                                 <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
@@ -1421,17 +1593,8 @@ app.get("/admin", (req, res) => {
                         \${imageHtml}
                     </div>
                     \${contentHtml}
-                    \${nsfwIndicator}
                     <div class="profile-actions">
-                        <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                            Remove
-                        </button>
-                        <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                            Ban
-                        </button>
-                        <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
-                            \${profile.IsNSFW ? '18-' : '18+'}
-                        </button>
+                        \${actionButtons}
                     </div>
                 \`;
                 grid.appendChild(card);
@@ -1457,6 +1620,9 @@ app.get("/admin", (req, res) => {
                 case 'profiles':
                     loadProfiles();
                     break;
+                case 'announcements':
+                    loadAnnouncements();
+                    break;
                 case 'reports':
                     loadReports();
                     break;
@@ -1465,9 +1631,6 @@ app.get("/admin", (req, res) => {
                     break;
                 case 'banned':
                     loadBannedProfiles();
-                    break;
-                case 'announcements':
-                    loadAnnouncements();
                     break;
                 case 'moderation':
                     loadModerationLog();
@@ -1532,31 +1695,6 @@ app.get("/admin", (req, res) => {
                 document.getElementById('totalBanned').textContent = stats.totalBanned;
                 document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
                 
-                const activeTab = document.querySelector('.tab.active');
-                if (activeTab) {
-                    const tabName = activeTab.textContent.toLowerCase().replace(' ', '');
-                    switch(tabName) {
-                        case 'galleryprofiles':
-                            await loadProfiles();
-                            break;
-                        case 'pendingreports':
-                            await loadReports();
-                            break;
-                        case 'archivedreports':
-                            await loadArchivedReports();
-                            break;
-                        case 'bannedprofiles':
-                            await loadBannedProfiles();
-                            break;
-                        case 'announcements':
-                            await loadAnnouncements();
-                            break;
-                        case 'moderationlog':
-                            await loadModerationLog();
-                            break;
-                    }
-                }
-                
             } catch (error) {
                 console.error('Error refreshing:', error);
             } finally {
@@ -1580,14 +1718,16 @@ app.get("/admin", (req, res) => {
                 
                 loading.style.display = 'none';
                 allProfiles = profiles; // Store for search functionality
-                renderProfileCards(profiles);
+                filteredProfiles = [...profiles]; // Initialize filtered profiles
+                currentPage = 1; // Reset to first page
+                renderProfilesPage();
                 
             } catch (error) {
                 loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
             }
         }
         
-            async function confirmRemoveProfile(characterId, characterName) {
+        async function confirmRemoveProfile(characterId, characterName) {
             // SIMPLIFIED FLOW: Single confirmation with clear options
             const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
@@ -1683,59 +1823,6 @@ app.get("/admin", (req, res) => {
                 closeImageModal();
             }
         });
-        
-        async function removeProfile(characterId, characterName) {
-            const reason = prompt(\`Why are you removing \${characterName}?\`);
-            if (!reason) return;
-            
-            const ban = confirm('Also ban this profile from uploading again?');
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
-                    },
-                    body: JSON.stringify({ reason, ban })
-                });
-                
-                if (response.ok) {
-                    alert(\`\${characterName} has been removed\${ban ? ' and banned' : ''}\`);
-                    loadProfiles();
-                    await refreshStats();
-                } else {
-                    alert('Error removing profile');
-                }
-            } catch (error) {
-                alert(\`Error: \${error.message}\`);
-            }
-        }
-        
-        async function banProfile(characterId, characterName) {
-            const reason = prompt(\`Why are you banning \${characterName}?\`);
-            if (!reason) return;
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
-                    },
-                    body: JSON.stringify({ reason })
-                });
-                
-                if (response.ok) {
-                    alert(\`\${characterName} has been banned\`);
-                    await refreshStats();
-                } else {
-                    alert('Error banning profile');
-                }
-            } catch (error) {
-                alert(\`Error: \${error.message}\`);
-            }
-        }
         
         async function unbanProfile(characterId, characterName) {
             const reason = prompt(\`Why are you unbanning \${characterName || characterId}?\`);
@@ -2004,14 +2091,14 @@ app.get("/admin", (req, res) => {
                         // Only show action buttons for pending reports (not archived)
                         const actionButtonsHtml = !isArchived ? \`
                             <div class="reported-profile-actions">
-                                <button class="btn btn-danger" onclick="removeProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                                <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                     Remove
                                 </button>
-                                <button class="btn btn-warning" onclick="banProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                                <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                     Ban
                                 </button>
-                                <button class="btn btn-nsfw \${profile.IsNSFW ? 'active' : ''}" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
-                                    \${profile.IsNSFW ? 'Remove 18+' : 'Mark 18+'}
+                                <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', \${profile.IsNSFW || false})">
+                                    \${profile.IsNSFW ? 'Remove NSFW' : 'Mark NSFW'}
                                 </button>
                             </div>
                         \` : '';
@@ -2019,7 +2106,7 @@ app.get("/admin", (req, res) => {
                         // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
                         let statusContent = '';
                         if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                            statusContent = \`<div style="background: rgba(76, 175, 80, 0.2); border: 1px solid #4CAF50; color: #4CAF50; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; margin: 4px 0;">\${profile.GalleryStatus}</div>\`;
+                            statusContent = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
                         } else if (profile.Bio && profile.Bio.trim()) {
                             statusContent = \`<div style="color: #ddd; font-size: 0.9em; margin: 4px 0; max-height: 60px; overflow: hidden;">\${profile.Bio}</div>\`;
                         } else {
