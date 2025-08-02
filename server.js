@@ -859,21 +859,19 @@ app.get("/admin", (req, res) => {
         
         .gallery-status {
             font-style: italic;
-            color: #4CAF50;
-            background: rgba(76, 175, 80, 0.1);
-            padding: 4px 8px;
-            border-radius: 4px;
-            border-left: 3px solid #4CAF50;
+            color: #ddd;
             margin: 4px 0;
-            font-size: 0.85em;
+            font-size: 0.9em;
         }
         
         .gallery-status:before {
             content: '"';
+            color: #4CAF50;
         }
         
         .gallery-status:after {
             content: '"';
+            color: #4CAF50;
         }
         
         .profile-actions {
