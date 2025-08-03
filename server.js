@@ -1232,8 +1232,7 @@ function extractServerFromName(characterName) {
 // =============================================================================
 
 app.get("/admin", (req, res) => {
-    const adminHtml = `
-<!DOCTYPE html>
+    const adminHtml = String.raw`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -3293,7 +3292,7 @@ app.get("/admin", (req, res) => {
                 // Create HTML content using string concatenation
                 let cardContent = '<input type="checkbox" class="profile-checkbox" ';
                 cardContent += isSelected ? 'checked' : '';
-                cardContent += ' onchange="toggleProfileSelection(\'' + profile.CharacterId + '\', this)">';
+                cardContent += ' onchange="toggleProfileSelection(\\'' + profile.CharacterId + '\\', this)">';
                 
                 cardContent += '<div class="profile-header">';
                 cardContent += '<div class="profile-info">';
@@ -3311,9 +3310,9 @@ app.get("/admin", (req, res) => {
                 // Image
                 if (profile.ProfileImageUrl) {
                     cardContent += '<img src="' + profile.ProfileImageUrl + '" ';
-                    cardContent += 'alt="' + profile.CharacterName + '" class="profile-image" ';
-                    cardContent += 'onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" ';
-                    cardContent += 'onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">';
+                    cardContent += 'alt="' + profile.CharacterName.replace(/"/g, "&quot;") + '" class="profile-image" ';
+                    cardContent += 'onclick="openImageModal(\\'' + profile.ProfileImageUrl + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')" ';
+                    cardContent += 'onerror="this.style.display=\\'none\\'; this.nextElementSibling.style.display=\\'flex\\';">';
                     cardContent += '<div class="profile-image-placeholder" style="display: none;">🖼️</div>';
                 } else {
                     cardContent += '<div class="profile-image-placeholder">🖼️</div>';
@@ -3331,12 +3330,12 @@ app.get("/admin", (req, res) => {
                 
                 // Actions
                 cardContent += '<div class="profile-actions">';
-                cardContent += '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>';
-                cardContent += '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>';
+                cardContent += '<button class="btn btn-danger" onclick="confirmRemoveProfile(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">Remove</button>';
+                cardContent += '<button class="btn btn-warning" onclick="confirmBanProfile(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">Ban</button>';
                 if (!profile.IsNSFW) {
-                    cardContent += '<button class="btn btn-nsfw" onclick="toggleNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\', false)">Mark NSFW</button>';
+                    cardContent += '<button class="btn btn-nsfw" onclick="toggleNSFW(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\', false)">Mark NSFW</button>';
                 }
-                cardContent += '<button class="btn btn-communicate" onclick="requestCommunication(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Chat</button>';
+                cardContent += '<button class="btn btn-communicate" onclick="requestCommunication(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">Chat</button>';
                 cardContent += '</div>';
                 
                 card.innerHTML = cardContent;
@@ -3655,9 +3654,9 @@ app.get("/admin", (req, res) => {
                     
                     const actionButtons = flag.status === 'pending' ? 
                         '<div style="margin-top: 10px;">' +
-                        '<button class="btn btn-primary" onclick="updateFlagStatus(\'' + flag.id + '\', \'approved\')">Approve</button>' +
-                        '<button class="btn btn-danger" onclick="updateFlagStatus(\'' + flag.id + '\', \'removed\')">Remove</button>' +
-                        '<button class="btn btn-warning" onclick="confirmRemoveProfile(\'' + flag.characterId + '\', \'' + flag.characterName + '\')">Remove Profile</button>' +
+                        '<button class="btn btn-primary" onclick="updateFlagStatus(\\'' + flag.id + '\\', \\'approved\\')">Approve</button>' +
+                        '<button class="btn btn-danger" onclick="updateFlagStatus(\\'' + flag.id + '\\', \\'removed\\')">Remove</button>' +
+                        '<button class="btn btn-warning" onclick="confirmRemoveProfile(\\'' + flag.characterId + '\\', \\'' + flag.characterName.replace(/'/g, "\\'") + '\\')">Remove Profile</button>' +
                         '</div>' : '';
                     
                     card.innerHTML = 
@@ -3773,8 +3772,8 @@ app.get("/admin", (req, res) => {
                     let actionButtons = '';
                     if (comm.status === 'accepted') {
                         actionButtons = 
-                            '<button class="btn btn-primary" onclick="openCommunicationChat(\'' + comm.id + '\')">Open Chat</button>' +
-                            '<button class="btn btn-secondary" onclick="closeCommunication(\'' + comm.id + '\')">Close</button>';
+                            '<button class="btn btn-primary" onclick="openCommunicationChat(\\'' + comm.id + '\\')">Open Chat</button>' +
+                            '<button class="btn btn-secondary" onclick="closeCommunication(\\'' + comm.id + '\\')">Close</button>';
                     } else if (comm.status === 'pending') {
                         actionButtons = '<span style="color: #ff9800;">Waiting for user response...</span>';
                     }
@@ -4042,8 +4041,8 @@ app.get("/admin", (req, res) => {
                         (profile.hasImage ? '<small>Image size: ' + imageSizeMB + ' MB</small>' : '<small>No image</small>') +
                         '</div>' +
                         '<div class="inactive-profile-actions">' +
-                        (profile.hasImage ? '<button class="btn btn-warning btn-sm" onclick="removeProfileImage(\'' + profile.characterId + '\', \'' + profile.characterName + '\')">Remove Image</button>' : '') +
-                        '<button class="btn btn-danger btn-sm" onclick="confirmRemoveProfile(\'' + profile.characterId + '\', \'' + profile.characterName + '\')">Remove Profile</button>' +
+                        (profile.hasImage ? '<button class="btn btn-warning btn-sm" onclick="removeProfileImage(\\'' + profile.characterId + '\\', \\'' + profile.characterName.replace(/'/g, "\\'") + '\\')">Remove Image</button>' : '') +
+                        '<button class="btn btn-danger btn-sm" onclick="confirmRemoveProfile(\\'' + profile.characterId + '\\', \\'' + profile.characterName.replace(/'/g, "\\'") + '\\')">Remove Profile</button>' +
                         '</div>' +
                         '</div>';
                 });
@@ -4331,10 +4330,10 @@ app.get("/admin", (req, res) => {
                         // Profile still exists - show full info
                         const imageHtml = profile.ProfileImageUrl 
                             ? '<img src="' + profile.ProfileImageUrl + '" ' +
-                                    'alt="' + profile.CharacterName + '" ' +
+                                    'alt="' + profile.CharacterName.replace(/"/g, "&quot;") + '" ' +
                                     'class="profile-image" ' +
-                                    'onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')"' +
-                                    'onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">' +
+                                    'onclick="openImageModal(\\'' + profile.ProfileImageUrl + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')"' +
+                                    'onerror="this.style.display=\\'none\\'; this.nextElementSibling.style.display=\\'flex\\';">' +
                                '<div class="profile-image-placeholder" style="display: none;">🖼️</div>'
                             : '<div class="profile-image-placeholder">🖼️</div>';
                         
@@ -4354,7 +4353,7 @@ app.get("/admin", (req, res) => {
                             (profile.Bio || profile.GalleryStatus || 'No bio') +
                             '</div>' +
                             '<div class="profile-actions">' +
-                            '<button class="btn btn-primary" onclick="unbanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">' +
+                            '<button class="btn btn-primary" onclick="unbanProfile(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">' +
                             'Unban' +
                             '</button>' +
                             '</div>';
@@ -4375,7 +4374,7 @@ app.get("/admin", (req, res) => {
                             'Profile was removed but ban still active' +
                             '</div>' +
                             '<div class="profile-actions">' +
-                            '<button class="btn btn-primary" onclick="unbanProfile(\'' + bannedId + '\', \'' + bannedId + '\')">' +
+                            '<button class="btn btn-primary" onclick="unbanProfile(\\'' + bannedId + '\\', \\'' + bannedId + '\\')">' +
                             'Unban' +
                             '</button>' +
                             '</div>';
@@ -4525,24 +4524,24 @@ app.get("/admin", (req, res) => {
                         // EXACT same image logic as Gallery Profiles tab
                         const imageHtml = profile.ProfileImageUrl 
                             ? '<img src="' + profile.ProfileImageUrl + '" ' +
-                                    'alt="' + profile.CharacterName + '" ' +
+                                    'alt="' + profile.CharacterName.replace(/"/g, "&quot;") + '" ' +
                                     'class="reported-profile-image" ' +
-                                    'onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')"' +
-                                    'onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">' +
+                                    'onclick="openImageModal(\\'' + profile.ProfileImageUrl + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')"' +
+                                    'onerror="this.style.display=\\'none\\'; this.nextElementSibling.style.display=\\'flex\\';">' +
                                '<div class="reported-profile-placeholder" style="display: none;">🖼️</div>'
                             : '<div class="reported-profile-placeholder">🖼️</div>';
                         
                         // FIXED: Only show action buttons for pending reports, and NO NSFW BUTTON for NSFW profiles
                         const actionButtonsHtml = !isArchived ? 
                             '<div class="reported-profile-actions">' +
-                            '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">' +
+                            '<button class="btn btn-danger" onclick="confirmRemoveProfile(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">' +
                             'Remove' +
                             '</button>' +
-                            '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">' +
+                            '<button class="btn btn-warning" onclick="confirmBanProfile(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">' +
                             'Ban' +
                             '</button>' +
-                            (profile.IsNSFW ? '' : '<button class="btn btn-nsfw" onclick="toggleNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\', false)">Mark NSFW</button>') +
-                            '<button class="btn btn-communicate" onclick="requestCommunication(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Chat</button>' +
+                            (profile.IsNSFW ? '' : '<button class="btn btn-nsfw" onclick="toggleNSFW(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\', false)">Mark NSFW</button>') +
+                            '<button class="btn btn-communicate" onclick="requestCommunication(\\'' + profile.CharacterId + '\\', \\'' + profile.CharacterName.replace(/'/g, "\\'") + '\\')">Chat</button>' +
                             '</div>' : '';
                         
                         // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
@@ -4584,8 +4583,8 @@ app.get("/admin", (req, res) => {
                 
                 const actionButtons = report.status === 'pending' ? 
                     '<div style="margin-top: 10px;">' +
-                    '<button class="btn btn-primary" onclick="updateReport(\'' + report.id + '\', \'resolved\')">Mark Resolved</button>' +
-                    '<button class="btn btn-warning" onclick="updateReport(\'' + report.id + '\', \'dismissed\')">Dismiss</button>' +
+                    '<button class="btn btn-primary" onclick="updateReport(\\'' + report.id + '\\', \\'resolved\\')">Mark Resolved</button>' +
+                    '<button class="btn btn-warning" onclick="updateReport(\\'' + report.id + '\\', \\'dismissed\\')">Dismiss</button>' +
                     '</div>' : 
                     '<div style="margin-top: 10px;">' +
                     '<span style="color: #4CAF50; font-size: 0.9em;">✅ ' + report.status.toUpperCase() + '</span>' +
@@ -4788,8 +4787,8 @@ app.get("/admin", (req, res) => {
                         '<p><strong>Type:</strong> ' + announcement.type + '</p>' +
                         '<p><strong>Created:</strong> ' + new Date(announcement.createdAt).toLocaleDateString() + '</p>' +
                         (announcement.active ? 
-                            '<button class="btn btn-warning" onclick="deactivateAnnouncement(\'' + announcement.id + '\')">Deactivate</button>' : '') +
-                        '<button class="btn btn-danger" onclick="deleteAnnouncement(\'' + announcement.id + '\')">Delete</button>';
+                            '<button class="btn btn-warning" onclick="deactivateAnnouncement(\\'' + announcement.id + '\\')">Deactivate</button>' : '') +
+                        '<button class="btn btn-danger" onclick="deleteAnnouncement(\\'' + announcement.id + '\\')">Delete</button>';
                     container.appendChild(card);
                 });
                 
