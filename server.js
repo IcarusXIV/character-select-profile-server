@@ -2597,7 +2597,7 @@ app.get("/admin", (req, res) => {
         function showToast(message, type = 'success', duration = 4000) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
-            toast.className = \`toast \${type}\`;
+            toast.className = 'toast ' + (type || 'success');
             toast.textContent = message;
             
             container.appendChild(toast);
@@ -2626,7 +2626,7 @@ app.get("/admin", (req, res) => {
             actionsEl.innerHTML = '';
             actions.forEach(action => {
                 const button = document.createElement('button');
-                button.className = `btn ${action.class || 'btn-secondary'}`;
+                button.className = 'btn ' + (action.class || 'btn-secondary');
                 button.textContent = action.text;
                 button.onclick = () => {
                     if (action.onclick) action.onclick();
@@ -2722,9 +2722,9 @@ app.get("/admin", (req, res) => {
             const profileList = Array.from(selectedProfiles);
             const reason = await new Promise(resolve => {
                 showModal(
-                    `Remove ${profileList.length} Profiles`,
-                    `
-                        <p>You are about to remove <strong>${profileList.length}</strong> profiles from the gallery.</p>
+                    \`Remove \${profileList.length} Profiles\`,
+                    \`
+                        <p>You are about to remove <strong>\${profileList.length}</strong> profiles from the gallery.</p>
                         <div class="input-group">
                             <label for="bulkRemoveReason">Reason (required):</label>
                             <textarea id="bulkRemoveReason" rows="3" placeholder="Reason for bulk removal"></textarea>
@@ -2733,7 +2733,7 @@ app.get("/admin", (req, res) => {
                             <input type="checkbox" id="bulkRemoveWarning">
                             <label for="bulkRemoveWarning">Send warning message to users</label>
                         </div>
-                    `,
+                    \`,
                     [
                         { text: 'Cancel', class: 'btn-secondary', onclick: () => resolve(null) },
                         { 
@@ -2829,15 +2829,15 @@ app.get("/admin", (req, res) => {
             const profileList = Array.from(selectedProfiles);
             const reason = await new Promise(resolve => {
                 showModal(
-                    `Ban ${profileList.length} Profiles`,
-                    `
-                        <p>You are about to <strong>permanently ban</strong> <strong>${profileList.length}</strong> profiles.</p>
+                    \`Ban \${profileList.length} Profiles\`,
+                    \`
+                        <p>You are about to <strong>permanently ban</strong> <strong>\${profileList.length}</strong> profiles.</p>
                         <p>They will not be able to upload new profiles after this action.</p>
                         <div class="input-group">
                             <label for="bulkBanReason">Reason (required):</label>
                             <textarea id="bulkBanReason" rows="3" placeholder="Reason for bulk ban"></textarea>
                         </div>
-                    `,
+                    \`,
                     [
                         { text: 'Cancel', class: 'btn-secondary', onclick: () => resolve(null) },
                         { 
@@ -2941,15 +2941,15 @@ app.get("/admin", (req, res) => {
             
             const confirmed = await new Promise(resolve => {
                 showModal(
-                    `Mark ${nsfwProfiles.length} Profiles as NSFW`,
-                    `
-                        <p>You are about to mark <strong>${nsfwProfiles.length}</strong> profiles as NSFW.</p>
-                        <p><small>${profileList.length - nsfwProfiles.length} profiles were skipped (already NSFW)</small></p>
+                    \`Mark \${nsfwProfiles.length} Profiles as NSFW\`,
+                    \`
+                        <p>You are about to mark <strong>\${nsfwProfiles.length}</strong> profiles as NSFW.</p>
+                        <p><small>\${profileList.length - nsfwProfiles.length} profiles were skipped (already NSFW)</small></p>
                         <div class="checkbox-group">
                             <input type="checkbox" id="bulkNsfwWarning" checked>
                             <label for="bulkNsfwWarning">Send notification to users</label>
                         </div>
-                    `,
+                    \`,
                     [
                         { text: 'Cancel', class: 'btn-secondary', onclick: () => resolve(false) },
                         { 
@@ -3295,77 +3295,77 @@ app.get("/admin", (req, res) => {
                 
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? `<img src="${profile.ProfileImageUrl}" 
-                            alt="${profile.CharacterName}" 
+                    ? \`<img src="\${profile.ProfileImageUrl}" 
+                            alt="\${profile.CharacterName}" 
                             class="profile-image" 
-                            onclick="openImageModal('${profile.ProfileImageUrl}', '${profile.CharacterName}')"
+                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>`
-                    : `<div class="profile-image-placeholder">🖼️</div>`;
+                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
                 
                 // Format character name with NSFW badge if needed
-                const characterNameHtml = `
+                const characterNameHtml = \`
                     <div class="profile-name">
-                        ${profile.CharacterName}
-                        ${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
+                        \${profile.CharacterName}
+                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
                     </div>
-                `;
+                \`;
                 
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = `<div class="gallery-status">${profile.GalleryStatus}</div>`;
+                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
                 } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = `<div class="profile-content">${profile.Bio}</div>`;
+                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
                 } else {
-                    contentHtml = `<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>`;
+                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
                 // PHASE 3: Updated action buttons with communication
-                const actionButtons = profile.IsNSFW ? `
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('${profile.CharacterId}', '${profile.CharacterName}')">
+                const actionButtons = profile.IsNSFW ? \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Remove
                     </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('${profile.CharacterId}', '${profile.CharacterName}')">
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Ban
                     </button>
-                    <button class="btn btn-communicate" onclick="requestCommunication('${profile.CharacterId}', '${profile.CharacterName}')">
+                    <button class="btn btn-communicate" onclick="requestCommunication('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Chat
                     </button>
-                ` : `
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('${profile.CharacterId}', '${profile.CharacterName}')">
+                \` : \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Remove
                     </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('${profile.CharacterId}', '${profile.CharacterName}')">
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Ban
                     </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('${profile.CharacterId}', '${profile.CharacterName}', false)">
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
                         Mark NSFW
                     </button>
-                    <button class="btn btn-communicate" onclick="requestCommunication('${profile.CharacterId}', '${profile.CharacterName}')">
+                    <button class="btn btn-communicate" onclick="requestCommunication('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Chat
                     </button>
-                `;
+                \`;
                 
-                card.innerHTML = `
-                    <input type="checkbox" class="profile-checkbox" ${isSelected ? 'checked' : ''} 
-                           onchange="toggleProfileSelection('${profile.CharacterId}', this)">
+                card.innerHTML = \`
+                    <input type="checkbox" class="profile-checkbox" \${isSelected ? 'checked' : ''} 
+                           onchange="toggleProfileSelection('\${profile.CharacterId}', this)">
                     <div class="profile-header">
                         <div class="profile-info">
-                            ${characterNameHtml}
-                            <div class="profile-id">${profile.CharacterId}</div>
+                            \${characterNameHtml}
+                            <div class="profile-id">\${profile.CharacterId}</div>
                             <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #ccc; font-size: 0.9em;">${profile.Server}</span>
-                                <span style="color: #4CAF50;">❤️ ${profile.LikeCount}</span>
+                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
+                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        ${imageHtml}
+                        \${imageHtml}
                     </div>
-                    ${contentHtml}
+                    \${contentHtml}
                     <div class="profile-actions">
-                        ${actionButtons}
+                        \${actionButtons}
                     </div>
-                `;
+                \`;
                 grid.appendChild(card);
             });
             
@@ -3847,15 +3847,15 @@ app.get("/admin", (req, res) => {
         async function requestCommunication(characterId, characterName) {
             const reason = await new Promise(resolve => {
                 showModal(
-                    `Request Communication with ${characterName}`,
-                    `
-                        <p>Send a communication request to <strong>${characterName}</strong>.</p>
+                    \`Request Communication with \${characterName}\`,
+                    \`
+                        <p>Send a communication request to <strong>\${characterName}</strong>.</p>
                         <p>They can choose to accept or decline this request.</p>
                         <div class="input-group">
                             <label for="commReason">Reason for communication:</label>
                             <textarea id="commReason" rows="3" placeholder="Why do you want to communicate with this user?"></textarea>
                         </div>
-                    `,
+                    \`,
                     [
                         { text: 'Cancel', class: 'btn-secondary', onclick: () => resolve(null) },
                         { 
@@ -3892,13 +3892,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast(`Communication request sent to ${characterName}`, 'success');
+                    showToast(\`Communication request sent to \${characterName}\`, 'success');
                     await refreshStats();
                 } else {
                     showToast('Error sending communication request', 'error');
                 }
             } catch (error) {
-                showToast(`Error: ${error.message}`, 'error');
+                showToast(\`Error: \${error.message}\`, 'error');
             }
         }
         
@@ -3960,47 +3960,44 @@ app.get("/admin", (req, res) => {
             overviewDiv.innerHTML = '<div class="loading">Loading storage information...</div>';
             
             try {
-                const response = await fetch(`${serverUrl}/admin/images/stats?adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/images/stats?adminKey=\${adminKey}\`);
                 const stats = await response.json();
                 
                 const usagePercentage = Math.round(stats.usagePercentage);
                 const totalSizeGB = (stats.totalSize / (1024 * 1024 * 1024)).toFixed(2);
                 const remainingSizeGB = (stats.remainingSpace / (1024 * 1024 * 1024)).toFixed(2);
                 
-                overviewDiv.innerHTML = `
+                overviewDiv.innerHTML = \`
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
                         <div style="text-align: center;">
-                            <div style="font-size: 2em; color: ${usagePercentage > 80 ? '#f44336' : usagePercentage > 60 ? '#ff9800' : '#4CAF50'};">
-                                ${usagePercentage}%
+                            <div style="font-size: 2em; color: \${usagePercentage > 80 ? '#f44336' : usagePercentage > 60 ? '#ff9800' : '#4CAF50'};">
+                                \${usagePercentage}%
                             </div>
                             <div>Storage Used</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 2em; color: #2196F3;">${stats.imageCount}</div>
+                            <div style="font-size: 2em; color: #2196F3;">\${stats.imageCount}</div>
                             <div>Total Images</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 2em; color: #ff9800;">${stats.orphanedImages.length}</div>
+                            <div style="font-size: 2em; color: #ff9800;">\${stats.orphanedImages.length}</div>
                             <div>Orphaned Images</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 1.2em; color: #ccc;">${totalSizeGB} GB</div>
+                            <div style="font-size: 1.2em; color: #ccc;">\${totalSizeGB} GB</div>
                             <div>Used Space</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 1.2em; color: #4CAF50;">${remainingSizeGB} GB</div>
+                            <div style="font-size: 1.2em; color: #4CAF50;">\${remainingSizeGB} GB</div>
                             <div>Remaining</div>
                         </div>
                     </div>
                     <div class="storage-bar">
-                        <div class="storage-fill" style="width: ${usagePercentage}%"></div>
-                        <div class="storage-text">${usagePercentage}% of storage used</div>
+                        <div class="storage-fill" style="width: \${usagePercentage}%"></div>
+                        <div class="storage-text">\${usagePercentage}% of storage used</div>
                     </div>
-                    ${usagePercentage > 80 ? '<div style="color: #f44336; margin-top: 10px; font-weight: bold;">⚠️ Storage usage is high!</div>' : ''}
-                `;
-                
-            } catch (error) {
-                overviewDiv.innerHTML = `<div class="error">Error loading storage stats: ${error.message}</div>`;
+                    \${usagePercentage > 80 ? '<div style="color: #f44336; margin-top: 10px; font-weight: bold;">⚠️ Storage usage is high!</div>' : ''}
+                \`;
             }
         }
         
@@ -4037,9 +4034,9 @@ app.get("/admin", (req, res) => {
                 
                 const result = await response.json();
                 
-                if (response.ok) {
+                if (result.cleanedCount > 0) {
                     const spaceSavedMB = (result.spaceSaved / (1024 * 1024)).toFixed(2);
-                    showToast(`Cleaned up ${result.cleanedCount} orphaned images, saved ${spaceSavedMB} MB`, 'success');
+                    showToast(\`Cleaned up \${result.cleanedCount} orphaned images, saved \${spaceSavedMB} MB\`, 'success');
                     await refreshImageStats();
                     await refreshStats();
                 } else {
