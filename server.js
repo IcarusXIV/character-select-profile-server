@@ -2594,26 +2594,29 @@ app.get("/admin", (req, res) => {
         let crossPageSelection = new Map(); // Store selections across pages
         
         // PHASE 3: Toast Notification System
-        function showToast(message, type = 'success', duration = 4000) {
+        function showToast(message, type, duration) {
+            type = type || 'success';
+            duration = duration || 4000;
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
+            toast.className = 'toast ' + type;
             toast.textContent = message;
             
             container.appendChild(toast);
             
             // Trigger animation
-            setTimeout(() => toast.classList.add('show'), 100);
+            setTimeout(function() { toast.classList.add('show'); }, 100);
             
             // Auto remove
-            setTimeout(() => {
+            setTimeout(function() {
                 toast.classList.remove('show');
-                setTimeout(() => container.removeChild(toast), 300);
+                setTimeout(function() { container.removeChild(toast); }, 300);
             }, duration);
         }
         
         // PHASE 3: Custom Modal System
-        function showModal(title, body, actions = []) {
+        function showModal(title, body, actions) {
+            actions = actions || [];
             const overlay = document.getElementById('modalOverlay');
             const modal = document.getElementById('modal');
             const header = document.getElementById('modalHeader');
@@ -2624,11 +2627,11 @@ app.get("/admin", (req, res) => {
             bodyEl.innerHTML = body;
             
             actionsEl.innerHTML = '';
-            actions.forEach(action => {
+            actions.forEach(function(action) {
                 const button = document.createElement('button');
-                button.className = `btn ${action.class || 'btn-secondary'}`;
+                button.className = 'btn ' + (action.class || 'btn-secondary');
                 button.textContent = action.text;
-                button.onclick = () => {
+                button.onclick = function() {
                     if (action.onclick) action.onclick();
                     hideModal();
                 };
@@ -2659,7 +2662,7 @@ app.get("/admin", (req, res) => {
             const fillEl = document.getElementById('progressFill');
             const textEl = document.getElementById('progressText');
             
-            fillEl.style.width = `${percentage}%`;
+            fillEl.style.width = percentage + '%';
             if (text) textEl.textContent = text;
         }
         
@@ -3245,19 +3248,19 @@ app.get("/admin", (req, res) => {
             paginationBottom.style.display = 'flex';
             
             // Update page info
-            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
-            document.getElementById('pageInfoBottom').textContent = `Page ${currentPage} of ${totalPages}`;
-            document.getElementById('totalInfo').textContent = `(${filteredProfiles.length} profiles)`;
+            document.getElementById('pageInfo').textContent = 'Page ' + currentPage + ' of ' + totalPages;
+            document.getElementById('pageInfoBottom').textContent = 'Page ' + currentPage + ' of ' + totalPages;
+            document.getElementById('totalInfo').textContent = '(' + filteredProfiles.length + ' profiles)';
             
             // Update buttons
             const prevButtons = [document.getElementById('prevPageBtn'), paginationBottom.querySelector('button:first-child')];
             const nextButtons = [document.getElementById('nextPageBtn'), paginationBottom.querySelector('button:last-child')];
             
-            prevButtons.forEach(btn => {
+            prevButtons.forEach(function(btn) {
                 btn.disabled = currentPage === 1;
             });
             
-            nextButtons.forEach(btn => {
+            nextButtons.forEach(function(btn) {
                 btn.disabled = currentPage === totalPages;
             });
         }
@@ -3281,7 +3284,7 @@ app.get("/admin", (req, res) => {
             const grid = document.getElementById('profilesGrid');
             grid.innerHTML = '';
             
-            profiles.forEach(profile => {
+            profiles.forEach(function(profile) {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
                 card.setAttribute('data-character-id', profile.CharacterId);
@@ -3295,77 +3298,50 @@ app.get("/admin", (req, res) => {
                 
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? `<img src="${profile.ProfileImageUrl}" 
-                            alt="${profile.CharacterName}" 
-                            class="profile-image" 
-                            onclick="openImageModal('${profile.ProfileImageUrl}', '${profile.CharacterName}')"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>`
-                    : `<div class="profile-image-placeholder">🖼️</div>`;
+                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" style="display: none;">🖼️</div>'
+                    : '<div class="profile-image-placeholder">🖼️</div>';
                 
                 // Format character name with NSFW badge if needed
-                const characterNameHtml = `
-                    <div class="profile-name">
-                        ${profile.CharacterName}
-                        ${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
-                    </div>
-                `;
+                const characterNameHtml = '<div class="profile-name">' + profile.CharacterName + (profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : '') + '</div>';
                 
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = `<div class="gallery-status">${profile.GalleryStatus}</div>`;
+                    contentHtml = '<div class="gallery-status">' + profile.GalleryStatus + '</div>';
                 } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = `<div class="profile-content">${profile.Bio}</div>`;
+                    contentHtml = '<div class="profile-content">' + profile.Bio + '</div>';
                 } else {
-                    contentHtml = `<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>`;
+                    contentHtml = '<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>';
                 }
                 
                 // PHASE 3: Updated action buttons with communication
-                const actionButtons = profile.IsNSFW ? `
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('${profile.CharacterId}', '${profile.CharacterName}')">
-                        Remove
-                    </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('${profile.CharacterId}', '${profile.CharacterName}')">
-                        Ban
-                    </button>
-                    <button class="btn btn-communicate" onclick="requestCommunication('${profile.CharacterId}', '${profile.CharacterName}')">
-                        Chat
-                    </button>
-                ` : `
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('${profile.CharacterId}', '${profile.CharacterName}')">
-                        Remove
-                    </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('${profile.CharacterId}', '${profile.CharacterName}')">
-                        Ban
-                    </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('${profile.CharacterId}', '${profile.CharacterName}', false)">
-                        Mark NSFW
-                    </button>
-                    <button class="btn btn-communicate" onclick="requestCommunication('${profile.CharacterId}', '${profile.CharacterName}')">
-                        Chat
-                    </button>
-                `;
+                const actionButtons = profile.IsNSFW ? 
+                    '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
+                    '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>' +
+                    '<button class="btn btn-communicate" onclick="requestCommunication(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Chat</button>'
+                    : 
+                    '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
+                    '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>' +
+                    '<button class="btn btn-nsfw" onclick="toggleNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\', false)">Mark NSFW</button>' +
+                    '<button class="btn btn-communicate" onclick="requestCommunication(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Chat</button>';
                 
-                card.innerHTML = `
-                    <input type="checkbox" class="profile-checkbox" ${isSelected ? 'checked' : ''} 
-                           onchange="toggleProfileSelection('${profile.CharacterId}', this)">
-                    <div class="profile-header">
-                        <div class="profile-info">
-                            ${characterNameHtml}
-                            <div class="profile-id">${profile.CharacterId}</div>
-                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #ccc; font-size: 0.9em;">${profile.Server}</span>
-                                <span style="color: #4CAF50;">❤️ ${profile.LikeCount}</span>
-                            </div>
-                        </div>
-                        ${imageHtml}
-                    </div>
-                    ${contentHtml}
-                    <div class="profile-actions">
-                        ${actionButtons}
-                    </div>
-                `;
+                card.innerHTML = 
+                    '<input type="checkbox" class="profile-checkbox" ' + (isSelected ? 'checked' : '') + ' onchange="toggleProfileSelection(\'' + profile.CharacterId + '\', this)">' +
+                    '<div class="profile-header">' +
+                        '<div class="profile-info">' +
+                            characterNameHtml +
+                            '<div class="profile-id">' + profile.CharacterId + '</div>' +
+                            '<div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">' +
+                                '<span style="color: #ccc; font-size: 0.9em;">' + profile.Server + '</span>' +
+                                '<span style="color: #4CAF50;">❤️ ' + profile.LikeCount + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        imageHtml +
+                    '</div>' +
+                    contentHtml +
+                    '<div class="profile-actions">' +
+                        actionButtons +
+                    '</div>';
                 grid.appendChild(card);
             });
             
@@ -3469,7 +3445,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/dashboard?adminKey=${adminKey}`);
+                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
                 }
@@ -3485,7 +3461,7 @@ app.get("/admin", (req, res) => {
                 // PHASE 3: Storage usage
                 if (stats.storageUsage) {
                     const percentage = Math.round(stats.storageUsage.usagePercentage);
-                    document.getElementById('storageUsage').textContent = `${percentage}%`;
+                    document.getElementById('storageUsage').textContent = percentage + '%';
                 } else {
                     document.getElementById('storageUsage').textContent = '-';
                 }
@@ -3509,7 +3485,7 @@ app.get("/admin", (req, res) => {
             grid.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/gallery?admin=true&key=${adminKey}`);
+                const response = await fetch(serverUrl + '/gallery?admin=true&key=' + adminKey);
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
@@ -3517,7 +3493,7 @@ app.get("/admin", (req, res) => {
                 
                 // Populate available servers
                 availableServers.clear();
-                profiles.forEach(profile => {
+                profiles.forEach(function(profile) {
                     if (profile.Server) {
                         availableServers.add(profile.Server);
                     }
@@ -3528,7 +3504,7 @@ app.get("/admin", (req, res) => {
                 applyFilters();
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading profiles: ${error.message}</div>`;
+                loading.innerHTML = '<div class="error">Error loading profiles: ' + error.message + '</div>';
             }
         }
         
