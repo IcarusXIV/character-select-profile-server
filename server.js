@@ -20,6 +20,381 @@ console.log(`📁 Using data directory: ${DATA_DIR}`);
 const profilesDir = path.join(DATA_DIR, "profiles");
 if (!fs.existsSync(profilesDir)) fs.mkdirSync(profilesDir, { recursive: true });
 
+// =============================================================================
+// 💬 COMMUNICATION SYSTEM ENDPOINTS
+// =============================================================================
+
+// Send warning to user (admin only)
+app.post("/admin/messages/warning", requireAdmin, async (req, res) => {
+    try {
+        const { characterId, violationType, reason } = req.body;
+        const adminId = req.adminId;
+        
+        if (!characterId || !violationType) {
+            return res.status(400).json({ error: 'Character ID and violation type are required' });
+        }
+
+        // Try to get character name from profile
+        let characterName = characterId;
+        try {
+            const filePath = path.join(profilesDir, `${characterId}.json`);
+            if (fs.existsSync(filePath)) {
+                const profile = await readProfileAsync(filePath);
+                characterName = profile.CharacterName || characterId;
+            }
+        } catch (err) {
+            // Use characterId as fallback
+        }
+
+        const message = messagesDB.sendWarning(characterId, characterName, violationType, reason, adminId);
+        
+        res.json({ 
+            success: true, 
+            messageId: message.id,
+            characterName 
+        });
+    } catch (error) {
+        console.error('Send warning error:', error);
+        res.status(500).json({ error: 'Failed to send warning' });
+    }
+});
+
+// Send notification (admin only)
+app.post("/admin/messages/notification", requireAdmin, async (req, res) => {
+    try {
+        const { characterId, message, type } = req.body;
+        const adminId = req.adminId;
+        
+        if (!characterId || !message) {
+            return res.status(400).json({ error: 'Character ID and message are required' });
+        }
+
+        let characterName = characterId;
+        try {
+            const filePath = path.join(profilesDir, `${characterId}.json`);
+            if (fs.existsSync(filePath)) {
+                const profile = await readProfileAsync(filePath);
+                characterName = profile.CharacterName || characterId;
+            }
+        } catch (err) {
+            // Use characterId as fallback
+        }
+
+        const notification = messagesDB.sendNotification(characterId, characterName, type || 'info', message, adminId);
+        
+        res.json({ 
+            success: true, 
+            messageId: notification.id,
+            characterName 
+        });
+    } catch (error) {
+        console.error('Send notification error:', error);
+        res.status(500).json({ error: 'Failed to send notification' });
+    }
+});
+
+// Get all messages (admin only)
+app.get("/admin/messages", requireAdmin, (req, res) => {
+    try {
+        const { type, limit } = req.query;
+        let messages = messagesDB.getAllMessages(parseInt(limit) || 100);
+        
+        if (type) {
+            messages = messages.filter(m => m.type === type);
+        }
+        
+        res.json(messages);
+    } catch (error) {
+        console.error('Get messages error:', error);
+        res.status(500).json({ error: 'Failed to get messages' });
+    }
+});
+
+// Get messages for specific user (plugin endpoint)
+app.get("/messages/:characterId", (req, res) => {
+    try {
+        const characterId = decodeURIComponent(req.params.characterId);
+        const userKey = req.headers['x-character-key'];
+        
+        // Basic validation - in real implementation you might want stronger auth
+        if (!userKey) {
+            return res.status(401).json({ error: 'Character key required' });
+        }
+        
+        const messages = messagesDB.getMessagesForUser(characterId);
+        const unreadCount = messagesDB.getUnreadCount(characterId);
+        
+        res.json({ 
+            messages, 
+            unreadCount,
+            hasNewMessages: unreadCount > 0 
+        });
+    } catch (error) {
+        console.error('Get user messages error:', error);
+        res.status(500).json({ error: 'Failed to get messages' });
+    }
+});
+
+// Mark message as read (plugin endpoint)
+app.patch("/messages/:messageId/read", (req, res) => {
+    try {
+        const messageId = req.params.messageId;
+        const { characterId } = req.body;
+        const userKey = req.headers['x-character-key'];
+        
+        if (!userKey || !characterId) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        const success = messagesDB.markAsRead(messageId, characterId);
+        
+        if (success) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Message not found' });
+        }
+    } catch (error) {
+        console.error('Mark read error:', error);
+        res.status(500).json({ error: 'Failed to mark as read' });
+    }
+});
+
+// =============================================================================
+// 🗄️ STORAGE MANAGEMENT ENDPOINTS
+// =============================================================================
+
+// Get storage statistics (admin only)
+app.get("/admin/storage/stats", requireAdmin, async (req, res) => {
+    try {
+        // Get cached stats or trigger scan
+        const stats = await storageDB.scanStorage();
+        res.json(stats);
+    } catch (error) {
+        console.error('Get storage stats error:', error);
+        res.status(500).json({ error: 'Failed to get storage stats' });
+    }
+});
+
+// Trigger storage scan (admin only)
+app.post("/admin/storage/scan", requireAdmin, async (req, res) => {
+    try {
+        const adminId = req.adminId;
+        
+        const results = await storageDB.scanStorage();
+        
+        // Log activity
+        activityDB.logActivity('storage', `STORAGE SCAN: ${results.totalImages} images, ${results.orphanedCount} orphaned`, {
+            adminId,
+            ...results
+        });
+        
+        res.json(results);
+    } catch (error) {
+        console.error('Storage scan error:', error);
+        res.status(500).json({ error: 'Failed to scan storage' });
+    }
+});
+
+// Cleanup orphaned images (admin only)
+app.post("/admin/storage/cleanup-orphaned", requireAdmin, async (req, res) => {
+    try {
+        const adminId = req.adminId;
+        
+        const results = await storageDB.cleanupOrphanedImages();
+        
+        // Log activity
+        activityDB.logActivity('storage', `ORPHANED CLEANUP: ${results.cleanedCount} images, ${results.cleanedSizeMB}MB freed`, {
+            adminId,
+            ...results
+        });
+        
+        res.json(results);
+    } catch (error) {
+        console.error('Cleanup orphaned error:', error);
+        res.status(500).json({ error: 'Failed to cleanup orphaned images' });
+    }
+});
+
+// Get inactive profiles (admin only)
+app.get("/admin/storage/inactive", requireAdmin, (req, res) => {
+    try {
+        const days = parseInt(req.query.days) || 90;
+        const inactiveProfiles = storageDB.getInactiveProfiles(days);
+        res.json(inactiveProfiles);
+    } catch (error) {
+        console.error('Get inactive profiles error:', error);
+        res.status(500).json({ error: 'Failed to get inactive profiles' });
+    }
+});
+
+// Remove profile image only (admin only)
+app.delete("/admin/storage/remove-image/:characterId", requireAdmin, async (req, res) => {
+    try {
+        const characterId = decodeURIComponent(req.params.characterId);
+        const adminId = req.adminId;
+        
+        const success = await storageDB.removeProfileImage(characterId);
+        
+        if (success) {
+            // Clear gallery cache
+            galleryCache = null;
+            
+            // Log activity
+            activityDB.logActivity('storage', `IMAGE REMOVED: ${characterId}`, {
+                adminId,
+                characterId
+            });
+            
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Profile or image not found' });
+        }
+    } catch (error) {
+        console.error('Remove image error:', error);
+        res.status(500).json({ error: 'Failed to remove image' });
+    }
+});
+
+// Bulk image cleanup (admin only)
+app.post("/admin/storage/bulk-cleanup", requireAdmin, async (req, res) => {
+    try {
+        const { cleanupOrphaned, cleanupInactive, cleanupLarge } = req.body;
+        const adminId = req.adminId;
+        
+        let totalCleaned = 0;
+        let totalSavedMB = 0;
+        
+        // Cleanup orphaned images
+        if (cleanupOrphaned) {
+            const orphanedResults = await storageDB.cleanupOrphanedImages();
+            totalCleaned += orphanedResults.cleanedCount;
+            totalSavedMB += orphanedResults.cleanedSizeMB;
+        }
+        
+        // Cleanup inactive profile images
+        if (cleanupInactive) {
+            const inactiveProfiles = storageDB.getInactiveProfiles(90);
+            for (const profile of inactiveProfiles) {
+                if (profile.hasImage) {
+                    const success = await storageDB.removeProfileImage(profile.characterId);
+                    if (success) {
+                        totalCleaned++;
+                        totalSavedMB += profile.imageSize / 1024 / 1024;
+                    }
+                }
+            }
+        }
+        
+        // Cleanup large images
+        if (cleanupLarge) {
+            const imageFiles = fs.readdirSync(imagesDir);
+            for (const imageFile of imageFiles) {
+                const imagePath = path.join(imagesDir, imageFile);
+                const stats = fs.statSync(imagePath);
+                
+                if (stats.size > 2 * 1024 * 1024) { // 2MB threshold
+                    // Find the profile that uses this image
+                    const profileFiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
+                    
+                    for (const file of profileFiles) {
+                        try {
+                            const characterId = file.replace('.json', '');
+                            const profile = await readProfileAsync(path.join(profilesDir, file));
+                            
+                            if (profile.ProfileImageUrl && profile.ProfileImageUrl.includes(imageFile)) {
+                                const success = await storageDB.removeProfileImage(characterId);
+                                if (success) {
+                                    totalCleaned++;
+                                    totalSavedMB += stats.size / 1024 / 1024;
+                                }
+                                break;
+                            }
+                        } catch (err) {
+                            // Skip invalid profiles
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Clear gallery cache
+        galleryCache = null;
+        
+        // Log activity
+        activityDB.logActivity('storage', `BULK CLEANUP: ${totalCleaned} images, ${totalSavedMB.toFixed(2)}MB freed`, {
+            adminId,
+            cleanupOrphaned,
+            cleanupInactive,
+            cleanupLarge
+        });
+        
+        res.json({ 
+            totalCleaned, 
+            totalSavedMB: Math.round(totalSavedMB * 100) / 100 
+        });
+    } catch (error) {
+        console.error('Bulk cleanup error:', error);
+        res.status(500).json({ error: 'Failed to perform bulk cleanup' });
+    }
+});
+
+// Cleanup inactive profiles entirely (admin only)
+app.post("/admin/storage/cleanup-inactive", requireAdmin, async (req, res) => {
+    try {
+        const { daysThreshold, reason } = req.body;
+        const adminId = req.adminId;
+        
+        if (!daysThreshold || !reason) {
+            return res.status(400).json({ error: 'Days threshold and reason are required' });
+        }
+
+        const inactiveProfiles = storageDB.getInactiveProfiles(daysThreshold);
+        let removedCount = 0;
+        let freedMB = 0;
+        
+        for (const profile of inactiveProfiles) {
+            try {
+                const filePath = path.join(profilesDir, `${profile.characterId}.json`);
+                
+                // Delete profile file
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                    removedCount++;
+                }
+                
+                // Delete associated image
+                if (profile.hasImage) {
+                    const success = await storageDB.removeProfileImage(profile.characterId);
+                    if (success) {
+                        freedMB += profile.imageSize / 1024 / 1024;
+                    }
+                }
+                
+                // Log moderation action
+                moderationDB.logAction('remove_inactive', profile.characterId, profile.characterName, 
+                    `Inactive for ${daysThreshold}+ days: ${reason}`, adminId);
+                
+            } catch (err) {
+                console.error(`Error removing inactive profile ${profile.characterId}:`, err);
+            }
+        }
+        
+        // Clear gallery cache
+        galleryCache = null;
+        
+        // Rescan storage
+        await storageDB.scanStorage();
+        
+        res.json({ 
+            removedCount, 
+            freedMB: Math.round(freedMB * 100) / 100 
+        });
+    } catch (error) {
+        console.error('Cleanup inactive error:', error);
+        res.status(500).json({ error: 'Failed to cleanup inactive profiles' });
+    }
+});
+
 const imagesDir = path.join(DATA_DIR, "public", "images");
 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 
@@ -49,6 +424,8 @@ const reportsDbFile = path.join(DATA_DIR, "reports_database.json");
 const moderationDbFile = path.join(DATA_DIR, "moderation_database.json");
 const activityDbFile = path.join(DATA_DIR, "activity_database.json");
 const flaggedDbFile = path.join(DATA_DIR, "flagged_database.json");
+const messagesDbFile = path.join(DATA_DIR, "messages_database.json");
+const storageDbFile = path.join(DATA_DIR, "storage_database.json");
 
 // 💾 DATABASE CLASSES (keeping all existing ones)
 class LikesDatabase {
@@ -66,6 +443,574 @@ class LikesDatabase {
                 this.likeCounts = new Map(data.likeCounts);
                 console.log(`💾 Loaded ${this.likeCounts.size} like records`);
             }
+        
+        // =============================================================================
+        // 💬 COMMUNICATION SYSTEM FUNCTIONS
+        // =============================================================================
+        
+        function showSendWarningModal() {
+            const bodyContent = `
+                <div class="input-group">
+                    <label for="warningCharacterId">Character ID:</label>
+                    <input type="text" id="warningCharacterId" class="modal-input" placeholder="Enter character ID to warn">
+                </div>
+                <div class="input-group">
+                    <label for="warningType">Warning Type:</label>
+                    <select id="warningType" class="modal-input">
+                        <option value="content_violation">Content Violation</option>
+                        <option value="spam">Spam Behavior</option>
+                        <option value="harassment">Harassment</option>
+                        <option value="custom">Custom Message</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="warningReason">Custom Reason (if applicable):</label>
+                    <textarea id="warningReason" class="modal-input modal-textarea" placeholder="Enter custom warning message or additional details"></textarea>
+                </div>
+            `;
+            
+            const actions = `
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-warning" onclick="executeSendWarning()">Send Warning</button>
+            `;
+            
+            showModal('📨 Send Warning', 'Send warning to user', bodyContent, actions);
+        }
+        
+        async function quickWarning(violationType, characterId = null) {
+            if (!characterId) {
+                characterId = prompt('Enter Character ID to warn:');
+                if (!characterId) return;
+            }
+            
+            try {
+                const response = await fetch(`${serverUrl}/admin/messages/warning`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({
+                        characterId: characterId.trim(),
+                        violationType,
+                        reason: ''
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(`Warning sent to ${result.characterName}`, 'success');
+                    loadMessages();
+                } else {
+                    const error = await response.json();
+                    showToast(`Error: ${error.error}`, 'error');
+                }
+            } catch (error) {
+                showToast(`Error sending warning: ${error.message}`, 'error');
+            }
+        }
+        
+        async function executeSendWarning() {
+            const characterId = document.getElementById('warningCharacterId').value.trim();
+            const violationType = document.getElementById('warningType').value;
+            const reason = document.getElementById('warningReason').value.trim();
+            
+            if (!characterId) {
+                showToast('Character ID is required', 'error');
+                return;
+            }
+            
+            closeModal();
+            
+            try {
+                const response = await fetch(`${serverUrl}/admin/messages/warning`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({
+                        characterId,
+                        violationType,
+                        reason
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(`Warning sent to ${result.characterName}`, 'success');
+                    loadMessages();
+                } else {
+                    const error = await response.json();
+                    showToast(`Error: ${error.error}`, 'error');
+                }
+            } catch (error) {
+                showToast(`Error sending warning: ${error.message}`, 'error');
+            }
+        }
+        
+        async function loadMessages() {
+            const loading = document.getElementById('messagesLoading');
+            const container = document.getElementById('messagesContainer');
+            const typeFilter = document.getElementById('messageTypeFilter').value;
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                let url = `${serverUrl}/admin/messages?adminKey=${adminKey}`;
+                if (typeFilter) {
+                    url += `&type=${typeFilter}`;
+                }
+                
+                const response = await fetch(url);
+                const messages = await response.json();
+                
+                loading.style.display = 'none';
+                
+                if (messages.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">💬 No messages to show</div>';
+                    return;
+                }
+                
+                messages.forEach(message => {
+                    const card = document.createElement('div');
+                    const typeColors = {
+                        warning: '#ff9800',
+                        notification: '#2196F3',
+                        chat: '#4CAF50'
+                    };
+                    
+                    card.className = 'profile-card';
+                    card.style.borderLeft = `4px solid ${typeColors[message.type] || '#ccc'}`;
+                    
+                    const timeAgo = getTimeAgo(message.timestamp);
+                    const readStatus = message.read ? '✅ Read' : '📬 Unread';
+                    
+                    card.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <strong>${message.type.toUpperCase()}: ${message.recipientCharacterName}</strong>
+                            <span style="color: ${message.read ? '#4CAF50' : '#ff9800'}; font-size: 0.8em;">${readStatus}</span>
+                        </div>
+                        <div style="color: #aaa; font-size: 0.9em; margin-bottom: 8px;">
+                            <strong>Subject:</strong> ${message.subject}
+                        </div>
+                        <div style="background: rgba(0, 0, 0, 0.2); padding: 10px; border-radius: 6px; margin: 10px 0; max-height: 100px; overflow-y: auto;">
+                            ${message.content}
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #aaa;">
+                            <span>From: ${message.fromAdmin}</span>
+                            <span>${timeAgo}</span>
+                        </div>
+                        ${message.reason ? `<div style="margin-top: 8px; font-size: 0.8em; color: #ccc;"><strong>Reason:</strong> ${message.reason}</div>` : ''}
+                    `;
+                    
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                loading.innerHTML = `<div class="error">Error loading messages: ${error.message}</div>`;
+            }
+        }
+        
+        // =============================================================================
+        // 🗄️ STORAGE MANAGEMENT FUNCTIONS  
+        // =============================================================================
+        
+        async function loadStorageData() {
+            const loading = document.getElementById('storageLoading');
+            const container = document.getElementById('storageContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                // Load current storage stats
+                const response = await fetch(`${serverUrl}/admin/storage/stats?adminKey=${adminKey}`);
+                const stats = await response.json();
+                
+                // Update stat cards
+                document.getElementById('totalImagesCount').textContent = stats.totalImages || 0;
+                document.getElementById('totalStorageSize').textContent = stats.totalSizeMB || 0;
+                document.getElementById('orphanedImagesCount').textContent = stats.orphanedCount || 0;
+                document.getElementById('inactiveProfilesCount').textContent = stats.inactiveCount || 0;
+                
+                loading.style.display = 'none';
+                
+                // Show storage summary
+                const summary = document.createElement('div');
+                summary.style.cssText = 'background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 10px; margin-bottom: 20px;';
+                summary.innerHTML = `
+                    <h4>📊 Storage Summary</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                        <div>
+                            <strong>Total Storage:</strong><br>
+                            <span style="color: #4CAF50;">${stats.totalSizeMB}MB across ${stats.totalImages} images</span>
+                        </div>
+                        <div>
+                            <strong>Cleanup Potential:</strong><br>
+                            <span style="color: #ff9800;">${stats.orphanedSizeMB}MB in ${stats.orphanedCount} orphaned images</span>
+                        </div>
+                        <div>
+                            <strong>Inactive Profiles:</strong><br>
+                            <span style="color: #f44336;">${stats.inactiveCount} profiles not updated recently</span>
+                        </div>
+                        <div>
+                            <strong>Last Scan:</strong><br>
+                            <span style="color: #ccc;">${stats.lastUpdated ? new Date(stats.lastUpdated).toLocaleString() : 'Never'}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(summary);
+                
+                // Show recommendations if needed
+                if (stats.orphanedCount > 0 || stats.inactiveCount > 5) {
+                    const recommendations = document.createElement('div');
+                    recommendations.style.cssText = 'background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; padding: 15px; border-radius: 10px; margin-bottom: 20px;';
+                    recommendations.innerHTML = `
+                        <h4 style="color: #ff9800;">💡 Recommendations</h4>
+                        <ul style="margin: 10px 0 0 20px; color: #ddd;">
+                            ${stats.orphanedCount > 0 ? `<li>Clean up ${stats.orphanedCount} orphaned images to save ${stats.orphanedSizeMB}MB</li>` : ''}
+                            ${stats.inactiveCount > 5 ? `<li>Review ${stats.inactiveCount} inactive profiles for potential cleanup</li>` : ''}
+                            ${stats.totalSizeMB > 500 ? '<li>Consider reviewing large images for optimization</li>' : ''}
+                        </ul>
+                    `;
+                    container.appendChild(recommendations);
+                }
+                
+            } catch (error) {
+                loading.innerHTML = `<div class="error">Error loading storage data: ${error.message}</div>`;
+            }
+        }
+        
+        async function scanStorage() {
+            const scanBtn = event.target;
+            const originalText = scanBtn.textContent;
+            scanBtn.textContent = '🔍 Scanning...';
+            scanBtn.disabled = true;
+            
+            try {
+                showToast('Starting storage scan...', 'info');
+                
+                const response = await fetch(`${serverUrl}/admin/storage/scan`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(`Scan complete: ${result.totalImages} images, ${result.orphanedCount} orphaned`, 'success');
+                    loadStorageData();
+                } else {
+                    showToast('Error scanning storage', 'error');
+                }
+            } catch (error) {
+                showToast(`Scan error: ${error.message}`, 'error');
+            } finally {
+                scanBtn.textContent = originalText;
+                scanBtn.disabled = false;
+            }
+        }
+        
+        async function cleanupOrphanedImages() {
+            const bodyContent = `
+                <p>This will permanently delete all orphaned images that are no longer referenced by any profiles.</p>
+                <p style="color: #ff9800; font-weight: bold;">⚠️ This action cannot be undone!</p>
+                <p>Orphaned images are typically created when profiles are deleted but their images remain on the server.</p>
+            `;
+            
+            const actions = `
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="executeCleanupOrphaned()">Delete Orphaned Images</button>
+            `;
+            
+            showModal('🗑️ Cleanup Orphaned Images', 'Permanent deletion warning', bodyContent, actions);
+        }
+        
+        async function executeCleanupOrphaned() {
+            closeModal();
+            
+            try {
+                showToast('Cleaning up orphaned images...', 'info');
+                
+                const response = await fetch(`${serverUrl}/admin/storage/cleanup-orphaned`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(`Cleanup complete: ${result.cleanedCount} images deleted, ${result.cleanedSizeMB}MB freed`, 'success');
+                    loadStorageData();
+                } else {
+                    showToast('Error cleaning up images', 'error');
+                }
+            } catch (error) {
+                showToast(`Cleanup error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function loadInactiveProfiles() {
+            const threshold = document.getElementById('inactiveThreshold').value;
+            
+            try {
+                const response = await fetch(`${serverUrl}/admin/storage/inactive?days=${threshold}&adminKey=${adminKey}`);
+                const inactiveProfiles = await response.json();
+                
+                const container = document.getElementById('storageContainer');
+                const existingSummary = container.querySelector('.storage-summary');
+                if (existingSummary) {
+                    // Only update the inactive profiles section
+                    const inactiveSection = container.querySelector('.inactive-profiles-section');
+                    if (inactiveSection) {
+                        inactiveSection.remove();
+                    }
+                } else {
+                    // Load full storage data first
+                    await loadStorageData();
+                }
+                
+                if (inactiveProfiles.length === 0) {
+                    const noInactive = document.createElement('div');
+                    noInactive.className = 'inactive-profiles-section';
+                    noInactive.style.cssText = 'text-align: center; color: #4CAF50; padding: 20px; background: rgba(76, 175, 80, 0.1); border-radius: 10px; margin-top: 20px;';
+                    noInactive.innerHTML = `🎉 No inactive profiles found (${threshold} days threshold)`;
+                    container.appendChild(noInactive);
+                    return;
+                }
+                
+                const inactiveSection = document.createElement('div');
+                inactiveSection.className = 'inactive-profiles-section';
+                inactiveSection.innerHTML = `
+                    <h4 style="margin: 20px 0 15px 0;">📋 Inactive Profiles (${threshold}+ days)</h4>
+                    <div style="margin-bottom: 15px;">
+                        <button class="btn btn-danger" onclick="showBulkInactiveCleanup(${threshold})">🧹 Bulk Remove Inactive</button>
+                        <span style="margin-left: 15px; color: #ccc;">${inactiveProfiles.length} profiles found</span>
+                    </div>
+                `;
+                
+                const inactiveGrid = document.createElement('div');
+                inactiveGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;';
+                
+                inactiveProfiles.forEach(profile => {
+                    const card = document.createElement('div');
+                    card.className = 'profile-card';
+                    card.style.borderLeft = '4px solid #ff9800';
+                    card.style.height = 'auto';
+                    
+                    const daysSince = Math.floor((Date.now() - new Date(profile.lastUpdate).getTime()) / (24 * 60 * 60 * 1000));
+                    
+                    card.innerHTML = `
+                        <div style="margin-bottom: 10px;">
+                            <strong style="color: #ff9800;">${profile.characterName}</strong>
+                            <div style="color: #aaa; font-size: 0.85em; font-family: monospace;">${profile.characterId}</div>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <div>📅 Last Update: ${daysSince} days ago</div>
+                            <div>🖼️ Has Image: ${profile.hasImage ? 'Yes' : 'No'}</div>
+                            ${profile.hasImage ? `<div>📏 Image Size: ${(profile.imageSize / 1024).toFixed(1)}KB</div>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 15px;">
+                            <button class="btn btn-secondary" onclick="removeProfileImage('${profile.characterId}', '${profile.characterName.replace(/'/g, "\\'")}')">Remove Image</button>
+                            <button class="btn btn-danger" onclick="initRemoveProfile('${profile.characterId}', '${profile.characterName.replace(/'/g, "\\'")}')">Remove Profile</button>
+                        </div>
+                    `;
+                    
+                    inactiveGrid.appendChild(card);
+                });
+                
+                inactiveSection.appendChild(inactiveGrid);
+                container.appendChild(inactiveSection);
+                
+            } catch (error) {
+                showToast(`Error loading inactive profiles: ${error.message}`, 'error');
+            }
+        }
+        
+        async function removeProfileImage(characterId, characterName) {
+            const bodyContent = `
+                <div class="modal-profile-info">
+                    <div class="modal-profile-name">${characterName}</div>
+                    <div class="modal-profile-id">${characterId}</div>
+                </div>
+                <p><strong>This will:</strong></p>
+                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
+                    <li>Remove the profile image from storage</li>
+                    <li>Keep the profile active in the gallery</li>
+                    <li>User can re-upload an image anytime</li>
+                    <li>Free up storage space</li>
+                </ul>
+            `;
+            
+            const actions = `
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-warning" onclick="executeRemoveImage('${characterId}', '${characterName.replace(/'/g, "\\'")}')">Remove Image</button>
+            `;
+            
+            showModal('🖼️ Remove Profile Image', 'Keep profile, remove image only', bodyContent, actions);
+        }
+        
+        async function executeRemoveImage(characterId, characterName) {
+            closeModal();
+            
+            try {
+                const response = await fetch(`${serverUrl}/admin/storage/remove-image/${encodeURIComponent(characterId)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    }
+                });
+                
+                if (response.ok) {
+                    showToast(`Image removed from ${characterName}`, 'success');
+                    loadStorageData();
+                    loadProfiles(); // Refresh main gallery if visible
+                } else {
+                    showToast('Error removing image', 'error');
+                }
+            } catch (error) {
+                showToast(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        function showBulkImageCleanup() {
+            const bodyContent = `
+                <h4>🧹 Bulk Image Cleanup Options</h4>
+                <div style="margin: 15px 0;">
+                    <label style="display: block; margin-bottom: 10px;">
+                        <input type="checkbox" id="cleanupOrphaned" checked> 
+                        Remove all orphaned images
+                    </label>
+                    <label style="display: block; margin-bottom: 10px;">
+                        <input type="checkbox" id="cleanupInactive"> 
+                        Remove images from profiles inactive for 90+ days
+                    </label>
+                    <label style="display: block; margin-bottom: 10px;">
+                        <input type="checkbox" id="cleanupLarge"> 
+                        Remove images larger than 2MB (keep profiles)
+                    </label>
+                </div>
+                <p style="color: #ff9800; font-weight: bold;">⚠️ This will permanently delete selected images</p>
+            `;
+            
+            const actions = `
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="executeBulkImageCleanup()">Start Cleanup</button>
+            `;
+            
+            showModal('🧹 Bulk Image Cleanup', 'Select cleanup options', bodyContent, actions);
+        }
+        
+        async function executeBulkImageCleanup() {
+            const cleanupOrphaned = document.getElementById('cleanupOrphaned').checked;
+            const cleanupInactive = document.getElementById('cleanupInactive').checked;
+            const cleanupLarge = document.getElementById('cleanupLarge').checked;
+            
+            if (!cleanupOrphaned && !cleanupInactive && !cleanupLarge) {
+                showToast('Please select at least one cleanup option', 'error');
+                return;
+            }
+            
+            closeModal();
+            
+            try {
+                showToast('Starting bulk image cleanup...', 'info');
+                
+                const response = await fetch(`${serverUrl}/admin/storage/bulk-cleanup`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({
+                        cleanupOrphaned,
+                        cleanupInactive,
+                        cleanupLarge
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(`Cleanup complete: ${result.totalCleaned} images deleted, ${result.totalSavedMB}MB freed`, 'success');
+                    loadStorageData();
+                } else {
+                    showToast('Error during bulk cleanup', 'error');
+                }
+            } catch (error) {
+                showToast(`Cleanup error: ${error.message}`, 'error');
+            }
+        }
+        
+        function showBulkInactiveCleanup(threshold) {
+            const bodyContent = `
+                <p>Remove all profiles that haven't been updated in <strong>${threshold}+ days</strong>?</p>
+                <p><strong>This will:</strong></p>
+                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
+                    <li>Delete inactive profiles and their images</li>
+                    <li>Free up significant storage space</li>
+                    <li>Users can re-upload if they return</li>
+                </ul>
+                <p style="color: #f44336; font-weight: bold;">⚠️ This action cannot be undone!</p>
+                <textarea id="bulkInactiveReason" class="modal-input modal-textarea" placeholder="Enter reason for bulk cleanup (required)" required></textarea>
+            `;
+            
+            const actions = `
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="executeBulkInactiveCleanup(${threshold})">Remove Inactive Profiles</button>
+            `;
+            
+            showModal('🧹 Bulk Inactive Cleanup', 'Remove old inactive profiles', bodyContent, actions);
+        }
+        
+        async function executeBulkInactiveCleanup(threshold) {
+            const reason = document.getElementById('bulkInactiveReason').value.trim();
+            
+            if (!reason) {
+                showToast('Cleanup reason is required', 'error');
+                return;
+            }
+            
+            closeModal();
+            
+            try {
+                showToast(`Removing profiles inactive for ${threshold}+ days...`, 'info');
+                
+                const response = await fetch(`${serverUrl}/admin/storage/cleanup-inactive`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({
+                        daysThreshold: threshold,
+                        reason
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(`Cleanup complete: ${result.removedCount} profiles deleted, ${result.freedMB}MB freed`, 'success');
+                    loadStorageData();
+                    loadProfiles(); // Refresh main gallery
+                    refreshStats();
+                } else {
+                    showToast('Error during inactive cleanup', 'error');
+                }
+            } catch (error) {
+                showToast(`Cleanup error: ${error.message}`, 'error');
+            }
+        }
         } catch (err) {
             console.error('Error loading likes database:', err);
             this.likes = new Map();
@@ -123,6 +1068,373 @@ class LikesDatabase {
 
     getLikeCount(characterId) {
         return this.likeCounts.get(characterId) || 0;
+    }
+}
+
+class MessagesDatabase {
+    constructor() {
+        this.messages = [];
+        this.conversations = new Map(); // userId -> [messageIds]
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(messagesDbFile)) {
+                const data = JSON.parse(fs.readFileSync(messagesDbFile, 'utf-8'));
+                this.messages = data.messages || [];
+                this.conversations = new Map(data.conversations || []);
+                console.log(`💬 Loaded ${this.messages.length} messages`);
+            }
+        } catch (err) {
+            console.error('Error loading messages database:', err);
+            this.messages = [];
+            this.conversations = new Map();
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                messages: this.messages,
+                conversations: Array.from(this.conversations.entries()),
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = messagesDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(messagesDbFile)) {
+                fs.copyFileSync(messagesDbFile, messagesDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, messagesDbFile);
+        } catch (err) {
+            console.error('Error saving messages database:', err);
+        }
+    }
+
+    sendWarning(characterId, characterName, violationType, reason, adminId) {
+        const warningTemplates = {
+            'content_violation': `Your character "${characterName}" has been reported for inappropriate content. Please review and update your profile to comply with community guidelines.`,
+            'spam': `Your character "${characterName}" has been flagged for spam-like behavior. Please ensure your content is meaningful and follows community standards.`,
+            'harassment': `Your character "${characterName}" has been reported for harassment. This behavior is not tolerated and may result in a ban.`,
+            'custom': reason
+        };
+
+        const message = {
+            id: crypto.randomUUID(),
+            type: 'warning',
+            recipientCharacterId: characterId,
+            recipientCharacterName: characterName,
+            fromAdmin: adminId,
+            subject: `Warning: ${violationType.replace('_', ' ').toUpperCase()}`,
+            content: warningTemplates[violationType] || warningTemplates['custom'],
+            reason: reason,
+            timestamp: new Date().toISOString(),
+            read: false,
+            status: 'sent'
+        };
+
+        this.messages.unshift(message);
+        
+        // Add to user's conversation
+        if (!this.conversations.has(characterId)) {
+            this.conversations.set(characterId, []);
+        }
+        this.conversations.get(characterId).unshift(message.id);
+        
+        this.save();
+        
+        // Log activity
+        activityDB.logActivity('warning', `WARNING SENT: ${characterName}`, {
+            messageId: message.id,
+            characterId,
+            characterName,
+            violationType,
+            adminId
+        });
+        
+        console.log(`⚠️ Warning sent to ${characterName} by ${adminId}`);
+        return message;
+    }
+
+    sendNotification(characterId, characterName, type, message, adminId) {
+        const notification = {
+            id: crypto.randomUUID(),
+            type: 'notification',
+            recipientCharacterId: characterId,
+            recipientCharacterName: characterName,
+            fromAdmin: adminId,
+            subject: `Profile ${type.charAt(0).toUpperCase() + type.slice(1)}`,
+            content: message,
+            timestamp: new Date().toISOString(),
+            read: false,
+            status: 'sent'
+        };
+
+        this.messages.unshift(notification);
+        
+        if (!this.conversations.has(characterId)) {
+            this.conversations.set(characterId, []);
+        }
+        this.conversations.get(characterId).unshift(notification.id);
+        
+        this.save();
+        return notification;
+    }
+
+    getMessagesForUser(characterId, limit = 50) {
+        const messageIds = this.conversations.get(characterId) || [];
+        return messageIds.slice(0, limit).map(id => 
+            this.messages.find(m => m.id === id)
+        ).filter(Boolean);
+    }
+
+    markAsRead(messageId, characterId) {
+        const message = this.messages.find(m => m.id === messageId && m.recipientCharacterId === characterId);
+        if (message) {
+            message.read = true;
+            this.save();
+            return true;
+        }
+        return false;
+    }
+
+    getAllMessages(limit = 100) {
+        return this.messages.slice(0, limit);
+    }
+
+    getUnreadCount(characterId) {
+        const messageIds = this.conversations.get(characterId) || [];
+        return messageIds.reduce((count, id) => {
+            const message = this.messages.find(m => m.id === id);
+            return count + (message && !message.read ? 1 : 0);
+        }, 0);
+    }
+}
+
+class StorageDatabase {
+    constructor() {
+        this.storageStats = {
+            totalImages: 0,
+            totalSize: 0,
+            orphanedImages: [],
+            lastUpdated: null
+        };
+        this.imageUsage = new Map(); // imageFile -> { characterId, lastAccessed, size }
+        this.inactiveProfiles = [];
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(storageDbFile)) {
+                const data = JSON.parse(fs.readFileSync(storageDbFile, 'utf-8'));
+                this.storageStats = data.storageStats || this.storageStats;
+                this.imageUsage = new Map(data.imageUsage || []);
+                this.inactiveProfiles = data.inactiveProfiles || [];
+                console.log(`💾 Loaded storage data: ${this.storageStats.totalImages} images`);
+            }
+        } catch (err) {
+            console.error('Error loading storage database:', err);
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                storageStats: this.storageStats,
+                imageUsage: Array.from(this.imageUsage.entries()),
+                inactiveProfiles: this.inactiveProfiles,
+                lastSaved: new Date().toISOString()
+            };
+            
+            const tempFile = storageDbFile + '.tmp';
+            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+            
+            if (fs.existsSync(storageDbFile)) {
+                fs.copyFileSync(storageDbFile, storageDbFile + '.backup');
+            }
+            
+            fs.renameSync(tempFile, storageDbFile);
+        } catch (err) {
+            console.error('Error saving storage database:', err);
+        }
+    }
+
+    async scanStorage() {
+        try {
+            console.log('🔍 Scanning storage...');
+            
+            // Scan images directory
+            const imageFiles = fs.readdirSync(imagesDir);
+            let totalSize = 0;
+            const orphanedImages = [];
+            const currentImages = new Map();
+
+            // Get all profile files
+            const profileFiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
+            const activeImages = new Set();
+
+            // Collect all referenced images from profiles
+            for (const file of profileFiles) {
+                try {
+                    const profile = await readProfileAsync(path.join(profilesDir, file));
+                    if (profile.ProfileImageUrl) {
+                        const imageName = profile.ProfileImageUrl.split('/').pop();
+                        activeImages.add(imageName);
+                    }
+                } catch (err) {
+                    // Skip invalid profiles
+                }
+            }
+
+            // Scan each image file
+            for (const imageFile of imageFiles) {
+                const imagePath = path.join(imagesDir, imageFile);
+                const stats = fs.statSync(imagePath);
+                const size = stats.size;
+                totalSize += size;
+
+                currentImages.set(imageFile, {
+                    size,
+                    lastAccessed: stats.atime,
+                    lastModified: stats.mtime
+                });
+
+                // Check if orphaned
+                if (!activeImages.has(imageFile)) {
+                    orphanedImages.push({
+                        filename: imageFile,
+                        size,
+                        lastModified: stats.mtime
+                    });
+                }
+            }
+
+            // Find inactive profiles (not updated in X days)
+            const inactiveThreshold = 90 * 24 * 60 * 60 * 1000; // 90 days
+            const now = Date.now();
+            const inactiveProfiles = [];
+
+            for (const file of profileFiles) {
+                try {
+                    const characterId = file.replace('.json', '');
+                    const profile = await readProfileAsync(path.join(profilesDir, file));
+                    const lastUpdate = new Date(profile.LastUpdated || profile.LastActiveTime || 0);
+                    
+                    if (now - lastUpdate.getTime() > inactiveThreshold) {
+                        inactiveProfiles.push({
+                            characterId,
+                            characterName: profile.CharacterName || characterId,
+                            lastUpdate: profile.LastUpdated,
+                            hasImage: !!profile.ProfileImageUrl,
+                            imageSize: profile.ProfileImageUrl ? (currentImages.get(profile.ProfileImageUrl.split('/').pop())?.size || 0) : 0
+                        });
+                    }
+                } catch (err) {
+                    // Skip invalid profiles
+                }
+            }
+
+            this.storageStats = {
+                totalImages: imageFiles.length,
+                totalSize,
+                orphanedImages,
+                lastUpdated: new Date().toISOString()
+            };
+
+            this.imageUsage = currentImages;
+            this.inactiveProfiles = inactiveProfiles;
+            this.save();
+
+            console.log(`📊 Storage scan complete: ${imageFiles.length} images, ${(totalSize / 1024 / 1024).toFixed(2)}MB total, ${orphanedImages.length} orphaned`);
+            
+            return {
+                totalImages: imageFiles.length,
+                totalSizeMB: Math.round(totalSize / 1024 / 1024 * 100) / 100,
+                orphanedCount: orphanedImages.length,
+                inactiveCount: inactiveProfiles.length,
+                orphanedSizeMB: Math.round(orphanedImages.reduce((sum, img) => sum + img.size, 0) / 1024 / 1024 * 100) / 100
+            };
+        } catch (err) {
+            console.error('Error scanning storage:', err);
+            throw err;
+        }
+    }
+
+    async cleanupOrphanedImages() {
+        let cleanedCount = 0;
+        let cleanedSize = 0;
+
+        for (const orphan of this.storageStats.orphanedImages) {
+            try {
+                const imagePath = path.join(imagesDir, orphan.filename);
+                if (fs.existsSync(imagePath)) {
+                    fs.unlinkSync(imagePath);
+                    cleanedCount++;
+                    cleanedSize += orphan.size;
+                    console.log(`🗑️ Deleted orphaned image: ${orphan.filename}`);
+                }
+            } catch (err) {
+                console.error(`Error deleting ${orphan.filename}:`, err);
+            }
+        }
+
+        // Update stats
+        this.storageStats.totalImages -= cleanedCount;
+        this.storageStats.totalSize -= cleanedSize;
+        this.storageStats.orphanedImages = [];
+        this.save();
+
+        return { cleanedCount, cleanedSizeMB: Math.round(cleanedSize / 1024 / 1024 * 100) / 100 };
+    }
+
+    async removeProfileImage(characterId) {
+        try {
+            const filePath = path.join(profilesDir, `${characterId}.json`);
+            if (!fs.existsSync(filePath)) return false;
+
+            const profile = await readProfileAsync(filePath);
+            if (!profile.ProfileImageUrl) return false;
+
+            const imageName = profile.ProfileImageUrl.split('/').pop();
+            const imagePath = path.join(imagesDir, imageName);
+
+            // Remove image file
+            if (fs.existsSync(imagePath)) {
+                const stats = fs.statSync(imagePath);
+                fs.unlinkSync(imagePath);
+                
+                // Update storage stats
+                this.storageStats.totalImages--;
+                this.storageStats.totalSize -= stats.size;
+                
+                console.log(`🖼️ Removed image for ${characterId}: ${imageName}`);
+            }
+
+            // Update profile
+            delete profile.ProfileImageUrl;
+            profile.LastUpdated = new Date().toISOString();
+            await atomicWriteProfile(filePath, profile);
+
+            this.save();
+            return true;
+        } catch (err) {
+            console.error('Error removing profile image:', err);
+            return false;
+        }
+    }
+
+    getInactiveProfiles(daysThreshold = 90) {
+        const threshold = daysThreshold * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        
+        return this.inactiveProfiles.filter(profile => {
+            const lastUpdate = new Date(profile.lastUpdate || 0);
+            return now - lastUpdate.getTime() > threshold;
+        });
     }
 }
 
@@ -661,6 +1973,8 @@ const reportsDB = new ReportsDatabase();
 const moderationDB = new ModerationDatabase();
 const activityDB = new ActivityDatabase();
 const autoFlagDB = new AutoFlaggingDatabase();
+const messagesDB = new MessagesDatabase();
+const storageDB = new StorageDatabase();
 
 // Admin authentication middleware
 function requireAdmin(req, res, next) {
@@ -1926,6 +3240,8 @@ app.get("/admin", (req, res) => {
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
                 <button class="tab" onclick="showTab('activity')">Activity Feed</button>
                 <button class="tab" onclick="showTab('flagged')">Auto-Flagged</button>
+                <button class="tab" onclick="showTab('messages')">Communications</button>
+                <button class="tab" onclick="showTab('storage')">Storage Management</button>
                 <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('reports')">Pending Reports</button>
                 <button class="tab" onclick="showTab('archived')">Archived Reports</button>
@@ -2059,6 +3375,95 @@ app.get("/admin", (req, res) => {
                 </div>
                 <div class="loading" id="flaggedLoading">Loading flagged content...</div>
                 <div id="flaggedContainer"></div>
+            </div>
+            
+            <div id="messages" class="tab-content">
+                <h3>💬 Communications</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
+                    <button class="btn btn-primary" onclick="showSendWarningModal()">📨 Send Warning</button>
+                    <button class="btn btn-secondary" onclick="loadMessages()">🔄 Refresh</button>
+                    <select id="messageTypeFilter" onchange="loadMessages()">
+                        <option value="">All Messages</option>
+                        <option value="warning">Warnings</option>
+                        <option value="notification">Notifications</option>
+                        <option value="chat">Chat Messages</option>
+                    </select>
+                </div>
+                
+                <!-- Send Warning Section -->
+                <div class="filter-section" style="margin-bottom: 20px;">
+                    <h4>📨 Quick Warning Templates</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px;">
+                        <button class="btn btn-warning" onclick="quickWarning('content_violation')">🔞 Content Violation</button>
+                        <button class="btn btn-warning" onclick="quickWarning('spam')">📧 Spam Behavior</button>
+                        <button class="btn btn-warning" onclick="quickWarning('harassment')">⚠️ Harassment</button>
+                        <button class="btn btn-secondary" onclick="showSendWarningModal()">✏️ Custom Warning</button>
+                    </div>
+                </div>
+                
+                <div class="loading" id="messagesLoading">Loading messages...</div>
+                <div id="messagesContainer"></div>
+            </div>
+            
+            <div id="storage" class="tab-content">
+                <h3>🗄️ Storage Management</h3>
+                
+                <!-- Storage Stats -->
+                <div class="stats" style="margin-bottom: 20px;">
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalImagesCount">-</div>
+                        <div>Total Images</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalStorageSize">-</div>
+                        <div>Storage Used (MB)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="orphanedImagesCount">-</div>
+                        <div>Orphaned Images</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="inactiveProfilesCount">-</div>
+                        <div>Inactive Profiles</div>
+                    </div>
+                </div>
+                
+                <!-- Storage Actions -->
+                <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="scanStorage()">🔍 Scan Storage</button>
+                    <button class="btn btn-warning" onclick="cleanupOrphanedImages()">🗑️ Clean Orphaned Images</button>
+                    <button class="btn btn-secondary" onclick="loadInactiveProfiles()">📋 View Inactive Profiles</button>
+                    <button class="btn btn-danger" onclick="showBulkImageCleanup()">🧹 Bulk Image Cleanup</button>
+                </div>
+                
+                <!-- Storage Filters -->
+                <div class="filter-section">
+                    <h4>📊 Storage Analysis</h4>
+                    <div class="filter-grid">
+                        <div class="input-group">
+                            <label for="inactiveThreshold">Inactive After (days):</label>
+                            <select id="inactiveThreshold" onchange="loadInactiveProfiles()">
+                                <option value="30">30 days</option>
+                                <option value="60">60 days</option>
+                                <option value="90" selected>90 days</option>
+                                <option value="180">6 months</option>
+                                <option value="365">1 year</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="sizeFilter">Image Size:</label>
+                            <select id="sizeFilter" onchange="filterImages()">
+                                <option value="">All Sizes</option>
+                                <option value="large">Large (>1MB)</option>
+                                <option value="medium">Medium (500KB-1MB)</option>
+                                <option value="small">Small (<500KB)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="loading" id="storageLoading">Loading storage data...</div>
+                <div id="storageContainer"></div>
             </div>
             
             <div id="announcements" class="tab-content">
@@ -2874,6 +4279,7 @@ app.get("/admin", (req, res) => {
                 }
                 
                 const actionButtons = profile.IsNSFW ? `
+                    <button class="btn btn-warning" onclick="quickWarning('content_violation', '${profile.CharacterId}')">⚠️ Warn</button>
                     <button class="btn btn-danger" onclick="initRemoveProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
                         Remove
                     </button>
@@ -2881,6 +4287,7 @@ app.get("/admin", (req, res) => {
                         Ban
                     </button>
                 ` : `
+                    <button class="btn btn-warning" onclick="quickWarning('content_violation', '${profile.CharacterId}')">⚠️ Warn</button>
                     <button class="btn btn-danger" onclick="initRemoveProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
                         Remove
                     </button>
@@ -3163,6 +4570,12 @@ app.get("/admin", (req, res) => {
                     break;
                 case 'flagged':
                     loadFlaggedProfiles();
+                    break;
+                case 'messages':
+                    loadMessages();
+                    break;
+                case 'storage':
+                    loadStorageData();
                     break;
                 case 'announcements':
                     loadAnnouncements();
@@ -5018,8 +6431,8 @@ app.listen(PORT, () => {
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
     console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
-    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}`);
-    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging, Bulk Actions`);
+    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}, ${messagesDbFile}, ${storageDbFile}`);
+    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging, Bulk Actions, Communication System, Storage Management`);
     console.log(`🗂️ Using data directory: ${DATA_DIR}`);
     
     if (process.env.ADMIN_SECRET_KEY) {
