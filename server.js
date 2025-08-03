@@ -2659,7 +2659,7 @@ app.get("/admin", (req, res) => {
             const fillEl = document.getElementById('progressFill');
             const textEl = document.getElementById('progressText');
             
-            fillEl.style.width = `${percentage}%`;
+            fillEl.style.width = percentage + '%';
             if (text) textEl.textContent = text;
         }
         
@@ -2802,10 +2802,10 @@ app.get("/admin", (req, res) => {
                     }
                     
                     completed++;
-                    updateProgress((completed / profileList.length) * 100, \`Removed \${completed}/\${profileList.length} profiles\`);
+                    updateProgress((completed / profileList.length) * 100, 'Removed ' + completed + '/' + profileList.length + ' profiles');
                     
                 } catch (error) {
-                    errors.push(\`\${characterId}: \${error.message}\`);
+                    errors.push(characterId + ': ' + error.message);
                 }
             }
             
@@ -3284,6 +3284,13 @@ app.get("/admin", (req, res) => {
             profiles.forEach(profile => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
+        function renderProfileCards(profiles) {
+            const grid = document.getElementById('profilesGrid');
+            grid.innerHTML = '';
+            
+            profiles.forEach(profile => {
+                const card = document.createElement('div');
+                card.className = 'profile-card';
                 card.setAttribute('data-character-id', profile.CharacterId);
                 
                 // Check if this profile is selected (cross-page)
@@ -3293,79 +3300,62 @@ app.get("/admin", (req, res) => {
                     card.classList.add('selected');
                 }
                 
-                // Create clickable image element or placeholder
-                const imageHtml = profile.ProfileImageUrl 
-                    ? \`<img src="\${profile.ProfileImageUrl}" 
-                            alt="\${profile.CharacterName}" 
-                            class="profile-image" 
-                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                // Create HTML content using string concatenation
+                let cardContent = '<input type="checkbox" class="profile-checkbox" ';
+                cardContent += isSelected ? 'checked' : '';
+                cardContent += ' onchange="toggleProfileSelection(\'' + profile.CharacterId + '\', this)">';
                 
-                // Format character name with NSFW badge if needed
-                const characterNameHtml = \`
-                    <div class="profile-name">
-                        \${profile.CharacterName}
-                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
-                    </div>
-                \`;
+                cardContent += '<div class="profile-header">';
+                cardContent += '<div class="profile-info">';
+                cardContent += '<div class="profile-name">' + profile.CharacterName;
+                if (profile.IsNSFW) {
+                    cardContent += '<span class="nsfw-badge">🔞 NSFW</span>';
+                }
+                cardContent += '</div>';
+                cardContent += '<div class="profile-id">' + profile.CharacterId + '</div>';
+                cardContent += '<div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">';
+                cardContent += '<span style="color: #ccc; font-size: 0.9em;">' + profile.Server + '</span>';
+                cardContent += '<span style="color: #4CAF50;">❤️ ' + profile.LikeCount + '</span>';
+                cardContent += '</div></div>';
                 
-                // Show either Gallery Status OR Bio (Gallery Status takes priority)
-                let contentHtml = '';
-                if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
-                } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
+                // Image
+                if (profile.ProfileImageUrl) {
+                    cardContent += '<img src="' + profile.ProfileImageUrl + '" ';
+                    cardContent += 'alt="' + profile.CharacterName + '" class="profile-image" ';
+                    cardContent += 'onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" ';
+                    cardContent += 'onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">';
+                    cardContent += '<div class="profile-image-placeholder" style="display: none;">🖼️</div>';
                 } else {
-                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
+                    cardContent += '<div class="profile-image-placeholder">🖼️</div>';
+                }
+                cardContent += '</div>';
+                
+                // Content
+                if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
+                    cardContent += '<div class="gallery-status">' + profile.GalleryStatus + '</div>';
+                } else if (profile.Bio && profile.Bio.trim()) {
+                    cardContent += '<div class="profile-content">' + profile.Bio + '</div>';
+                } else {
+                    cardContent += '<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>';
                 }
                 
-                // PHASE 3: Updated action buttons with communication
-                const actionButtons = profile.IsNSFW ? \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Remove
-                    </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Ban
-                    </button>
-                    <button class="btn btn-communicate" onclick="requestCommunication('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Chat
-                    </button>
-                \` : \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Remove
-                    </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Ban
-                    </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
-                        Mark NSFW
-                    </button>
-                    <button class="btn btn-communicate" onclick="requestCommunication('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Chat
-                    </button>
-                \`;
+                // Actions
+                cardContent += '<div class="profile-actions">';
+                cardContent += '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>';
+                cardContent += '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>';
+                if (!profile.IsNSFW) {
+                    cardContent += '<button class="btn btn-nsfw" onclick="toggleNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\', false)">Mark NSFW</button>';
+                }
+                cardContent += '<button class="btn btn-communicate" onclick="requestCommunication(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Chat</button>';
+                cardContent += '</div>';
                 
-                card.innerHTML = \`
-                    <input type="checkbox" class="profile-checkbox" \${isSelected ? 'checked' : ''} 
-                           onchange="toggleProfileSelection('\${profile.CharacterId}', this)">
-                    <div class="profile-header">
-                        <div class="profile-info">
-                            \${characterNameHtml}
-                            <div class="profile-id">\${profile.CharacterId}</div>
-                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
-                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
-                            </div>
-                        </div>
-                        \${imageHtml}
-                    </div>
-                    \${contentHtml}
-                    <div class="profile-actions">
-                        \${actionButtons}
-                    </div>
-                \`;
+                card.innerHTML = cardContent;
+                grid.appendChild(card);
+            });
+            
+            // Update bulk actions bar
+            updateBulkActionsBar();
+        }
                 grid.appendChild(card);
             });
             
@@ -3469,7 +3459,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
+                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
                 }
@@ -3485,7 +3475,7 @@ app.get("/admin", (req, res) => {
                 // PHASE 3: Storage usage
                 if (stats.storageUsage) {
                     const percentage = Math.round(stats.storageUsage.usagePercentage);
-                    document.getElementById('storageUsage').textContent = \`\${percentage}%\`;
+                    document.getElementById('storageUsage').textContent = percentage + '%';
                 } else {
                     document.getElementById('storageUsage').textContent = '-';
                 }
@@ -3509,7 +3499,7 @@ app.get("/admin", (req, res) => {
             grid.innerHTML = '';
             
             try {
-                const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
+                const response = await fetch(serverUrl + '/gallery?admin=true&key=' + adminKey);
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
@@ -3528,7 +3518,7 @@ app.get("/admin", (req, res) => {
                 applyFilters();
                 
             } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
+                loading.innerHTML = '<div class="error">Error loading profiles: ' + error.message + '</div>';
             }
         }
         
