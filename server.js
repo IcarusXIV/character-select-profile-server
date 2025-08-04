@@ -1583,6 +1583,97 @@ app.get("/admin", (req, res) => {
             max-height: 100px;
             overflow-y: auto;
         }
+        
+        /* Bulk selection styles */
+        .profile-checkbox {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            z-index: 10;
+        }
+        
+        .profile-card {
+            position: relative;
+        }
+        
+        .profile-card.selected {
+            border: 2px solid #4CAF50;
+            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+        }
+        
+        .select-all-container {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .select-all-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .select-all-label {
+            color: #ccc;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+        
+        .bulk-action-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 30, 54, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: none;
+            align-items: center;
+            gap: 15px;
+            z-index: 1000;
+            min-width: 400px;
+        }
+        
+        .bulk-action-bar.show {
+            display: flex;
+        }
+        
+        .bulk-selection-count {
+            color: #4CAF50;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .bulk-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .bulk-actions input[type="text"] {
+            padding: 8px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 0.9em;
+            width: 200px;
+        }
+        
+        .bulk-actions input[type="text"]::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
     </style>
 </head>
 <body>
@@ -1643,6 +1734,12 @@ app.get("/admin", (req, res) => {
             
             <div id="profiles" class="tab-content active">
                 <h3>Gallery Profiles</h3>
+                
+                <!-- Bulk Selection Controls -->
+                <div class="select-all-container">
+                    <input type="checkbox" id="selectAllCheckbox" class="select-all-checkbox" onchange="toggleSelectAll()">
+                    <label for="selectAllCheckbox" class="select-all-label">Select All Visible</label>
+                </div>
                 
                 <!-- Advanced Filtering Section -->
                 <div class="filter-section">
@@ -1829,6 +1926,10 @@ app.get("/admin", (req, res) => {
         const serverUrl = window.location.origin;
         let activityRefreshInterval = null;
         let availableServers = new Set();
+        
+        // Bulk selection variables
+        let selectedProfiles = new Set(); // Store selected profile IDs across pages
+        let bulkActionInProgress = false;
         
         // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -2075,6 +2176,29 @@ app.get("/admin", (req, res) => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
                 
+                // Add checkbox for bulk selection
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'profile-checkbox';
+                checkbox.setAttribute('data-profile-id', profile.CharacterId);
+                checkbox.checked = selectedProfiles.has(profile.CharacterId);
+                checkbox.onchange = function() {
+                    toggleProfileSelection(profile.CharacterId, this);
+                    if (this.checked) {
+                        card.classList.add('selected');
+                    } else {
+                        card.classList.remove('selected');
+                    }
+                };
+                
+                // Add checkbox to card
+                card.appendChild(checkbox);
+                
+                // Mark card as selected if profile is already selected
+                if (selectedProfiles.has(profile.CharacterId)) {
+                    card.classList.add('selected');
+                }
+                
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
                     ? \`<img src="\${profile.ProfileImageUrl}" 
@@ -2219,6 +2343,281 @@ app.get("/admin", (req, res) => {
                 console.error('❌ Authentication failed:', error);
                 alert(\`Error: \${error.message}\`);
                 // Don't save credentials if login fails
+            }
+        }
+        
+        // Bulk selection functions
+        function toggleProfileSelection(profileId, checkbox) {
+            if (checkbox.checked) {
+                selectedProfiles.add(profileId);
+            } else {
+                selectedProfiles.delete(profileId);
+            }
+            updateSelectionUI();
+        }
+        
+        function toggleSelectAll() {
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            const checkboxes = document.querySelectorAll('.profile-checkbox');
+            
+            checkboxes.forEach(checkbox => {
+                const profileId = checkbox.getAttribute('data-profile-id');
+                checkbox.checked = selectAllCheckbox.checked;
+                
+                if (selectAllCheckbox.checked) {
+                    selectedProfiles.add(profileId);
+                    checkbox.closest('.profile-card').classList.add('selected');
+                } else {
+                    selectedProfiles.delete(profileId);
+                    checkbox.closest('.profile-card').classList.remove('selected');
+                }
+            });
+            
+            updateSelectionUI();
+        }
+        
+        function updateSelectionUI() {
+            const count = selectedProfiles.size;
+            const bulkActionBar = document.getElementById('bulkActionBar');
+            const selectionCount = document.getElementById('bulkSelectionCount');
+            
+            if (count > 0) {
+                bulkActionBar.classList.add('show');
+                selectionCount.textContent = count + ' selected';
+            } else {
+                bulkActionBar.classList.remove('show');
+            }
+            
+            // Update select all checkbox state
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            const visibleCheckboxes = document.querySelectorAll('.profile-checkbox');
+            const visibleSelected = Array.from(visibleCheckboxes).filter(cb => cb.checked).length;
+            
+            if (visibleSelected === 0) {
+                selectAllCheckbox.indeterminate = false;
+                selectAllCheckbox.checked = false;
+            } else if (visibleSelected === visibleCheckboxes.length) {
+                selectAllCheckbox.indeterminate = false;
+                selectAllCheckbox.checked = true;
+            } else {
+                selectAllCheckbox.indeterminate = true;
+            }
+        }
+        
+        function clearAllSelections() {
+            selectedProfiles.clear();
+            
+            // Uncheck all checkboxes and remove selection styling
+            document.querySelectorAll('.profile-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            
+            document.querySelectorAll('.profile-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
+            updateSelectionUI();
+            alert('Selection cleared');
+        }
+        
+        // Bulk action functions
+        async function bulkRemoveProfiles() {
+            if (selectedProfiles.size === 0) {
+                alert('No profiles selected');
+                return;
+            }
+            
+            const reason = document.getElementById('bulkActionReason').value.trim();
+            if (!reason) {
+                alert('Please enter a reason for removal');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to remove ' + selectedProfiles.size + ' selected profiles? This action cannot be undone.')) {
+                return;
+            }
+            
+            bulkActionInProgress = true;
+            const profileIds = Array.from(selectedProfiles);
+            let completed = 0;
+            let errors = 0;
+            
+            for (const profileId of profileIds) {
+                try {
+                    const response = await fetch('/admin/remove-profile', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Admin-Key': adminKey,
+                            'Admin-Name': adminName
+                        },
+                        body: JSON.stringify({
+                            characterId: profileId,
+                            reason: reason
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        completed++;
+                        selectedProfiles.delete(profileId);
+                    } else {
+                        errors++;
+                    }
+                } catch (error) {
+                    errors++;
+                }
+            }
+            
+            bulkActionInProgress = false;
+            updateSelectionUI();
+            
+            if (errors === 0) {
+                alert('Successfully removed ' + completed + ' profiles');
+            } else {
+                alert('Removed ' + completed + ' profiles with ' + errors + ' errors');
+            }
+            
+            // Refresh the profiles view
+            if (document.getElementById('profiles').classList.contains('active')) {
+                loadProfiles();
+            }
+        }
+        
+        async function bulkBanProfiles() {
+            if (selectedProfiles.size === 0) {
+                alert('No profiles selected');
+                return;
+            }
+            
+            const reason = document.getElementById('bulkActionReason').value.trim();
+            if (!reason) {
+                alert('Please enter a reason for banning');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to ban ' + selectedProfiles.size + ' selected profiles?')) {
+                return;
+            }
+            
+            bulkActionInProgress = true;
+            const profileIds = Array.from(selectedProfiles);
+            let completed = 0;
+            let errors = 0;
+            
+            for (const profileId of profileIds) {
+                try {
+                    const response = await fetch('/admin/ban-profile', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Admin-Key': adminKey,
+                            'Admin-Name': adminName
+                        },
+                        body: JSON.stringify({
+                            characterId: profileId,
+                            reason: reason
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        completed++;
+                        selectedProfiles.delete(profileId);
+                    } else {
+                        errors++;
+                    }
+                } catch (error) {
+                    errors++;
+                }
+            }
+            
+            bulkActionInProgress = false;
+            updateSelectionUI();
+            
+            if (errors === 0) {
+                alert('Successfully banned ' + completed + ' profiles');
+            } else {
+                alert('Banned ' + completed + ' profiles with ' + errors + ' errors');
+            }
+            
+            // Refresh the profiles view
+            if (document.getElementById('profiles').classList.contains('active')) {
+                loadProfiles();
+            }
+        }
+        
+        async function bulkMarkNSFW() {
+            if (selectedProfiles.size === 0) {
+                alert('No profiles selected');
+                return;
+            }
+            
+            const reason = document.getElementById('bulkActionReason').value.trim();
+            if (!reason) {
+                alert('Please enter a reason for marking as NSFW');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to mark ' + selectedProfiles.size + ' selected profiles as NSFW?')) {
+                return;
+            }
+            
+            bulkActionInProgress = true;
+            const profileIds = Array.from(selectedProfiles);
+            let completed = 0;
+            let skipped = 0;
+            let errors = 0;
+            
+            for (const profileId of profileIds) {
+                try {
+                    // First check if profile is already NSFW
+                    const profile = allProfiles.find(p => p.CharacterId === profileId);
+                    if (profile && profile.IsNSFW) {
+                        skipped++;
+                        selectedProfiles.delete(profileId);
+                        continue;
+                    }
+                    
+                    const response = await fetch('/admin/toggle-nsfw', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Admin-Key': adminKey,
+                            'Admin-Name': adminName
+                        },
+                        body: JSON.stringify({
+                            characterId: profileId,
+                            isNSFW: true,
+                            reason: reason
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        completed++;
+                        selectedProfiles.delete(profileId);
+                    } else {
+                        errors++;
+                    }
+                } catch (error) {
+                    errors++;
+                }
+            }
+            
+            bulkActionInProgress = false;
+            updateSelectionUI();
+            
+            let message = 'Marked ' + completed + ' profiles as NSFW';
+            if (skipped > 0) {
+                message = message + ', skipped ' + skipped + ' already NSFW';
+            }
+            if (errors > 0) {
+                message = message + ' with ' + errors + ' errors';
+            }
+            
+            alert(message);
+            
+            // Refresh the profiles view
+            if (document.getElementById('profiles').classList.contains('active')) {
+                loadProfiles();
             }
         }
         
@@ -3183,6 +3582,18 @@ app.get("/admin", (req, res) => {
             }
         }
     </script>
+    
+    <!-- Bulk Action Bar -->  
+    <div id="bulkActionBar" class="bulk-action-bar">
+        <div class="bulk-selection-count" id="bulkSelectionCount">0 selected</div>
+        <div class="bulk-actions">
+            <input type="text" id="bulkActionReason" placeholder="Enter reason for action...">
+            <button class="btn btn-danger" onclick="bulkRemoveProfiles()">Remove Selected</button>
+            <button class="btn btn-warning" onclick="bulkBanProfiles()">Ban Selected</button>
+            <button class="btn btn-nsfw" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
+            <button class="btn btn-secondary" onclick="clearAllSelections()">Clear Selection</button>
+        </div>
+    </div>
 </body>
 </html>
     `;
