@@ -2792,41 +2792,6 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        async function loadDashboard() {
-            adminKey = document.getElementById('adminKey').value;
-            adminName = document.getElementById('adminName').value;
-            
-            if (!adminKey) {
-                showToast('Please enter your admin key', 'warning');
-                return;
-            }
-            
-            if (!adminName) {
-                showToast('Please enter your admin name', 'warning');
-                return;
-            }
-            
-            try {
-                console.log('🔐 Testing credentials before saving...');
-                await refreshStats();
-                
-                // Only save credentials AFTER successful authentication
-                console.log('✅ Authentication successful, saving credentials...');
-                localStorage.setItem('cs_admin_key', adminKey);
-                localStorage.setItem('cs_admin_name', adminName);
-                console.log('💾 Credentials saved to localStorage');
-                
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
-                loadProfiles();
-                
-            } catch (error) {
-                console.error('❌ Authentication failed:', error);
-                showToast('Error: ' + error.message, 'error');
-                // Don't save credentials if login fails
-            }
-        }
-        
         async function refreshStats() {
             if (!adminKey) return;
             
