@@ -20,381 +20,6 @@ console.log(`📁 Using data directory: ${DATA_DIR}`);
 const profilesDir = path.join(DATA_DIR, "profiles");
 if (!fs.existsSync(profilesDir)) fs.mkdirSync(profilesDir, { recursive: true });
 
-// =============================================================================
-// 💬 COMMUNICATION SYSTEM ENDPOINTS
-// =============================================================================
-
-// Send warning to user (admin only)
-app.post("/admin/messages/warning", requireAdmin, async (req, res) => {
-    try {
-        const { characterId, violationType, reason } = req.body;
-        const adminId = req.adminId;
-        
-        if (!characterId || !violationType) {
-            return res.status(400).json({ error: 'Character ID and violation type are required' });
-        }
-
-        // Try to get character name from profile
-        let characterName = characterId;
-        try {
-            const filePath = path.join(profilesDir, `${characterId}.json`);
-            if (fs.existsSync(filePath)) {
-                const profile = await readProfileAsync(filePath);
-                characterName = profile.CharacterName || characterId;
-            }
-        } catch (err) {
-            // Use characterId as fallback
-        }
-
-        const message = messagesDB.sendWarning(characterId, characterName, violationType, reason, adminId);
-        
-        res.json({ 
-            success: true, 
-            messageId: message.id,
-            characterName 
-        });
-    } catch (error) {
-        console.error('Send warning error:', error);
-        res.status(500).json({ error: 'Failed to send warning' });
-    }
-});
-
-// Send notification (admin only)
-app.post("/admin/messages/notification", requireAdmin, async (req, res) => {
-    try {
-        const { characterId, message, type } = req.body;
-        const adminId = req.adminId;
-        
-        if (!characterId || !message) {
-            return res.status(400).json({ error: 'Character ID and message are required' });
-        }
-
-        let characterName = characterId;
-        try {
-            const filePath = path.join(profilesDir, `${characterId}.json`);
-            if (fs.existsSync(filePath)) {
-                const profile = await readProfileAsync(filePath);
-                characterName = profile.CharacterName || characterId;
-            }
-        } catch (err) {
-            // Use characterId as fallback
-        }
-
-        const notification = messagesDB.sendNotification(characterId, characterName, type || 'info', message, adminId);
-        
-        res.json({ 
-            success: true, 
-            messageId: notification.id,
-            characterName 
-        });
-    } catch (error) {
-        console.error('Send notification error:', error);
-        res.status(500).json({ error: 'Failed to send notification' });
-    }
-});
-
-// Get all messages (admin only)
-app.get("/admin/messages", requireAdmin, (req, res) => {
-    try {
-        const { type, limit } = req.query;
-        let messages = messagesDB.getAllMessages(parseInt(limit) || 100);
-        
-        if (type) {
-            messages = messages.filter(m => m.type === type);
-        }
-        
-        res.json(messages);
-    } catch (error) {
-        console.error('Get messages error:', error);
-        res.status(500).json({ error: 'Failed to get messages' });
-    }
-});
-
-// Get messages for specific user (plugin endpoint)
-app.get("/messages/:characterId", (req, res) => {
-    try {
-        const characterId = decodeURIComponent(req.params.characterId);
-        const userKey = req.headers['x-character-key'];
-        
-        // Basic validation - in real implementation you might want stronger auth
-        if (!userKey) {
-            return res.status(401).json({ error: 'Character key required' });
-        }
-        
-        const messages = messagesDB.getMessagesForUser(characterId);
-        const unreadCount = messagesDB.getUnreadCount(characterId);
-        
-        res.json({ 
-            messages, 
-            unreadCount,
-            hasNewMessages: unreadCount > 0 
-        });
-    } catch (error) {
-        console.error('Get user messages error:', error);
-        res.status(500).json({ error: 'Failed to get messages' });
-    }
-});
-
-// Mark message as read (plugin endpoint)
-app.patch("/messages/:messageId/read", (req, res) => {
-    try {
-        const messageId = req.params.messageId;
-        const { characterId } = req.body;
-        const userKey = req.headers['x-character-key'];
-        
-        if (!userKey || !characterId) {
-            return res.status(401).json({ error: 'Authentication required' });
-        }
-        
-        const success = messagesDB.markAsRead(messageId, characterId);
-        
-        if (success) {
-            res.json({ success: true });
-        } else {
-            res.status(404).json({ error: 'Message not found' });
-        }
-    } catch (error) {
-        console.error('Mark read error:', error);
-        res.status(500).json({ error: 'Failed to mark as read' });
-    }
-});
-
-// =============================================================================
-// 🗄️ STORAGE MANAGEMENT ENDPOINTS
-// =============================================================================
-
-// Get storage statistics (admin only)
-app.get("/admin/storage/stats", requireAdmin, async (req, res) => {
-    try {
-        // Get cached stats or trigger scan
-        const stats = await storageDB.scanStorage();
-        res.json(stats);
-    } catch (error) {
-        console.error('Get storage stats error:', error);
-        res.status(500).json({ error: 'Failed to get storage stats' });
-    }
-});
-
-// Trigger storage scan (admin only)
-app.post("/admin/storage/scan", requireAdmin, async (req, res) => {
-    try {
-        const adminId = req.adminId;
-        
-        const results = await storageDB.scanStorage();
-        
-        // Log activity
-        activityDB.logActivity('storage', `STORAGE SCAN: ${results.totalImages} images, ${results.orphanedCount} orphaned`, {
-            adminId,
-            ...results
-        });
-        
-        res.json(results);
-    } catch (error) {
-        console.error('Storage scan error:', error);
-        res.status(500).json({ error: 'Failed to scan storage' });
-    }
-});
-
-// Cleanup orphaned images (admin only)
-app.post("/admin/storage/cleanup-orphaned", requireAdmin, async (req, res) => {
-    try {
-        const adminId = req.adminId;
-        
-        const results = await storageDB.cleanupOrphanedImages();
-        
-        // Log activity
-        activityDB.logActivity('storage', `ORPHANED CLEANUP: ${results.cleanedCount} images, ${results.cleanedSizeMB}MB freed`, {
-            adminId,
-            ...results
-        });
-        
-        res.json(results);
-    } catch (error) {
-        console.error('Cleanup orphaned error:', error);
-        res.status(500).json({ error: 'Failed to cleanup orphaned images' });
-    }
-});
-
-// Get inactive profiles (admin only)
-app.get("/admin/storage/inactive", requireAdmin, (req, res) => {
-    try {
-        const days = parseInt(req.query.days) || 90;
-        const inactiveProfiles = storageDB.getInactiveProfiles(days);
-        res.json(inactiveProfiles);
-    } catch (error) {
-        console.error('Get inactive profiles error:', error);
-        res.status(500).json({ error: 'Failed to get inactive profiles' });
-    }
-});
-
-// Remove profile image only (admin only)
-app.delete("/admin/storage/remove-image/:characterId", requireAdmin, async (req, res) => {
-    try {
-        const characterId = decodeURIComponent(req.params.characterId);
-        const adminId = req.adminId;
-        
-        const success = await storageDB.removeProfileImage(characterId);
-        
-        if (success) {
-            // Clear gallery cache
-            galleryCache = null;
-            
-            // Log activity
-            activityDB.logActivity('storage', `IMAGE REMOVED: ${characterId}`, {
-                adminId,
-                characterId
-            });
-            
-            res.json({ success: true });
-        } else {
-            res.status(404).json({ error: 'Profile or image not found' });
-        }
-    } catch (error) {
-        console.error('Remove image error:', error);
-        res.status(500).json({ error: 'Failed to remove image' });
-    }
-});
-
-// Bulk image cleanup (admin only)
-app.post("/admin/storage/bulk-cleanup", requireAdmin, async (req, res) => {
-    try {
-        const { cleanupOrphaned, cleanupInactive, cleanupLarge } = req.body;
-        const adminId = req.adminId;
-        
-        let totalCleaned = 0;
-        let totalSavedMB = 0;
-        
-        // Cleanup orphaned images
-        if (cleanupOrphaned) {
-            const orphanedResults = await storageDB.cleanupOrphanedImages();
-            totalCleaned += orphanedResults.cleanedCount;
-            totalSavedMB += orphanedResults.cleanedSizeMB;
-        }
-        
-        // Cleanup inactive profile images
-        if (cleanupInactive) {
-            const inactiveProfiles = storageDB.getInactiveProfiles(90);
-            for (const profile of inactiveProfiles) {
-                if (profile.hasImage) {
-                    const success = await storageDB.removeProfileImage(profile.characterId);
-                    if (success) {
-                        totalCleaned++;
-                        totalSavedMB += profile.imageSize / 1024 / 1024;
-                    }
-                }
-            }
-        }
-        
-        // Cleanup large images
-        if (cleanupLarge) {
-            const imageFiles = fs.readdirSync(imagesDir);
-            for (const imageFile of imageFiles) {
-                const imagePath = path.join(imagesDir, imageFile);
-                const stats = fs.statSync(imagePath);
-                
-                if (stats.size > 2 * 1024 * 1024) { // 2MB threshold
-                    // Find the profile that uses this image
-                    const profileFiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
-                    
-                    for (const file of profileFiles) {
-                        try {
-                            const characterId = file.replace('.json', '');
-                            const profile = await readProfileAsync(path.join(profilesDir, file));
-                            
-                            if (profile.ProfileImageUrl && profile.ProfileImageUrl.includes(imageFile)) {
-                                const success = await storageDB.removeProfileImage(characterId);
-                                if (success) {
-                                    totalCleaned++;
-                                    totalSavedMB += stats.size / 1024 / 1024;
-                                }
-                                break;
-                            }
-                        } catch (err) {
-                            // Skip invalid profiles
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Clear gallery cache
-        galleryCache = null;
-        
-        // Log activity
-        activityDB.logActivity('storage', `BULK CLEANUP: ${totalCleaned} images, ${totalSavedMB.toFixed(2)}MB freed`, {
-            adminId,
-            cleanupOrphaned,
-            cleanupInactive,
-            cleanupLarge
-        });
-        
-        res.json({ 
-            totalCleaned, 
-            totalSavedMB: Math.round(totalSavedMB * 100) / 100 
-        });
-    } catch (error) {
-        console.error('Bulk cleanup error:', error);
-        res.status(500).json({ error: 'Failed to perform bulk cleanup' });
-    }
-});
-
-// Cleanup inactive profiles entirely (admin only)
-app.post("/admin/storage/cleanup-inactive", requireAdmin, async (req, res) => {
-    try {
-        const { daysThreshold, reason } = req.body;
-        const adminId = req.adminId;
-        
-        if (!daysThreshold || !reason) {
-            return res.status(400).json({ error: 'Days threshold and reason are required' });
-        }
-
-        const inactiveProfiles = storageDB.getInactiveProfiles(daysThreshold);
-        let removedCount = 0;
-        let freedMB = 0;
-        
-        for (const profile of inactiveProfiles) {
-            try {
-                const filePath = path.join(profilesDir, `${profile.characterId}.json`);
-                
-                // Delete profile file
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                    removedCount++;
-                }
-                
-                // Delete associated image
-                if (profile.hasImage) {
-                    const success = await storageDB.removeProfileImage(profile.characterId);
-                    if (success) {
-                        freedMB += profile.imageSize / 1024 / 1024;
-                    }
-                }
-                
-                // Log moderation action
-                moderationDB.logAction('remove_inactive', profile.characterId, profile.characterName, 
-                    `Inactive for ${daysThreshold}+ days: ${reason}`, adminId);
-                
-            } catch (err) {
-                console.error(`Error removing inactive profile ${profile.characterId}:`, err);
-            }
-        }
-        
-        // Clear gallery cache
-        galleryCache = null;
-        
-        // Rescan storage
-        await storageDB.scanStorage();
-        
-        res.json({ 
-            removedCount, 
-            freedMB: Math.round(freedMB * 100) / 100 
-        });
-    } catch (error) {
-        console.error('Cleanup inactive error:', error);
-        res.status(500).json({ error: 'Failed to cleanup inactive profiles' });
-    }
-});
-
 const imagesDir = path.join(DATA_DIR, "public", "images");
 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 
@@ -424,10 +49,8 @@ const reportsDbFile = path.join(DATA_DIR, "reports_database.json");
 const moderationDbFile = path.join(DATA_DIR, "moderation_database.json");
 const activityDbFile = path.join(DATA_DIR, "activity_database.json");
 const flaggedDbFile = path.join(DATA_DIR, "flagged_database.json");
-const messagesDbFile = path.join(DATA_DIR, "messages_database.json");
-const storageDbFile = path.join(DATA_DIR, "storage_database.json");
 
-// 💾 DATABASE CLASSES (keeping all existing ones)
+// 💾 DATABASE CLASSES
 class LikesDatabase {
     constructor() {
         this.likes = new Map();
@@ -443,574 +66,6 @@ class LikesDatabase {
                 this.likeCounts = new Map(data.likeCounts);
                 console.log(`💾 Loaded ${this.likeCounts.size} like records`);
             }
-        
-        // =============================================================================
-        // 💬 COMMUNICATION SYSTEM FUNCTIONS
-        // =============================================================================
-        
-        function showSendWarningModal() {
-            const bodyContent = `
-                <div class="input-group">
-                    <label for="warningCharacterId">Character ID:</label>
-                    <input type="text" id="warningCharacterId" class="modal-input" placeholder="Enter character ID to warn">
-                </div>
-                <div class="input-group">
-                    <label for="warningType">Warning Type:</label>
-                    <select id="warningType" class="modal-input">
-                        <option value="content_violation">Content Violation</option>
-                        <option value="spam">Spam Behavior</option>
-                        <option value="harassment">Harassment</option>
-                        <option value="custom">Custom Message</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <label for="warningReason">Custom Reason (if applicable):</label>
-                    <textarea id="warningReason" class="modal-input modal-textarea" placeholder="Enter custom warning message or additional details"></textarea>
-                </div>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-warning" onclick="executeSendWarning()">Send Warning</button>
-            `;
-            
-            showModal('📨 Send Warning', 'Send warning to user', bodyContent, actions);
-        }
-        
-        async function quickWarning(violationType, characterId = null) {
-            if (!characterId) {
-                characterId = prompt('Enter Character ID to warn:');
-                if (!characterId) return;
-            }
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/messages/warning`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({
-                        characterId: characterId.trim(),
-                        violationType,
-                        reason: ''
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showToast(\`Warning sent to \${result.characterName}\`, 'success');
-                    loadMessages();
-                } else {
-                    const error = await response.json();
-                    showToast(`Error: ${error.error}`, 'error');
-                }
-            } catch (error) {
-                showToast(`Error sending warning: ${error.message}`, 'error');
-            }
-        }
-        
-        async function executeSendWarning() {
-            const characterId = document.getElementById('warningCharacterId').value.trim();
-            const violationType = document.getElementById('warningType').value;
-            const reason = document.getElementById('warningReason').value.trim();
-            
-            if (!characterId) {
-                showToast('Character ID is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/messages/warning`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({
-                        characterId,
-                        violationType,
-                        reason
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showToast(\`Warning sent to \${result.characterName}\`, 'success');
-                    loadMessages();
-                } else {
-                    const error = await response.json();
-                    showToast(`Error: ${error.error}`, 'error');
-                }
-            } catch (error) {
-                showToast(`Error sending warning: ${error.message}`, 'error');
-            }
-        }
-        
-        async function loadMessages() {
-            const loading = document.getElementById('messagesLoading');
-            const container = document.getElementById('messagesContainer');
-            const typeFilter = document.getElementById('messageTypeFilter').value;
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                let url = `${serverUrl}/admin/messages?adminKey=${adminKey}`;
-                if (typeFilter) {
-                    url += `&type=${typeFilter}`;
-                }
-                
-                const response = await fetch(url);
-                const messages = await response.json();
-                
-                loading.style.display = 'none';
-                
-                if (messages.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">💬 No messages to show</div>';
-                    return;
-                }
-                
-                messages.forEach(message => {
-                    const card = document.createElement('div');
-                    const typeColors = {
-                        warning: '#ff9800',
-                        notification: '#2196F3',
-                        chat: '#4CAF50'
-                    };
-                    
-                    card.className = 'profile-card';
-                    card.style.borderLeft = `4px solid ${typeColors[message.type] || '#ccc'}`;
-                    
-                    const timeAgo = getTimeAgo(message.timestamp);
-                    const readStatus = message.read ? '✅ Read' : '📬 Unread';
-                    
-                    card.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <strong>${message.type.toUpperCase()}: ${message.recipientCharacterName}</strong>
-                            <span style="color: ${message.read ? '#4CAF50' : '#ff9800'}; font-size: 0.8em;">${readStatus}</span>
-                        </div>
-                        <div style="color: #aaa; font-size: 0.9em; margin-bottom: 8px;">
-                            <strong>Subject:</strong> ${message.subject}
-                        </div>
-                        <div style="background: rgba(0, 0, 0, 0.2); padding: 10px; border-radius: 6px; margin: 10px 0; max-height: 100px; overflow-y: auto;">
-                            ${message.content}
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #aaa;">
-                            <span>From: ${message.fromAdmin}</span>
-                            <span>${timeAgo}</span>
-                        </div>
-                        ${message.reason ? `<div style="margin-top: 8px; font-size: 0.8em; color: #ccc;"><strong>Reason:</strong> ${message.reason}</div>` : ''}
-                    `;
-                    
-                    container.appendChild(card);
-                });
-                
-            } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading messages: ${error.message}</div>`;
-            }
-        }
-        
-        // =============================================================================
-        // 🗄️ STORAGE MANAGEMENT FUNCTIONS  
-        // =============================================================================
-        
-        async function loadStorageData() {
-            const loading = document.getElementById('storageLoading');
-            const container = document.getElementById('storageContainer');
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                // Load current storage stats
-                const response = await fetch(`${serverUrl}/admin/storage/stats?adminKey=${adminKey}`);
-                const stats = await response.json();
-                
-                // Update stat cards
-                document.getElementById('totalImagesCount').textContent = stats.totalImages || 0;
-                document.getElementById('totalStorageSize').textContent = stats.totalSizeMB || 0;
-                document.getElementById('orphanedImagesCount').textContent = stats.orphanedCount || 0;
-                document.getElementById('inactiveProfilesCount').textContent = stats.inactiveCount || 0;
-                
-                loading.style.display = 'none';
-                
-                // Show storage summary
-                const summary = document.createElement('div');
-                summary.style.cssText = 'background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 10px; margin-bottom: 20px;';
-                summary.innerHTML = `
-                    <h4>📊 Storage Summary</h4>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
-                        <div>
-                            <strong>Total Storage:</strong><br>
-                            <span style="color: #4CAF50;">${stats.totalSizeMB}MB across ${stats.totalImages} images</span>
-                        </div>
-                        <div>
-                            <strong>Cleanup Potential:</strong><br>
-                            <span style="color: #ff9800;">${stats.orphanedSizeMB}MB in ${stats.orphanedCount} orphaned images</span>
-                        </div>
-                        <div>
-                            <strong>Inactive Profiles:</strong><br>
-                            <span style="color: #f44336;">${stats.inactiveCount} profiles not updated recently</span>
-                        </div>
-                        <div>
-                            <strong>Last Scan:</strong><br>
-                            <span style="color: #ccc;">${stats.lastUpdated ? new Date(stats.lastUpdated).toLocaleString() : 'Never'}</span>
-                        </div>
-                    </div>
-                `;
-                container.appendChild(summary);
-                
-                // Show recommendations if needed
-                if (stats.orphanedCount > 0 || stats.inactiveCount > 5) {
-                    const recommendations = document.createElement('div');
-                    recommendations.style.cssText = 'background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; padding: 15px; border-radius: 10px; margin-bottom: 20px;';
-                    recommendations.innerHTML = `
-                        <h4 style="color: #ff9800;">💡 Recommendations</h4>
-                        <ul style="margin: 10px 0 0 20px; color: #ddd;">
-                            ${stats.orphanedCount > 0 ? `<li>Clean up ${stats.orphanedCount} orphaned images to save ${stats.orphanedSizeMB}MB</li>` : ''}
-                            ${stats.inactiveCount > 5 ? `<li>Review ${stats.inactiveCount} inactive profiles for potential cleanup</li>` : ''}
-                            ${stats.totalSizeMB > 500 ? '<li>Consider reviewing large images for optimization</li>' : ''}
-                        </ul>
-                    `;
-                    container.appendChild(recommendations);
-                }
-                
-            } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading storage data: ${error.message}</div>`;
-            }
-        }
-        
-        async function scanStorage() {
-            const scanBtn = event.target;
-            const originalText = scanBtn.textContent;
-            scanBtn.textContent = '🔍 Scanning...';
-            scanBtn.disabled = true;
-            
-            try {
-                showToast('Starting storage scan...', 'info');
-                
-                const response = await fetch(`${serverUrl}/admin/storage/scan`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    }
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showToast(`Scan complete: ${result.totalImages} images, ${result.orphanedCount} orphaned`, 'success');
-                    loadStorageData();
-                } else {
-                    showToast('Error scanning storage', 'error');
-                }
-            } catch (error) {
-                showToast(`Scan error: ${error.message}`, 'error');
-            } finally {
-                scanBtn.textContent = originalText;
-                scanBtn.disabled = false;
-            }
-        }
-        
-        async function cleanupOrphanedImages() {
-            const bodyContent = `
-                <p>This will permanently delete all orphaned images that are no longer referenced by any profiles.</p>
-                <p style="color: #ff9800; font-weight: bold;">⚠️ This action cannot be undone!</p>
-                <p>Orphaned images are typically created when profiles are deleted but their images remain on the server.</p>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="executeCleanupOrphaned()">Delete Orphaned Images</button>
-            `;
-            
-            showModal('🗑️ Cleanup Orphaned Images', 'Permanent deletion warning', bodyContent, actions);
-        }
-        
-        async function executeCleanupOrphaned() {
-            closeModal();
-            
-            try {
-                showToast('Cleaning up orphaned images...', 'info');
-                
-                const response = await fetch(`${serverUrl}/admin/storage/cleanup-orphaned`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    }
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showToast(`Cleanup complete: ${result.cleanedCount} images deleted, ${result.cleanedSizeMB}MB freed`, 'success');
-                    loadStorageData();
-                } else {
-                    showToast('Error cleaning up images', 'error');
-                }
-            } catch (error) {
-                showToast(`Cleanup error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function loadInactiveProfiles() {
-            const threshold = document.getElementById('inactiveThreshold').value;
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/storage/inactive?days=${threshold}&adminKey=${adminKey}`);
-                const inactiveProfiles = await response.json();
-                
-                const container = document.getElementById('storageContainer');
-                const existingSummary = container.querySelector('.storage-summary');
-                if (existingSummary) {
-                    // Only update the inactive profiles section
-                    const inactiveSection = container.querySelector('.inactive-profiles-section');
-                    if (inactiveSection) {
-                        inactiveSection.remove();
-                    }
-                } else {
-                    // Load full storage data first
-                    await loadStorageData();
-                }
-                
-                if (inactiveProfiles.length === 0) {
-                    const noInactive = document.createElement('div');
-                    noInactive.className = 'inactive-profiles-section';
-                    noInactive.style.cssText = 'text-align: center; color: #4CAF50; padding: 20px; background: rgba(76, 175, 80, 0.1); border-radius: 10px; margin-top: 20px;';
-                    noInactive.innerHTML = `🎉 No inactive profiles found (${threshold} days threshold)`;
-                    container.appendChild(noInactive);
-                    return;
-                }
-                
-                const inactiveSection = document.createElement('div');
-                inactiveSection.className = 'inactive-profiles-section';
-                inactiveSection.innerHTML = `
-                    <h4 style="margin: 20px 0 15px 0;">📋 Inactive Profiles (${threshold}+ days)</h4>
-                    <div style="margin-bottom: 15px;">
-                        <button class="btn btn-danger" onclick="showBulkInactiveCleanup(${threshold})">🧹 Bulk Remove Inactive</button>
-                        <span style="margin-left: 15px; color: #ccc;">${inactiveProfiles.length} profiles found</span>
-                    </div>
-                `;
-                
-                const inactiveGrid = document.createElement('div');
-                inactiveGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;';
-                
-                inactiveProfiles.forEach(profile => {
-                    const card = document.createElement('div');
-                    card.className = 'profile-card';
-                    card.style.borderLeft = '4px solid #ff9800';
-                    card.style.height = 'auto';
-                    
-                    const daysSince = Math.floor((Date.now() - new Date(profile.lastUpdate).getTime()) / (24 * 60 * 60 * 1000));
-                    
-                    card.innerHTML = `
-                        <div style="margin-bottom: 10px;">
-                            <strong style="color: #ff9800;">${profile.characterName}</strong>
-                            <div style="color: #aaa; font-size: 0.85em; font-family: monospace;">${profile.characterId}</div>
-                        </div>
-                        <div style="margin: 10px 0;">
-                            <div>📅 Last Update: ${daysSince} days ago</div>
-                            <div>🖼️ Has Image: ${profile.hasImage ? 'Yes' : 'No'}</div>
-                            ${profile.hasImage ? `<div>📏 Image Size: ${(profile.imageSize / 1024).toFixed(1)}KB</div>` : ''}
-                        </div>
-                        <div style="display: flex; gap: 8px; margin-top: 15px;">
-                            <button class="btn btn-secondary" onclick="removeProfileImage('${profile.characterId}', '${profile.characterName.replace(/'/g, "\\'")}')">Remove Image</button>
-                            <button class="btn btn-danger" onclick="initRemoveProfile('${profile.characterId}', '${profile.characterName.replace(/'/g, "\\'")}')">Remove Profile</button>
-                        </div>
-                    `;
-                    
-                    inactiveGrid.appendChild(card);
-                });
-                
-                inactiveSection.appendChild(inactiveGrid);
-                container.appendChild(inactiveSection);
-                
-            } catch (error) {
-                showToast(`Error loading inactive profiles: ${error.message}`, 'error');
-            }
-        }
-        
-        async function removeProfileImage(characterId, characterName) {
-            const bodyContent = `
-                <div class="modal-profile-info">
-                    <div class="modal-profile-name">${characterName}</div>
-                    <div class="modal-profile-id">${characterId}</div>
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Remove the profile image from storage</li>
-                    <li>Keep the profile active in the gallery</li>
-                    <li>User can re-upload an image anytime</li>
-                    <li>Free up storage space</li>
-                </ul>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-warning" onclick="executeRemoveImage('${characterId}', '${characterName.replace(/'/g, "\\'")}')">Remove Image</button>
-            `;
-            
-            showModal('🖼️ Remove Profile Image', 'Keep profile, remove image only', bodyContent, actions);
-        }
-        
-        async function executeRemoveImage(characterId, characterName) {
-            closeModal();
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/storage/remove-image/${encodeURIComponent(characterId)}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    }
-                });
-                
-                if (response.ok) {
-                    showToast(`Image removed from ${characterName}`, 'success');
-                    loadStorageData();
-                    loadProfiles(); // Refresh main gallery if visible
-                } else {
-                    showToast('Error removing image', 'error');
-                }
-            } catch (error) {
-                showToast(`Error: ${error.message}`, 'error');
-            }
-        }
-        
-        function showBulkImageCleanup() {
-            const bodyContent = `
-                <h4>🧹 Bulk Image Cleanup Options</h4>
-                <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 10px;">
-                        <input type="checkbox" id="cleanupOrphaned" checked> 
-                        Remove all orphaned images
-                    </label>
-                    <label style="display: block; margin-bottom: 10px;">
-                        <input type="checkbox" id="cleanupInactive"> 
-                        Remove images from profiles inactive for 90+ days
-                    </label>
-                    <label style="display: block; margin-bottom: 10px;">
-                        <input type="checkbox" id="cleanupLarge"> 
-                        Remove images larger than 2MB (keep profiles)
-                    </label>
-                </div>
-                <p style="color: #ff9800; font-weight: bold;">⚠️ This will permanently delete selected images</p>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="executeBulkImageCleanup()">Start Cleanup</button>
-            `;
-            
-            showModal('🧹 Bulk Image Cleanup', 'Select cleanup options', bodyContent, actions);
-        }
-        
-        async function executeBulkImageCleanup() {
-            const cleanupOrphaned = document.getElementById('cleanupOrphaned').checked;
-            const cleanupInactive = document.getElementById('cleanupInactive').checked;
-            const cleanupLarge = document.getElementById('cleanupLarge').checked;
-            
-            if (!cleanupOrphaned && !cleanupInactive && !cleanupLarge) {
-                showToast('Please select at least one cleanup option', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            try {
-                showToast('Starting bulk image cleanup...', 'info');
-                
-                const response = await fetch(`${serverUrl}/admin/storage/bulk-cleanup`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({
-                        cleanupOrphaned,
-                        cleanupInactive,
-                        cleanupLarge
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showToast(`Cleanup complete: ${result.totalCleaned} images deleted, ${result.totalSavedMB}MB freed`, 'success');
-                    loadStorageData();
-                } else {
-                    showToast('Error during bulk cleanup', 'error');
-                }
-            } catch (error) {
-                showToast(`Cleanup error: ${error.message}`, 'error');
-            }
-        }
-        
-        function showBulkInactiveCleanup(threshold) {
-            const bodyContent = `
-                <p>Remove all profiles that haven't been updated in <strong>${threshold}+ days</strong>?</p>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Delete inactive profiles and their images</li>
-                    <li>Free up significant storage space</li>
-                    <li>Users can re-upload if they return</li>
-                </ul>
-                <p style="color: #f44336; font-weight: bold;">⚠️ This action cannot be undone!</p>
-                <textarea id="bulkInactiveReason" class="modal-input modal-textarea" placeholder="Enter reason for bulk cleanup (required)" required></textarea>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="executeBulkInactiveCleanup(${threshold})">Remove Inactive Profiles</button>
-            `;
-            
-            showModal('🧹 Bulk Inactive Cleanup', 'Remove old inactive profiles', bodyContent, actions);
-        }
-        
-        async function executeBulkInactiveCleanup(threshold) {
-            const reason = document.getElementById('bulkInactiveReason').value.trim();
-            
-            if (!reason) {
-                showToast('Cleanup reason is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            try {
-                showToast(`Removing profiles inactive for ${threshold}+ days...`, 'info');
-                
-                const response = await fetch(`${serverUrl}/admin/storage/cleanup-inactive`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({
-                        daysThreshold: threshold,
-                        reason
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showToast(`Cleanup complete: ${result.removedCount} profiles deleted, ${result.freedMB}MB freed`, 'success');
-                    loadStorageData();
-                    loadProfiles(); // Refresh main gallery
-                    refreshStats();
-                } else {
-                    showToast('Error during inactive cleanup', 'error');
-                }
-            } catch (error) {
-                showToast(`Cleanup error: ${error.message}`, 'error');
-            }
-        }
         } catch (err) {
             console.error('Error loading likes database:', err);
             this.likes = new Map();
@@ -1068,373 +123,6 @@ class LikesDatabase {
 
     getLikeCount(characterId) {
         return this.likeCounts.get(characterId) || 0;
-    }
-}
-
-class MessagesDatabase {
-    constructor() {
-        this.messages = [];
-        this.conversations = new Map(); // userId -> [messageIds]
-        this.load();
-    }
-
-    load() {
-        try {
-            if (fs.existsSync(messagesDbFile)) {
-                const data = JSON.parse(fs.readFileSync(messagesDbFile, 'utf-8'));
-                this.messages = data.messages || [];
-                this.conversations = new Map(data.conversations || []);
-                console.log(`💬 Loaded ${this.messages.length} messages`);
-            }
-        } catch (err) {
-            console.error('Error loading messages database:', err);
-            this.messages = [];
-            this.conversations = new Map();
-        }
-    }
-
-    save() {
-        try {
-            const data = {
-                messages: this.messages,
-                conversations: Array.from(this.conversations.entries()),
-                lastSaved: new Date().toISOString()
-            };
-            
-            const tempFile = messagesDbFile + '.tmp';
-            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
-            
-            if (fs.existsSync(messagesDbFile)) {
-                fs.copyFileSync(messagesDbFile, messagesDbFile + '.backup');
-            }
-            
-            fs.renameSync(tempFile, messagesDbFile);
-        } catch (err) {
-            console.error('Error saving messages database:', err);
-        }
-    }
-
-    sendWarning(characterId, characterName, violationType, reason, adminId) {
-        const warningTemplates = {
-            'content_violation': `Your character "${characterName}" has been reported for inappropriate content. Please review and update your profile to comply with community guidelines.`,
-            'spam': `Your character "${characterName}" has been flagged for spam-like behavior. Please ensure your content is meaningful and follows community standards.`,
-            'harassment': `Your character "${characterName}" has been reported for harassment. This behavior is not tolerated and may result in a ban.`,
-            'custom': reason
-        };
-
-        const message = {
-            id: crypto.randomUUID(),
-            type: 'warning',
-            recipientCharacterId: characterId,
-            recipientCharacterName: characterName,
-            fromAdmin: adminId,
-            subject: `Warning: ${violationType.replace('_', ' ').toUpperCase()}`,
-            content: warningTemplates[violationType] || warningTemplates['custom'],
-            reason: reason,
-            timestamp: new Date().toISOString(),
-            read: false,
-            status: 'sent'
-        };
-
-        this.messages.unshift(message);
-        
-        // Add to user's conversation
-        if (!this.conversations.has(characterId)) {
-            this.conversations.set(characterId, []);
-        }
-        this.conversations.get(characterId).unshift(message.id);
-        
-        this.save();
-        
-        // Log activity
-        activityDB.logActivity('warning', `WARNING SENT: ${characterName}`, {
-            messageId: message.id,
-            characterId,
-            characterName,
-            violationType,
-            adminId
-        });
-        
-        console.log(`⚠️ Warning sent to ${characterName} by ${adminId}`);
-        return message;
-    }
-
-    sendNotification(characterId, characterName, type, message, adminId) {
-        const notification = {
-            id: crypto.randomUUID(),
-            type: 'notification',
-            recipientCharacterId: characterId,
-            recipientCharacterName: characterName,
-            fromAdmin: adminId,
-            subject: `Profile ${type.charAt(0).toUpperCase() + type.slice(1)}`,
-            content: message,
-            timestamp: new Date().toISOString(),
-            read: false,
-            status: 'sent'
-        };
-
-        this.messages.unshift(notification);
-        
-        if (!this.conversations.has(characterId)) {
-            this.conversations.set(characterId, []);
-        }
-        this.conversations.get(characterId).unshift(notification.id);
-        
-        this.save();
-        return notification;
-    }
-
-    getMessagesForUser(characterId, limit = 50) {
-        const messageIds = this.conversations.get(characterId) || [];
-        return messageIds.slice(0, limit).map(id => 
-            this.messages.find(m => m.id === id)
-        ).filter(Boolean);
-    }
-
-    markAsRead(messageId, characterId) {
-        const message = this.messages.find(m => m.id === messageId && m.recipientCharacterId === characterId);
-        if (message) {
-            message.read = true;
-            this.save();
-            return true;
-        }
-        return false;
-    }
-
-    getAllMessages(limit = 100) {
-        return this.messages.slice(0, limit);
-    }
-
-    getUnreadCount(characterId) {
-        const messageIds = this.conversations.get(characterId) || [];
-        return messageIds.reduce((count, id) => {
-            const message = this.messages.find(m => m.id === id);
-            return count + (message && !message.read ? 1 : 0);
-        }, 0);
-    }
-}
-
-class StorageDatabase {
-    constructor() {
-        this.storageStats = {
-            totalImages: 0,
-            totalSize: 0,
-            orphanedImages: [],
-            lastUpdated: null
-        };
-        this.imageUsage = new Map(); // imageFile -> { characterId, lastAccessed, size }
-        this.inactiveProfiles = [];
-        this.load();
-    }
-
-    load() {
-        try {
-            if (fs.existsSync(storageDbFile)) {
-                const data = JSON.parse(fs.readFileSync(storageDbFile, 'utf-8'));
-                this.storageStats = data.storageStats || this.storageStats;
-                this.imageUsage = new Map(data.imageUsage || []);
-                this.inactiveProfiles = data.inactiveProfiles || [];
-                console.log(`💾 Loaded storage data: ${this.storageStats.totalImages} images`);
-            }
-        } catch (err) {
-            console.error('Error loading storage database:', err);
-        }
-    }
-
-    save() {
-        try {
-            const data = {
-                storageStats: this.storageStats,
-                imageUsage: Array.from(this.imageUsage.entries()),
-                inactiveProfiles: this.inactiveProfiles,
-                lastSaved: new Date().toISOString()
-            };
-            
-            const tempFile = storageDbFile + '.tmp';
-            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
-            
-            if (fs.existsSync(storageDbFile)) {
-                fs.copyFileSync(storageDbFile, storageDbFile + '.backup');
-            }
-            
-            fs.renameSync(tempFile, storageDbFile);
-        } catch (err) {
-            console.error('Error saving storage database:', err);
-        }
-    }
-
-    async scanStorage() {
-        try {
-            console.log('🔍 Scanning storage...');
-            
-            // Scan images directory
-            const imageFiles = fs.readdirSync(imagesDir);
-            let totalSize = 0;
-            const orphanedImages = [];
-            const currentImages = new Map();
-
-            // Get all profile files
-            const profileFiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
-            const activeImages = new Set();
-
-            // Collect all referenced images from profiles
-            for (const file of profileFiles) {
-                try {
-                    const profile = await readProfileAsync(path.join(profilesDir, file));
-                    if (profile.ProfileImageUrl) {
-                        const imageName = profile.ProfileImageUrl.split('/').pop();
-                        activeImages.add(imageName);
-                    }
-                } catch (err) {
-                    // Skip invalid profiles
-                }
-            }
-
-            // Scan each image file
-            for (const imageFile of imageFiles) {
-                const imagePath = path.join(imagesDir, imageFile);
-                const stats = fs.statSync(imagePath);
-                const size = stats.size;
-                totalSize += size;
-
-                currentImages.set(imageFile, {
-                    size,
-                    lastAccessed: stats.atime,
-                    lastModified: stats.mtime
-                });
-
-                // Check if orphaned
-                if (!activeImages.has(imageFile)) {
-                    orphanedImages.push({
-                        filename: imageFile,
-                        size,
-                        lastModified: stats.mtime
-                    });
-                }
-            }
-
-            // Find inactive profiles (not updated in X days)
-            const inactiveThreshold = 90 * 24 * 60 * 60 * 1000; // 90 days
-            const now = Date.now();
-            const inactiveProfiles = [];
-
-            for (const file of profileFiles) {
-                try {
-                    const characterId = file.replace('.json', '');
-                    const profile = await readProfileAsync(path.join(profilesDir, file));
-                    const lastUpdate = new Date(profile.LastUpdated || profile.LastActiveTime || 0);
-                    
-                    if (now - lastUpdate.getTime() > inactiveThreshold) {
-                        inactiveProfiles.push({
-                            characterId,
-                            characterName: profile.CharacterName || characterId,
-                            lastUpdate: profile.LastUpdated,
-                            hasImage: !!profile.ProfileImageUrl,
-                            imageSize: profile.ProfileImageUrl ? (currentImages.get(profile.ProfileImageUrl.split('/').pop())?.size || 0) : 0
-                        });
-                    }
-                } catch (err) {
-                    // Skip invalid profiles
-                }
-            }
-
-            this.storageStats = {
-                totalImages: imageFiles.length,
-                totalSize,
-                orphanedImages,
-                lastUpdated: new Date().toISOString()
-            };
-
-            this.imageUsage = currentImages;
-            this.inactiveProfiles = inactiveProfiles;
-            this.save();
-
-            console.log(`📊 Storage scan complete: ${imageFiles.length} images, ${(totalSize / 1024 / 1024).toFixed(2)}MB total, ${orphanedImages.length} orphaned`);
-            
-            return {
-                totalImages: imageFiles.length,
-                totalSizeMB: Math.round(totalSize / 1024 / 1024 * 100) / 100,
-                orphanedCount: orphanedImages.length,
-                inactiveCount: inactiveProfiles.length,
-                orphanedSizeMB: Math.round(orphanedImages.reduce((sum, img) => sum + img.size, 0) / 1024 / 1024 * 100) / 100
-            };
-        } catch (err) {
-            console.error('Error scanning storage:', err);
-            throw err;
-        }
-    }
-
-    async cleanupOrphanedImages() {
-        let cleanedCount = 0;
-        let cleanedSize = 0;
-
-        for (const orphan of this.storageStats.orphanedImages) {
-            try {
-                const imagePath = path.join(imagesDir, orphan.filename);
-                if (fs.existsSync(imagePath)) {
-                    fs.unlinkSync(imagePath);
-                    cleanedCount++;
-                    cleanedSize += orphan.size;
-                    console.log(`🗑️ Deleted orphaned image: ${orphan.filename}`);
-                }
-            } catch (err) {
-                console.error(`Error deleting ${orphan.filename}:`, err);
-            }
-        }
-
-        // Update stats
-        this.storageStats.totalImages -= cleanedCount;
-        this.storageStats.totalSize -= cleanedSize;
-        this.storageStats.orphanedImages = [];
-        this.save();
-
-        return { cleanedCount, cleanedSizeMB: Math.round(cleanedSize / 1024 / 1024 * 100) / 100 };
-    }
-
-    async removeProfileImage(characterId) {
-        try {
-            const filePath = path.join(profilesDir, `${characterId}.json`);
-            if (!fs.existsSync(filePath)) return false;
-
-            const profile = await readProfileAsync(filePath);
-            if (!profile.ProfileImageUrl) return false;
-
-            const imageName = profile.ProfileImageUrl.split('/').pop();
-            const imagePath = path.join(imagesDir, imageName);
-
-            // Remove image file
-            if (fs.existsSync(imagePath)) {
-                const stats = fs.statSync(imagePath);
-                fs.unlinkSync(imagePath);
-                
-                // Update storage stats
-                this.storageStats.totalImages--;
-                this.storageStats.totalSize -= stats.size;
-                
-                console.log(`🖼️ Removed image for ${characterId}: ${imageName}`);
-            }
-
-            // Update profile
-            delete profile.ProfileImageUrl;
-            profile.LastUpdated = new Date().toISOString();
-            await atomicWriteProfile(filePath, profile);
-
-            this.save();
-            return true;
-        } catch (err) {
-            console.error('Error removing profile image:', err);
-            return false;
-        }
-    }
-
-    getInactiveProfiles(daysThreshold = 90) {
-        const threshold = daysThreshold * 24 * 60 * 60 * 1000;
-        const now = Date.now();
-        
-        return this.inactiveProfiles.filter(profile => {
-            const lastUpdate = new Date(profile.lastUpdate || 0);
-            return now - lastUpdate.getTime() > threshold;
-        });
     }
 }
 
@@ -1973,8 +661,6 @@ const reportsDB = new ReportsDatabase();
 const moderationDB = new ModerationDatabase();
 const activityDB = new ActivityDatabase();
 const autoFlagDB = new AutoFlaggingDatabase();
-const messagesDB = new MessagesDatabase();
-const storageDB = new StorageDatabase();
 
 // Admin authentication middleware
 function requireAdmin(req, res, next) {
@@ -2122,7 +808,7 @@ function sanitizeProfileResponse(profile) {
 }
 
 function generateSafeId(characterName, originalId) {
-    return characterName.toLowerCase().replace(/\\s+/g, '_') + '_' + 
+    return characterName.toLowerCase().replace(/\s+/g, '_') + '_' + 
            crypto.createHash('md5').update(originalId).digest('hex').substring(0, 8);
 }
 
@@ -2206,7 +892,7 @@ function extractServerFromName(characterName) {
 }
 
 // =============================================================================
-// 🖥️ ADMIN DASHBOARD - IMPROVED VERSION WITH PHASE 3 FEATURES
+// 🖥️ ADMIN DASHBOARD - IMPROVED VERSION WITH PHASE 1 FIXES
 // =============================================================================
 
 app.get("/admin", (req, res) => {
@@ -2297,47 +983,6 @@ app.get("/admin", (req, res) => {
             height: 240px;
             display: flex;
             flex-direction: column;
-            position: relative;
-        }
-        
-        .profile-card.selected {
-            border-color: #4CAF50;
-            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
-        }
-        
-        .bulk-selector {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            width: 20px;
-            height: 20px;
-            z-index: 10;
-        }
-        
-        .bulk-actions-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #2c2c54 0%, #40407a 100%);
-            padding: 15px 20px;
-            border-top: 2px solid #4CAF50;
-            box-shadow: 0 -10px 20px rgba(0, 0, 0, 0.3);
-            z-index: 100;
-            display: none;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .bulk-info {
-            flex: 1;
-            color: #4CAF50;
-            font-weight: bold;
-        }
-        
-        .bulk-actions {
-            display: flex;
-            gap: 10px;
         }
         
         .profile-header {
@@ -2485,223 +1130,7 @@ app.get("/admin", (req, res) => {
             background: #d84315;
             box-shadow: 0 0 0 2px rgba(255, 87, 34, 0.3);
         }
-
-        /* Custom Modal System */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            z-index: 1000;
-            animation: fadeIn 0.2s ease-out;
-        }
-
-        .modal-overlay.show {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        @keyframes slideInDown {
-            from { 
-                opacity: 0;
-                transform: translate(-50%, -60%);
-            }
-            to { 
-                opacity: 1;
-                transform: translate(-50%, -50%);
-            }
-        }
-
-        .modal {
-            background: linear-gradient(135deg, #2c2c54 0%, #40407a 100%);
-            border-radius: 15px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            position: relative;
-            animation: slideInDown 0.3s ease-out;
-        }
-
-        .modal-header {
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        .modal-title {
-            font-size: 1.4em;
-            font-weight: bold;
-            color: #4CAF50;
-            margin-bottom: 10px;
-        }
-
-        .modal-subtitle {
-            color: #ccc;
-            font-size: 0.9em;
-        }
-
-        .modal-body {
-            margin-bottom: 25px;
-        }
-
-        .modal-profile-info {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 10px;
-            margin: 15px 0;
-            border-left: 4px solid #4CAF50;
-        }
-
-        .modal-profile-name {
-            font-weight: bold;
-            color: #4CAF50;
-            margin-bottom: 5px;
-        }
-
-        .modal-profile-id {
-            color: #aaa;
-            font-size: 0.85em;
-            font-family: monospace;
-        }
-
-        .modal-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-
-        .modal-input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            margin: 10px 0;
-            font-size: 0.9em;
-        }
-
-        .modal-input:focus {
-            outline: none;
-            border-color: #4CAF50;
-            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
-        }
-
-        .modal-textarea {
-            min-height: 80px;
-            resize: vertical;
-            font-family: inherit;
-        }
-
-        /* Toast Notification System */
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 2000;
-            max-width: 400px;
-        }
-
-        .toast {
-            background: linear-gradient(135deg, #2c2c54 0%, #40407a 100%);
-            border-radius: 10px;
-            padding: 15px 20px;
-            margin-bottom: 10px;
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-            border-left: 4px solid #4CAF50;
-            animation: slideInRight 0.3s ease-out;
-            position: relative;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .toast.success {
-            border-left-color: #4CAF50;
-        }
-
-        .toast.error {
-            border-left-color: #f44336;
-        }
-
-        .toast.warning {
-            border-left-color: #ff9800;
-        }
-
-        .toast.info {
-            border-left-color: #2196F3;
-        }
-
-        @keyframes slideInRight {
-            from {
-                opacity: 0;
-                transform: translateX(100%);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        @keyframes slideOutRight {
-            from {
-                opacity: 1;
-                transform: translateX(0);
-            }
-            to {
-                opacity: 0;
-                transform: translateX(100%);
-            }
-        }
-
-        .toast.removing {
-            animation: slideOutRight 0.3s ease-out forwards;
-        }
-
-        .toast-header {
-            font-weight: bold;
-            margin-bottom: 5px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .toast-body {
-            color: #ddd;
-            font-size: 0.9em;
-        }
-
-        .toast-close {
-            position: absolute;
-            top: 10px;
-            right: 15px;
-            background: none;
-            border: none;
-            color: #aaa;
-            cursor: pointer;
-            font-size: 1.2em;
-            width: 20px;
-            height: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .toast-close:hover {
-            color: #fff;
-        }
-
+        
         /* Image Modal Styles */
         .image-modal {
             display: none;
@@ -2782,15 +1211,6 @@ app.get("/admin", (req, res) => {
         
         .btn-primary:hover {
             background: #1976D2;
-        }
-
-        .btn-success {
-            background: #4CAF50;
-            color: white;
-        }
-        
-        .btn-success:hover {
-            background: #45a049;
         }
         
         .input-group {
@@ -3163,32 +1583,6 @@ app.get("/admin", (req, res) => {
             max-height: 100px;
             overflow-y: auto;
         }
-
-        /* Processing indicator */
-        .processing {
-            pointer-events: none;
-            opacity: 0.6;
-            position: relative;
-        }
-
-        .processing::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 20px;
-            height: 20px;
-            margin: -10px 0 0 -10px;
-            border: 2px solid transparent;
-            border-top: 2px solid #4CAF50;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
     </style>
 </head>
 <body>
@@ -3240,8 +1634,6 @@ app.get("/admin", (req, res) => {
                 <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
                 <button class="tab" onclick="showTab('activity')">Activity Feed</button>
                 <button class="tab" onclick="showTab('flagged')">Auto-Flagged</button>
-                <button class="tab" onclick="showTab('messages')">Communications</button>
-                <button class="tab" onclick="showTab('storage')">Storage Management</button>
                 <button class="tab" onclick="showTab('announcements')">Announcements</button>
                 <button class="tab" onclick="showTab('reports')">Pending Reports</button>
                 <button class="tab" onclick="showTab('archived')">Archived Reports</button>
@@ -3309,17 +1701,6 @@ app.get("/admin", (req, res) => {
                     </div>
                 </div>
                 
-                <!-- Bulk Actions Bar -->
-                <div class="bulk-actions-bar" id="bulkActionsBar">
-                    <div class="bulk-info" id="bulkInfo">0 profiles selected</div>
-                    <div class="bulk-actions">
-                        <button class="btn btn-secondary" onclick="clearSelection()">Clear Selection</button>
-                        <button class="btn btn-nsfw" onclick="initBulkNSFW()">Mark Selected as NSFW</button>
-                        <button class="btn btn-danger" onclick="initBulkRemove()">Remove Selected</button>
-                        <button class="btn btn-warning" onclick="initBulkBan()">Ban Selected</button>
-                    </div>
-                </div>
-                
                 <div class="pagination" id="profilesPagination" style="display: none;">
                     <button id="prevPageBtn" onclick="changePage(-1)">Previous</button>
                     <div class="pagination-info">
@@ -3375,95 +1756,6 @@ app.get("/admin", (req, res) => {
                 </div>
                 <div class="loading" id="flaggedLoading">Loading flagged content...</div>
                 <div id="flaggedContainer"></div>
-            </div>
-            
-            <div id="messages" class="tab-content">
-                <h3>💬 Communications</h3>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
-                    <button class="btn btn-primary" onclick="showSendWarningModal()">📨 Send Warning</button>
-                    <button class="btn btn-secondary" onclick="loadMessages()">🔄 Refresh</button>
-                    <select id="messageTypeFilter" onchange="loadMessages()">
-                        <option value="">All Messages</option>
-                        <option value="warning">Warnings</option>
-                        <option value="notification">Notifications</option>
-                        <option value="chat">Chat Messages</option>
-                    </select>
-                </div>
-                
-                <!-- Send Warning Section -->
-                <div class="filter-section" style="margin-bottom: 20px;">
-                    <h4>📨 Quick Warning Templates</h4>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px;">
-                        <button class="btn btn-warning" onclick="quickWarning('content_violation')">🔞 Content Violation</button>
-                        <button class="btn btn-warning" onclick="quickWarning('spam')">📧 Spam Behavior</button>
-                        <button class="btn btn-warning" onclick="quickWarning('harassment')">⚠️ Harassment</button>
-                        <button class="btn btn-secondary" onclick="showSendWarningModal()">✏️ Custom Warning</button>
-                    </div>
-                </div>
-                
-                <div class="loading" id="messagesLoading">Loading messages...</div>
-                <div id="messagesContainer"></div>
-            </div>
-            
-            <div id="storage" class="tab-content">
-                <h3>🗄️ Storage Management</h3>
-                
-                <!-- Storage Stats -->
-                <div class="stats" style="margin-bottom: 20px;">
-                    <div class="stat-card">
-                        <div class="stat-number" id="totalImagesCount">-</div>
-                        <div>Total Images</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number" id="totalStorageSize">-</div>
-                        <div>Storage Used (MB)</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number" id="orphanedImagesCount">-</div>
-                        <div>Orphaned Images</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number" id="inactiveProfilesCount">-</div>
-                        <div>Inactive Profiles</div>
-                    </div>
-                </div>
-                
-                <!-- Storage Actions -->
-                <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
-                    <button class="btn btn-primary" onclick="scanStorage()">🔍 Scan Storage</button>
-                    <button class="btn btn-warning" onclick="cleanupOrphanedImages()">🗑️ Clean Orphaned Images</button>
-                    <button class="btn btn-secondary" onclick="loadInactiveProfiles()">📋 View Inactive Profiles</button>
-                    <button class="btn btn-danger" onclick="showBulkImageCleanup()">🧹 Bulk Image Cleanup</button>
-                </div>
-                
-                <!-- Storage Filters -->
-                <div class="filter-section">
-                    <h4>📊 Storage Analysis</h4>
-                    <div class="filter-grid">
-                        <div class="input-group">
-                            <label for="inactiveThreshold">Inactive After (days):</label>
-                            <select id="inactiveThreshold" onchange="loadInactiveProfiles()">
-                                <option value="30">30 days</option>
-                                <option value="60">60 days</option>
-                                <option value="90" selected>90 days</option>
-                                <option value="180">6 months</option>
-                                <option value="365">1 year</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="sizeFilter">Image Size:</label>
-                            <select id="sizeFilter" onchange="filterImages()">
-                                <option value="">All Sizes</option>
-                                <option value="large">Large (>1MB)</option>
-                                <option value="medium">Medium (500KB-1MB)</option>
-                                <option value="small">Small (<500KB)</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="loading" id="storageLoading">Loading storage data...</div>
-                <div id="storageContainer"></div>
             </div>
             
             <div id="announcements" class="tab-content">
@@ -3527,496 +1819,16 @@ app.get("/admin", (req, res) => {
         <img class="image-modal-content" id="modalImage">
     </div>
 
-    <!-- Custom Modal System -->
-    <div id="modalOverlay" class="modal-overlay" onclick="closeModal(event)">
-        <div class="modal" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <div class="modal-title" id="modalTitle">Confirm Action</div>
-                <div class="modal-subtitle" id="modalSubtitle"></div>
-            </div>
-            <div class="modal-body" id="modalBody">
-                <!-- Dynamic content will be inserted here -->
-            </div>
-            <div class="modal-actions" id="modalActions">
-                <!-- Dynamic buttons will be inserted here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Toast Container -->
-    <div class="toast-container" id="toastContainer"></div>
-
     <script>
         let adminKey = '';
         let adminName = '';
-        let allProfiles = [];
-        let filteredProfiles = [];
+        let allProfiles = []; // Store all profiles for search filtering
+        let filteredProfiles = []; // Store filtered profiles for pagination
         let currentPage = 1;
-        const profilesPerPage = 24;
+        const profilesPerPage = 24; // 4x6 grid looks good
         const serverUrl = window.location.origin;
         let activityRefreshInterval = null;
         let availableServers = new Set();
-        let selectedProfiles = new Set(); // For bulk actions
-        
-        // Toast notification system
-        function showToast(message, type = 'info', duration = 4000) {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = \`toast \${type}\`;
-            
-            const icons = {
-                success: '✅',
-                error: '❌',
-                warning: '⚠️',
-                info: 'ℹ️'
-            };
-            
-            toast.innerHTML = \`
-                <div class="toast-header">
-                    \${icons[type] || 'ℹ️'} \${type.charAt(0).toUpperCase() + type.slice(1)}
-                </div>
-                <div class="toast-body">\${message}</div>
-                <button class="toast-close" onclick="removeToast(this.parentElement)">&times;</button>
-            \`;
-            
-            container.appendChild(toast);
-            
-            // Auto-remove after duration
-            setTimeout(() => {
-                removeToast(toast);
-            }, duration);
-            
-            return toast;
-        }
-        
-        function removeToast(toast) {
-            if (!toast || !toast.parentElement) return;
-            
-            toast.classList.add('removing');
-            setTimeout(() => {
-                if (toast.parentElement) {
-                    toast.parentElement.removeChild(toast);
-                }
-            }, 300);
-        }
-        
-        // Custom modal system
-        function showModal(title, subtitle, bodyContent, actions) {
-            const overlay = document.getElementById('modalOverlay');
-            const modalTitle = document.getElementById('modalTitle');
-            const modalSubtitle = document.getElementById('modalSubtitle');
-            const modalBody = document.getElementById('modalBody');
-            const modalActions = document.getElementById('modalActions');
-            
-            modalTitle.textContent = title;
-            modalSubtitle.textContent = subtitle || '';
-            modalBody.innerHTML = bodyContent;
-            modalActions.innerHTML = actions;
-            
-            overlay.classList.add('show');
-            
-            // Focus first input if exists
-            const firstInput = modalBody.querySelector('input, textarea');
-            if (firstInput) {
-                setTimeout(() => firstInput.focus(), 100);
-            }
-        }
-        
-        function closeModal(event) {
-            if (event && event.target !== event.currentTarget) return;
-            const overlay = document.getElementById('modalOverlay');
-            overlay.classList.remove('show');
-        }
-        
-        // Custom confirmation modal
-        function confirmAction(title, message, onConfirm, onCancel = null, confirmText = 'Confirm', cancelText = 'Cancel') {
-            const actions = \`
-                <button class="btn btn-secondary" onclick="closeModal(); \${onCancel ? onCancel + '()' : ''}">\${cancelText}</button>
-                <button class="btn btn-danger" onclick="closeModal(); \${onConfirm}()">\${confirmText}</button>
-            \`;
-            
-            showModal(title, '', \`<p>\${message}</p>\`, actions);
-        }
-        
-        // Custom input modal
-        function promptAction(title, message, placeholder, onConfirm, required = true) {
-            const inputId = 'modalInput_' + Date.now();
-            const bodyContent = \`
-                <p>\${message}</p>
-                <input type="text" id="\${inputId}" class="modal-input" placeholder="\${placeholder}" \${required ? 'required' : ''}>
-            \`;
-            
-            const actions = \`
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="handlePromptConfirm('\${inputId}', '\${onConfirm}')">Continue</button>
-            \`;
-            
-            showModal(title, '', bodyContent, actions);
-        }
-        
-        function handlePromptConfirm(inputId, callback) {
-            const input = document.getElementById(inputId);
-            const value = input ? input.value.trim() : '';
-            
-            if (!value) {
-                showToast('Input is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            // Execute callback with the value
-            if (typeof window[callback] === 'function') {
-                window[callback](value);
-            }
-        }
-
-        // Bulk Actions System
-        function toggleProfileSelection(characterId, checkbox) {
-            if (checkbox.checked) {
-                selectedProfiles.add(characterId);
-            } else {
-                selectedProfiles.delete(characterId);
-            }
-            
-            updateBulkActionsBar();
-            updateProfileCardSelection(characterId, checkbox.checked);
-        }
-        
-        function updateProfileCardSelection(characterId, selected) {
-            const cards = document.querySelectorAll('.profile-card');
-            cards.forEach(card => {
-                const cardCheckbox = card.querySelector('.bulk-selector');
-                if (cardCheckbox && cardCheckbox.dataset.characterId === characterId) {
-                    if (selected) {
-                        card.classList.add('selected');
-                    } else {
-                        card.classList.remove('selected');
-                    }
-                }
-            });
-        }
-        
-        function updateBulkActionsBar() {
-            const bar = document.getElementById('bulkActionsBar');
-            const info = document.getElementById('bulkInfo');
-            const count = selectedProfiles.size;
-            
-            if (count > 0) {
-                bar.style.display = 'flex';
-                info.textContent = \`\${count} profile\${count === 1 ? '' : 's'} selected\`;
-            } else {
-                bar.style.display = 'none';
-            }
-        }
-        
-        function clearSelection() {
-            selectedProfiles.clear();
-            updateBulkActionsBar();
-            
-            // Update UI
-            document.querySelectorAll('.profile-card.selected').forEach(card => {
-                card.classList.remove('selected');
-            });
-            document.querySelectorAll('.bulk-selector').forEach(checkbox => {
-                checkbox.checked = false;
-            });
-        }
-        
-        function initBulkNSFW() {
-            if (selectedProfiles.size === 0) return;
-            
-            // Filter out already NSFW profiles
-            const eligibleProfiles = [];
-            selectedProfiles.forEach(characterId => {
-                const profile = allProfiles.find(p => p.CharacterId === characterId);
-                if (profile && !profile.IsNSFW) {
-                    eligibleProfiles.push(profile);
-                }
-            });
-            
-            if (eligibleProfiles.length === 0) {
-                showToast('No eligible profiles (already NSFW or not found)', 'warning');
-                return;
-            }
-            
-            const profileNames = eligibleProfiles.slice(0, 5).map(p => p.CharacterName).join(', ');
-            const extraCount = eligibleProfiles.length - 5;
-            const displayText = extraCount > 0 ? \`\${profileNames} and \${extraCount} more\` : profileNames;
-            
-            const bodyContent = \`
-                <p><strong>Mark \${eligibleProfiles.length} profile\${eligibleProfiles.length === 1 ? '' : 's'} as NSFW:</strong></p>
-                <div style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0; max-height: 100px; overflow-y: auto;">
-                    \${displayText}
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Mark profiles as NSFW content</li>
-                    <li>Hide them from safe browsing users</li>
-                    <li>Add 🔞 NSFW badges</li>
-                    <li>Cannot be undone (use Remove if needed)</li>
-                </ul>
-                <p style="color: #ff9800; font-weight: bold;">⚠️ Confirm these profiles contain adult content</p>
-            \`;
-            
-            const actions = \`
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-nsfw" onclick="executeBulkNSFW()">Mark \${eligibleProfiles.length} as NSFW</button>
-            \`;
-            
-            showModal('🔞 Bulk Mark as NSFW', 'Adult content classification', bodyContent, actions);
-        }
-        
-        async function executeBulkNSFW() {
-            closeModal();
-            
-            const eligibleProfiles = [];
-            selectedProfiles.forEach(characterId => {
-                const profile = allProfiles.find(p => p.CharacterId === characterId);
-                if (profile && !profile.IsNSFW) {
-                    eligibleProfiles.push(profile);
-                }
-            });
-            
-            let successCount = 0;
-            let errorCount = 0;
-            
-            showToast(\`Starting bulk NSFW marking for \${eligibleProfiles.length} profiles...\`, 'info');
-            
-            for (const profile of eligibleProfiles) {
-                try {
-                    const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(profile.CharacterId)}/nsfw\`, {
-                        method: 'PATCH',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey
-                        },
-                        body: JSON.stringify({ isNSFW: true })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                        // Update in local data
-                        const profileIndex = allProfiles.findIndex(p => p.CharacterId === profile.CharacterId);
-                        if (profileIndex !== -1) {
-                            allProfiles[profileIndex].IsNSFW = true;
-                        }
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            clearSelection();
-            applyFilters(); // Re-render with updated data
-            
-            if (successCount > 0) {
-                showToast(\`✅ \${successCount} profile\${successCount === 1 ? '' : 's'} marked as NSFW\`, 'success');
-            }
-            if (errorCount > 0) {
-                showToast(\`❌ \${errorCount} profile\${errorCount === 1 ? '' : 's'} failed to update\`, 'error');
-            }
-        }
-        
-        function initBulkRemove() {
-            if (selectedProfiles.size === 0) return;
-            
-            const selectedProfileData = [];
-            selectedProfiles.forEach(characterId => {
-                const profile = allProfiles.find(p => p.CharacterId === characterId);
-                if (profile) {
-                    selectedProfileData.push(profile);
-                }
-            });
-            
-            const profileNames = selectedProfileData.slice(0, 5).map(p => p.CharacterName).join(', ');
-            const extraCount = selectedProfileData.length - 5;
-            const displayText = extraCount > 0 ? \`\${profileNames} and \${extraCount} more\` : profileNames;
-            
-            const bodyContent = \`
-                <p><strong>Remove \${selectedProfileData.length} profile\${selectedProfileData.length === 1 ? '' : 's'} from gallery:</strong></p>
-                <div style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0; max-height: 100px; overflow-y: auto;">
-                    \${displayText}
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Remove profiles from the gallery</li>
-                    <li>Delete profile images</li>
-                    <li>They can still upload new profiles unless banned separately</li>
-                </ul>
-                <textarea id="bulkRemoveReason" class="modal-input modal-textarea" placeholder="Enter reason for bulk removal (required for moderation logs)" required></textarea>
-            \`;
-            
-            const actions = \`
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="executeBulkRemove()">Remove \${selectedProfileData.length} Profile\${selectedProfileData.length === 1 ? '' : 's'}</button>
-            \`;
-            
-            showModal('🗑️ Bulk Remove Profiles', 'This action cannot be undone', bodyContent, actions);
-        }
-        
-        async function executeBulkRemove() {
-            const reason = document.getElementById('bulkRemoveReason').value.trim();
-            
-            if (!reason) {
-                showToast('Removal reason is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            const selectedProfileData = [];
-            selectedProfiles.forEach(characterId => {
-                const profile = allProfiles.find(p => p.CharacterId === characterId);
-                if (profile) {
-                    selectedProfileData.push(profile);
-                }
-            });
-            
-            let successCount = 0;
-            let errorCount = 0;
-            
-            showToast(\`Starting bulk removal for \${selectedProfileData.length} profiles...\`, 'info');
-            
-            for (const profile of selectedProfileData) {
-                try {
-                    const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(profile.CharacterId)}\`, {
-                        method: 'DELETE',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                        // Remove from local data
-                        allProfiles = allProfiles.filter(p => p.CharacterId !== profile.CharacterId);
-                        filteredProfiles = filteredProfiles.filter(p => p.CharacterId !== profile.CharacterId);
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            clearSelection();
-            renderProfilesPage(); // Re-render without removed profiles
-            refreshStats();
-            
-            if (successCount > 0) {
-                showToast(\`✅ \${successCount} profile\${successCount === 1 ? '' : 's'} removed\`, 'success');
-            }
-            if (errorCount > 0) {
-                showToast(\`❌ \${errorCount} profile\${errorCount === 1 ? '' : 's'} failed to remove\`, 'error');
-            }
-        }
-        
-        function initBulkBan() {
-            if (selectedProfiles.size === 0) return;
-            
-            const selectedProfileData = [];
-            selectedProfiles.forEach(characterId => {
-                const profile = allProfiles.find(p => p.CharacterId === characterId);
-                if (profile) {
-                    selectedProfileData.push(profile);
-                }
-            });
-            
-            const profileNames = selectedProfileData.slice(0, 5).map(p => p.CharacterName).join(', ');
-            const extraCount = selectedProfileData.length - 5;
-            const displayText = extraCount > 0 ? \`\${profileNames} and \${extraCount} more\` : profileNames;
-            
-            const bodyContent = \`
-                <p><strong>Ban \${selectedProfileData.length} profile\${selectedProfileData.length === 1 ? '' : 's'}:</strong></p>
-                <div style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0; max-height: 100px; overflow-y: auto;">
-                    \${displayText}
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Permanently ban them from uploading any profiles</li>
-                    <li>Current profiles will remain unless removed separately</li>
-                    <li>Bans can be lifted later if needed</li>
-                </ul>
-                <textarea id="bulkBanReason" class="modal-input modal-textarea" placeholder="Enter reason for bulk ban (required for moderation logs)" required></textarea>
-            \`;
-            
-            const actions = \`
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-warning" onclick="executeBulkBan()">Ban \${selectedProfileData.length} Profile\${selectedProfileData.length === 1 ? '' : 's'}</button>
-            \`;
-            
-            showModal('🚫 Bulk Ban Profiles', 'Prevent future uploads', bodyContent, actions);
-        }
-        
-        async function executeBulkBan() {
-            const reason = document.getElementById('bulkBanReason').value.trim();
-            
-            if (!reason) {
-                showToast('Ban reason is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            const selectedProfileData = [];
-            selectedProfiles.forEach(characterId => {
-                const profile = allProfiles.find(p => p.CharacterId === characterId);
-                if (profile) {
-                    selectedProfileData.push(profile);
-                }
-            });
-            
-            let successCount = 0;
-            let errorCount = 0;
-            
-            showToast(\`Starting bulk ban for \${selectedProfileData.length} profiles...\`, 'info');
-            
-            for (const profile of selectedProfileData) {
-                try {
-                    const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(profile.CharacterId)}/ban`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason, adminId: adminName })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            clearSelection();
-            refreshStats();
-            
-            if (successCount > 0) {
-                showToast(`✅ ${successCount} profile${successCount === 1 ? '' : 's'} banned`, 'success');
-            }
-            if (errorCount > 0) {
-                showToast(`❌ ${errorCount} profile${errorCount === 1 ? '' : 's'} failed to ban`, 'error');
-            }
-        }
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                closeImageModal();
-                closeModal();
-            }
-        });
         
         // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -4052,7 +1864,8 @@ app.get("/admin", (req, res) => {
         
         async function autoLoadDashboard() {
             try {
-                const testResponse = await fetch(`${serverUrl}/admin/dashboard?adminKey=${adminKey}`);
+                // Test credentials first
+                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 
                 if (!testResponse.ok) {
                     throw new Error('Invalid saved credentials');
@@ -4067,13 +1880,14 @@ app.get("/admin", (req, res) => {
                 
             } catch (error) {
                 console.error('❌ Auto-load failed:', error);
+                // Clear invalid credentials
                 localStorage.removeItem('cs_admin_key');
                 localStorage.removeItem('cs_admin_name');
                 adminKey = '';
                 adminName = '';
                 document.getElementById('adminKey').value = '';
                 document.getElementById('adminName').value = '';
-                showToast('Saved credentials expired. Please log in again.', 'error');
+                alert('Saved credentials expired. Please log in again.');
             }
         }
         
@@ -4154,7 +1968,8 @@ app.get("/admin", (req, res) => {
             filteredProfiles = filtered;
             currentPage = 1;
             
-            document.getElementById('filterResults').textContent = `${filtered.length} profiles found`;
+            // Update results display
+            document.getElementById('filterResults').textContent = \`\${filtered.length} profiles found\`;
             
             renderProfilesPage();
         }
@@ -4167,6 +1982,7 @@ app.get("/admin", (req, res) => {
             document.getElementById('likesFilter').value = '';
             document.getElementById('sortFilter').value = 'likes';
             
+            // Clear saved filters and page
             localStorage.removeItem('cs_admin_filters');
             localStorage.removeItem('cs_admin_current_page');
             
@@ -4177,8 +1993,10 @@ app.get("/admin", (req, res) => {
             const serverSelect = document.getElementById('serverFilter');
             const currentValue = serverSelect.value;
             
+            // Clear existing options except "All Servers"
             serverSelect.innerHTML = '<option value="">All Servers</option>';
             
+            // Add server options
             const sortedServers = Array.from(availableServers).sort();
             sortedServers.forEach(server => {
                 const option = document.createElement('option');
@@ -4187,6 +2005,7 @@ app.get("/admin", (req, res) => {
                 serverSelect.appendChild(option);
             });
             
+            // Restore previous selection if valid
             if (sortedServers.includes(currentValue)) {
                 serverSelect.value = currentValue;
             }
@@ -4215,10 +2034,12 @@ app.get("/admin", (req, res) => {
             pagination.style.display = 'flex';
             paginationBottom.style.display = 'flex';
             
-            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
-            document.getElementById('pageInfoBottom').textContent = `Page ${currentPage} of ${totalPages}`;
-            document.getElementById('totalInfo').textContent = `(${filteredProfiles.length} profiles)`;
+            // Update page info
+            document.getElementById('pageInfo').textContent = \`Page \${currentPage} of \${totalPages}\`;
+            document.getElementById('pageInfoBottom').textContent = \`Page \${currentPage} of \${totalPages}\`;
+            document.getElementById('totalInfo').textContent = \`(\${filteredProfiles.length} profiles)\`;
             
+            // Update buttons
             const prevButtons = [document.getElementById('prevPageBtn'), paginationBottom.querySelector('button:first-child')];
             const nextButtons = [document.getElementById('nextPageBtn'), paginationBottom.querySelector('button:last-child')];
             
@@ -4237,8 +2058,12 @@ app.get("/admin", (req, res) => {
             
             if (newPage >= 1 && newPage <= totalPages) {
                 currentPage = newPage;
+                
+                // Save current page to localStorage for persistence
                 localStorage.setItem('cs_admin_current_page', currentPage);
+                
                 renderProfilesPage();
+                // Removed the annoying scroll to top behavior
             }
         }
         
@@ -4249,302 +2074,74 @@ app.get("/admin", (req, res) => {
             profiles.forEach(profile => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
-                if (selectedProfiles.has(profile.CharacterId)) {
-                    card.classList.add('selected');
-                }
                 
+                // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? `<img src="${profile.ProfileImageUrl}" 
-                            alt="${profile.CharacterName}" 
+                    ? \`<img src="\${profile.ProfileImageUrl}" 
+                            alt="\${profile.CharacterName}" 
                             class="profile-image" 
-                            onclick="openImageModal('${profile.ProfileImageUrl}', '${profile.CharacterName}')"
+                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>`
-                    : `<div class="profile-image-placeholder">🖼️</div>`;
+                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
                 
-                const characterNameHtml = `
+                // Format character name with NSFW badge if needed
+                const characterNameHtml = \`
                     <div class="profile-name">
-                        ${profile.CharacterName}
-                        ${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
+                        \${profile.CharacterName}
+                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
                     </div>
-                `;
+                \`;
                 
+                // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = `<div class="gallery-status">${profile.GalleryStatus}</div>`;
+                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
                 } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = `<div class="profile-content">${profile.Bio}</div>`;
+                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
                 } else {
-                    contentHtml = `<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>`;
+                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
-                const actionButtons = profile.IsNSFW ? `
-                    <button class="btn btn-warning" onclick="quickWarning('content_violation', '${profile.CharacterId}')">⚠️ Warn</button>
-                    <button class="btn btn-danger" onclick="initRemoveProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
+                const actionButtons = profile.IsNSFW ? \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Remove
                     </button>
-                    <button class="btn btn-warning" onclick="initBanProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Ban
                     </button>
-                ` : `
-                    <button class="btn btn-warning" onclick="quickWarning('content_violation', '${profile.CharacterId}')">⚠️ Warn</button>
-                    <button class="btn btn-danger" onclick="initRemoveProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                \` : \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Remove
                     </button>
-                    <button class="btn btn-warning" onclick="initBanProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Ban
                     </button>
-                    <button class="btn btn-nsfw" onclick="initMarkNSFW('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
                         Mark NSFW
                     </button>
-                `;
+                \`;
                 
-                card.innerHTML = `
-                    <input type="checkbox" class="bulk-selector" 
-                           data-character-id="${profile.CharacterId}"
-                           ${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}
-                           onchange="toggleProfileSelection('${profile.CharacterId}', this)">
+                card.innerHTML = \`
                     <div class="profile-header">
                         <div class="profile-info">
-                            ${characterNameHtml}
-                            <div class="profile-id">${profile.CharacterId}</div>
+                            \${characterNameHtml}
+                            <div class="profile-id">\${profile.CharacterId}</div>
                             <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #ccc; font-size: 0.9em;">${profile.Server}</span>
-                                <span style="color: #4CAF50;">❤️ ${profile.LikeCount}</span>
+                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
+                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        ${imageHtml}
+                        \${imageHtml}
                     </div>
-                    ${contentHtml}
+                    \${contentHtml}
                     <div class="profile-actions">
-                        ${actionButtons}
+                        \${actionButtons}
                     </div>
-                `;
+                \`;
                 grid.appendChild(card);
             });
-        }
-        
-        // New modal-based moderation functions
-        function initRemoveProfile(characterId, characterName) {
-            const bodyContent = `
-                <div class="modal-profile-info">
-                    <div class="modal-profile-name">${characterName}</div>
-                    <div class="modal-profile-id">${characterId}</div>
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Remove their profile from the gallery</li>
-                    <li>Delete their profile image (if any)</li>
-                    <li>They can still upload new profiles unless banned separately</li>
-                </ul>
-                <textarea id="removeReason" class="modal-input modal-textarea" placeholder="Enter reason for removal (required for moderation logs)" required></textarea>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="executeRemoveProfile('${characterId}', '${characterName.replace(/'/g, "\\'")}')">Remove Profile</button>
-            `;
-            
-            showModal('🗑️ Remove Profile', 'This action cannot be undone', bodyContent, actions);
-        }
-        
-        async function executeRemoveProfile(characterId, characterName) {
-            const reason = document.getElementById('removeReason').value.trim();
-            
-            if (!reason) {
-                showToast('Removal reason is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            // Show processing state
-            const profileCards = document.querySelectorAll('.profile-card');
-            let profileCard = null;
-            profileCards.forEach(card => {
-                const checkbox = card.querySelector('.bulk-selector');
-                if (checkbox && checkbox.dataset.characterId === characterId) {
-                    profileCard = card;
-                    card.classList.add('processing');
-                }
-            });
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                });
-                
-                if (response.ok) {
-                    showToast(`"${characterName}" has been removed from gallery`, 'success');
-                    
-                    // Remove from current view without full reload
-                    if (profileCard) {
-                        profileCard.remove();
-                    }
-                    
-                    // Update the filtered profiles array
-                    filteredProfiles = filteredProfiles.filter(p => p.CharacterId !== characterId);
-                    allProfiles = allProfiles.filter(p => p.CharacterId !== characterId);
-                    selectedProfiles.delete(characterId);
-                    
-                    // Update pagination and bulk bar
-                    updatePaginationControls();
-                    updateBulkActionsBar();
-                    
-                    // Refresh stats
-                    refreshStats();
-                } else {
-                    throw new Error('Server error');
-                }
-            } catch (error) {
-                showToast(`Error removing profile: ${error.message}`, 'error');
-                if (profileCard) {
-                    profileCard.classList.remove('processing');
-                }
-            }
-        }
-        
-        function initBanProfile(characterId, characterName) {
-            const bodyContent = `
-                <div class="modal-profile-info">
-                    <div class="modal-profile-name">${characterName}</div>
-                    <div class="modal-profile-id">${characterId}</div>
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Permanently ban them from uploading any profiles</li>
-                    <li>Their current profile will remain in the gallery unless removed separately</li>
-                    <li>Ban can be lifted later if needed</li>
-                </ul>
-                <textarea id="banReason" class="modal-input modal-textarea" placeholder="Enter reason for ban (required for moderation logs)" required></textarea>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-warning" onclick="executeBanProfile('${characterId}', '${characterName.replace(/'/g, "\\'")}')">Ban Profile</button>
-            `;
-            
-            showModal('🚫 Ban Profile', 'This will prevent future uploads', bodyContent, actions);
-        }
-        
-        async function executeBanProfile(characterId, characterName) {
-            const reason = document.getElementById('banReason').value.trim();
-            
-            if (!reason) {
-                showToast('Ban reason is required', 'error');
-                return;
-            }
-            
-            closeModal();
-            
-            const profileCards = document.querySelectorAll('.profile-card');
-            let profileCard = null;
-            profileCards.forEach(card => {
-                const checkbox = card.querySelector('.bulk-selector');
-                if (checkbox && checkbox.dataset.characterId === characterId) {
-                    profileCard = card;
-                    card.classList.add('processing');
-                }
-            });
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}/ban`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason, adminId: adminName })
-                });
-                
-                if (response.ok) {
-                    showToast(`"${characterName}" has been banned`, 'success');
-                    refreshStats();
-                } else {
-                    throw new Error('Server error');
-                }
-            } catch (error) {
-                showToast(`Error banning profile: ${error.message}`, 'error');
-            } finally {
-                if (profileCard) {
-                    profileCard.classList.remove('processing');
-                }
-            }
-        }
-        
-        function initMarkNSFW(characterId, characterName) {
-            const bodyContent = `
-                <div class="modal-profile-info">
-                    <div class="modal-profile-name">${characterName}</div>
-                    <div class="modal-profile-id">${characterId}</div>
-                </div>
-                <p><strong>This will:</strong></p>
-                <ul style="margin: 10px 0 10px 20px; color: #ddd;">
-                    <li>Mark the profile as NSFW content</li>
-                    <li>Hide it from users with safe browsing enabled</li>
-                    <li>Add 🔞 NSFW badge to the profile</li>
-                    <li>Cannot be undone (use Remove if needed)</li>
-                </ul>
-                <p style="color: #ff9800; font-weight: bold;">⚠️ Confirm this profile contains adult content</p>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-nsfw" onclick="executeMarkNSFW('${characterId}', '${characterName.replace(/'/g, "\\'")}')">Mark as NSFW</button>
-            `;
-            
-            showModal('🔞 Mark as NSFW', 'Adult content classification', bodyContent, actions);
-        }
-        
-        async function executeMarkNSFW(characterId, characterName) {
-            closeModal();
-            
-            const profileCards = document.querySelectorAll('.profile-card');
-            let profileCard = null;
-            profileCards.forEach(card => {
-                const checkbox = card.querySelector('.bulk-selector');
-                if (checkbox && checkbox.dataset.characterId === characterId) {
-                    profileCard = card;
-                    card.classList.add('processing');
-                }
-            });
-            
-            try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}/nsfw`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
-                    },
-                    body: JSON.stringify({ isNSFW: true })
-                });
-                
-                if (response.ok) {
-                    showToast(`"${characterName}" has been marked as NSFW`, 'success');
-                    
-                    // Update the profile in current view
-                    const profileIndex = allProfiles.findIndex(p => p.CharacterId === characterId);
-                    if (profileIndex !== -1) {
-                        allProfiles[profileIndex].IsNSFW = true;
-                        applyFilters(); // Re-render with updated data
-                    }
-                } else {
-                    throw new Error('Server error');
-                }
-            } catch (error) {
-                showToast(`Error updating NSFW status: ${error.message}`, 'error');
-            } finally {
-                if (profileCard) {
-                    profileCard.classList.remove('processing');
-                }
-            }
         }
         
         async function showTab(tabName) {
@@ -4559,6 +2156,7 @@ app.get("/admin", (req, res) => {
             document.getElementById(tabName).classList.add('active');
             event.target.classList.add('active');
             
+            // Auto-refresh stats when switching tabs
             await refreshStats();
             
             switch(tabName) {
@@ -4570,12 +2168,6 @@ app.get("/admin", (req, res) => {
                     break;
                 case 'flagged':
                     loadFlaggedProfiles();
-                    break;
-                case 'messages':
-                    loadMessages();
-                    break;
-                case 'storage':
-                    loadStorageData();
                     break;
                 case 'announcements':
                     loadAnnouncements();
@@ -4600,12 +2192,12 @@ app.get("/admin", (req, res) => {
             adminName = document.getElementById('adminName').value;
             
             if (!adminKey) {
-                showToast('Please enter your admin key', 'error');
+                alert('Please enter your admin key');
                 return;
             }
             
             if (!adminName) {
-                showToast('Please enter your admin name', 'error');
+                alert('Please enter your admin name');
                 return;
             }
             
@@ -4613,6 +2205,7 @@ app.get("/admin", (req, res) => {
                 console.log('🔐 Testing credentials before saving...');
                 await refreshStats();
                 
+                // Only save credentials AFTER successful authentication
                 console.log('✅ Authentication successful, saving credentials...');
                 localStorage.setItem('cs_admin_key', adminKey);
                 localStorage.setItem('cs_admin_name', adminName);
@@ -4622,11 +2215,10 @@ app.get("/admin", (req, res) => {
                 document.querySelector('.auth-section').style.display = 'none';
                 loadProfiles();
                 
-                showToast('Dashboard loaded successfully', 'success');
-                
             } catch (error) {
                 console.error('❌ Authentication failed:', error);
-                showToast(`Authentication failed: ${error.message}`, 'error');
+                alert(\`Error: \${error.message}\`);
+                // Don't save credentials if login fails
             }
         }
         
@@ -4640,7 +2232,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/dashboard?adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
                 }
@@ -4654,7 +2246,6 @@ app.get("/admin", (req, res) => {
                 
             } catch (error) {
                 console.error('Error refreshing:', error);
-                throw error; // Re-throw for auth check
             } finally {
                 if (refreshBtn) {
                     refreshBtn.textContent = '🔄 Refresh All';
@@ -4671,12 +2262,13 @@ app.get("/admin", (req, res) => {
             grid.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/gallery?admin=true&key=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
                 allProfiles = profiles;
                 
+                // Populate available servers
                 availableServers.clear();
                 profiles.forEach(profile => {
                     if (profile.Server) {
@@ -4685,10 +2277,11 @@ app.get("/admin", (req, res) => {
                 });
                 populateServerDropdown();
                 
+                // Apply initial filters
                 applyFilters();
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading profiles: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
             }
         }
         
@@ -4702,9 +2295,9 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                let url = `${serverUrl}/admin/activity?adminKey=${adminKey}`;
+                let url = \`\${serverUrl}/admin/activity?adminKey=\${adminKey}\`;
                 if (typeFilter) {
-                    url += `&type=${typeFilter}`;
+                    url += \`&type=\${typeFilter}\`;
                 }
                 
                 const response = await fetch(url);
@@ -4719,7 +2312,7 @@ app.get("/admin", (req, res) => {
                 
                 activities.forEach(activity => {
                     const item = document.createElement('div');
-                    item.className = `activity-item ${activity.type}`;
+                    item.className = \`activity-item \${activity.type}\`;
                     
                     const timeAgo = getTimeAgo(activity.timestamp);
                     let metadataText = '';
@@ -4728,36 +2321,36 @@ app.get("/admin", (req, res) => {
                         const meta = activity.metadata;
                         switch(activity.type) {
                             case 'upload':
-                                metadataText = `Server: ${meta.server || 'Unknown'}${meta.hasImage ? ' • Has Image' : ''}`;
+                                metadataText = \`Server: \${meta.server || 'Unknown'}\${meta.hasImage ? ' • Has Image' : ''}\`;
                                 break;
                             case 'like':
-                                metadataText = `Total Likes: ${meta.newCount || 0}`;
+                                metadataText = \`Total Likes: \${meta.newCount || 0}\`;
                                 break;
                             case 'report':
-                                metadataText = `Reason: ${meta.reason || 'Unknown'} • Reporter: ${meta.reporterCharacter || 'Anonymous'}`;
+                                metadataText = \`Reason: \${meta.reason || 'Unknown'} • Reporter: \${meta.reporterCharacter || 'Anonymous'}\`;
                                 break;
                             case 'moderation':
-                                metadataText = `Action: ${meta.action || 'Unknown'} • Admin: ${meta.adminId || 'Unknown'}`;
+                                metadataText = \`Action: \${meta.action || 'Unknown'} • Admin: \${meta.adminId || 'Unknown'}\`;
                                 break;
                             case 'flag':
-                                metadataText = `Keywords: ${meta.keywords ? meta.keywords.join(', ') : 'Unknown'}`;
+                                metadataText = \`Keywords: \${meta.keywords ? meta.keywords.join(', ') : 'Unknown'}\`;
                                 break;
                         }
                     }
                     
-                    item.innerHTML = `
+                    item.innerHTML = \`
                         <div class="activity-content">
-                            <div class="activity-message">${activity.message}</div>
-                            ${metadataText ? `<div class="activity-metadata">${metadataText}</div>` : ''}
+                            <div class="activity-message">\${activity.message}</div>
+                            \${metadataText ? \`<div class="activity-metadata">\${metadataText}</div>\` : ''}
                         </div>
-                        <div class="activity-time">${timeAgo}</div>
-                    `;
+                        <div class="activity-time">\${timeAgo}</div>
+                    \`;
                     
                     container.appendChild(item);
                 });
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading activity: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading activity: \${error.message}</div>\`;
             }
         }
         
@@ -4770,7 +2363,7 @@ app.get("/admin", (req, res) => {
                     if (document.querySelector('.tab.active').onclick.toString().includes('activity')) {
                         loadActivityFeed();
                     }
-                }, 30000);
+                }, 30000); // 30 seconds
                 refreshBtn.textContent = '🔄 Auto-refreshing (30s)';
             } else {
                 if (activityRefreshInterval) {
@@ -4790,9 +2383,9 @@ app.get("/admin", (req, res) => {
             const diffDays = Math.floor(diffHours / 24);
             
             if (diffMins < 1) return 'Just now';
-            if (diffMins < 60) return `${diffMins}m ago`;
-            if (diffHours < 24) return `${diffHours}h ago`;
-            if (diffDays < 7) return `${diffDays}d ago`;
+            if (diffMins < 60) return \`\${diffMins}m ago\`;
+            if (diffHours < 24) return \`\${diffHours}h ago\`;
+            if (diffDays < 7) return \`\${diffDays}d ago\`;
             
             return time.toLocaleDateString();
         }
@@ -4807,9 +2400,9 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                let url = `${serverUrl}/admin/flagged?adminKey=${adminKey}`;
+                let url = \`\${serverUrl}/admin/flagged?adminKey=\${adminKey}\`;
                 if (statusFilter) {
-                    url += `&status=${statusFilter}`;
+                    url += \`&status=\${statusFilter}\`;
                 }
                 
                 const response = await fetch(url);
@@ -4828,7 +2421,7 @@ app.get("/admin", (req, res) => {
                     
                     const timeAgo = getTimeAgo(flag.flaggedAt);
                     const keywordsHtml = flag.flaggedKeywords.map(kw => 
-                        `<span class="flagged-keywords">${kw}</span>`
+                        \`<span class="flagged-keywords">\${kw}</span>\`
                     ).join('');
                     
                     const statusBadge = flag.status === 'pending' ? 
@@ -4837,44 +2430,44 @@ app.get("/admin", (req, res) => {
                         '<span style="background: rgba(76, 175, 80, 0.2); color: #4CAF50; padding: 4px 8px; border-radius: 4px;">✅ APPROVED</span>' :
                         '<span style="background: rgba(244, 67, 54, 0.2); color: #f44336; padding: 4px 8px; border-radius: 4px;">❌ REMOVED</span>';
                     
-                    const actionButtons = flag.status === 'pending' ? `
+                    const actionButtons = flag.status === 'pending' ? \`
                         <div style="margin-top: 10px;">
-                            <button class="btn btn-primary" onclick="updateFlagStatus('${flag.id}', 'approved')">Approve</button>
-                            <button class="btn btn-danger" onclick="updateFlagStatus('${flag.id}', 'removed')">Remove</button>
-                            <button class="btn btn-warning" onclick="initRemoveProfile('${flag.characterId}', '${flag.characterName.replace(/'/g, "\\'")}')">Remove Profile</button>
+                            <button class="btn btn-primary" onclick="updateFlagStatus('\${flag.id}', 'approved')">Approve</button>
+                            <button class="btn btn-danger" onclick="updateFlagStatus('\${flag.id}', 'removed')">Remove</button>
+                            <button class="btn btn-warning" onclick="confirmRemoveProfile('\${flag.characterId}', '\${flag.characterName}')">Remove Profile</button>
                         </div>
-                    ` : '';
+                    \` : '';
                     
-                    card.innerHTML = `
+                    card.innerHTML = \`
                         <div class="flagged-header">
-                            <strong>${flag.characterName}</strong>
-                            ${statusBadge}
+                            <strong>\${flag.characterName}</strong>
+                            \${statusBadge}
                         </div>
                         <div style="margin: 10px 0;">
                             <strong>Flagged Keywords:</strong><br>
-                            ${keywordsHtml}
+                            \${keywordsHtml}
                         </div>
                         <div class="flagged-content">
-                            ${flag.content}
+                            \${flag.content}
                         </div>
                         <div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
-                            <strong>Flagged:</strong> ${timeAgo}
-                            ${flag.reviewedBy ? ` • <strong>Reviewed by:</strong> ${flag.reviewedBy}` : ''}
+                            <strong>Flagged:</strong> \${timeAgo}
+                            \${flag.reviewedBy ? \` • <strong>Reviewed by:</strong> \${flag.reviewedBy}\` : ''}
                         </div>
-                        ${actionButtons}
-                    `;
+                        \${actionButtons}
+                    \`;
                     
                     container.appendChild(card);
                 });
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading flagged content: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading flagged content: \${error.message}</div>\`;
             }
         }
         
         async function updateFlagStatus(flagId, status) {
             try {
-                const response = await fetch(`${serverUrl}/admin/flagged/${flagId}`, {
+                const response = await fetch(\`\${serverUrl}/admin/flagged/\${flagId}\`, {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
@@ -4885,28 +2478,27 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast(`Flag ${status}`, 'success');
+                    alert(\`✅ Flag \${status}\`);
                     loadFlaggedProfiles();
                 } else {
-                    showToast('Error updating flag status', 'error');
+                    alert('❌ Error updating flag status');
                 }
             } catch (error) {
-                showToast(`Error: ${error.message}`, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
         function showKeywordManager() {
-            promptAction(
-                '🔍 Add Keyword',
-                'Add new keyword to auto-flag list:',
-                'Enter keyword...',
-                'addFlagKeyword'
-            );
+            // Simple keyword manager for now
+            const newKeyword = prompt('Add new keyword to auto-flag list:\\n(Leave empty to cancel)');
+            if (newKeyword && newKeyword.trim()) {
+                addFlagKeyword(newKeyword.trim());
+            }
         }
         
         async function addFlagKeyword(keyword) {
             try {
-                const response = await fetch(`${serverUrl}/admin/flagged/keywords`, {
+                const response = await fetch(\`\${serverUrl}/admin/flagged/keywords\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -4916,12 +2508,85 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast(`Added keyword: "${keyword}"`, 'success');
+                    alert(\`✅ Added keyword: "\${keyword}"\`);
                 } else {
-                    showToast('Error adding keyword', 'error');
+                    alert('❌ Error adding keyword');
                 }
             } catch (error) {
-                showToast(`Error: ${error.message}`, 'error');
+                alert(\`❌ Error: \${error.message}\`);
+            }
+        }
+        
+        async function confirmRemoveProfile(characterId, characterName) {
+            const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
+            
+            if (!action) return;
+            
+            const reason = prompt(\`📝 REMOVAL REASON\\n\\nWhy are you removing "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
+            if (!reason || reason.trim() === '') {
+                alert('❌ Removal cancelled - reason is required');
+                return;
+            }
+            
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
+            if (!finalConfirm) return;
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason, ban: false, adminId: adminName })
+                });
+                
+                if (response.ok) {
+                    alert(\`✅ "\${characterName}" has been removed from gallery\`);
+                    loadProfiles();
+                    await refreshStats();
+                } else {
+                    alert('❌ Error removing profile');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
+            }
+        }
+        
+        async function confirmBanProfile(characterId, characterName) {
+            const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
+            
+            if (!action) return;
+            
+            const reason = prompt(\`📝 BAN REASON\\n\\nWhy are you banning "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
+            if (!reason || reason.trim() === '') {
+                alert('❌ Ban cancelled - reason is required'); 
+                return;
+            }
+            
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
+            if (!finalConfirm) return;
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason, adminId: adminName })
+                });
+                
+                if (response.ok) {
+                    alert(\`✅ "\${characterName}" has been banned\`);
+                    await refreshStats();
+                } else {
+                    alert('❌ Error banning profile');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -4938,26 +2603,19 @@ app.get("/admin", (req, res) => {
             document.getElementById('imageModal').style.display = 'none';
         }
         
-        async function unbanProfile(characterId, characterName) {
-            promptAction(
-                '🔓 Unban Profile',
-                `Why are you unbanning ${characterName || characterId}?`,
-                'Enter reason...',
-                'executeUnbanProfile',
-                false
-            );
-            
-            // Store the character info for the callback
-            window.currentUnbanCharacterId = characterId;
-            window.currentUnbanCharacterName = characterName;
-        }
+        // Close modal when pressing Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeImageModal();
+            }
+        });
         
-        async function executeUnbanProfile(reason) {
-            const characterId = window.currentUnbanCharacterId;
-            const characterName = window.currentUnbanCharacterName;
+        async function unbanProfile(characterId, characterName) {
+            const reason = prompt(\`Why are you unbanning \${characterName || characterId}?\`);
+            if (!reason) return;
             
             try {
-                const response = await fetch(`${serverUrl}/admin/profiles/${encodeURIComponent(characterId)}/unban`, {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/unban\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -4967,14 +2625,14 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast(`${characterName || characterId} has been unbanned`, 'success');
+                    alert(\`\${characterName || characterId} has been unbanned\`);
                     await loadBannedProfiles();
                     await refreshStats();
                 } else {
-                    showToast('Error unbanning profile', 'error');
+                    alert('Error unbanning profile');
                 }
             } catch (error) {
-                showToast(`Error: ${error.message}`, 'error');
+                alert(\`Error: \${error.message}\`);
             }
         }
         
@@ -4986,7 +2644,7 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/admin/moderation/banned?adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/moderation/banned?adminKey=\${adminKey}\`);
                 const bannedIds = await response.json();
                 
                 loading.style.display = 'none';
@@ -4996,7 +2654,8 @@ app.get("/admin", (req, res) => {
                     return;
                 }
                 
-                const galleryResponse = await fetch(`${serverUrl}/gallery?admin=true&key=${adminKey}`);
+                // Try to get profile info for each banned ID
+                const galleryResponse = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                 const allProfiles = galleryResponse.ok ? await galleryResponse.json() : [];
                 
                 bannedIds.forEach(bannedId => {
@@ -5004,44 +2663,47 @@ app.get("/admin", (req, res) => {
                     card.className = 'profile-card';
                     card.style.borderLeft = '4px solid #f44336';
                     
+                    // Try to find profile info
                     const profile = allProfiles.find(p => p.CharacterId === bannedId);
                     
                     if (profile) {
+                        // Profile still exists - show full info
                         const imageHtml = profile.ProfileImageUrl 
-                            ? `<img src="${profile.ProfileImageUrl}" 
-                                    alt="${profile.CharacterName}" 
+                            ? \`<img src="\${profile.ProfileImageUrl}" 
+                                    alt="\${profile.CharacterName}" 
                                     class="profile-image" 
-                                    onclick="openImageModal('${profile.ProfileImageUrl}', '${profile.CharacterName}')"
+                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                               <div class="profile-image-placeholder" style="display: none;">🖼️</div>`
-                            : `<div class="profile-image-placeholder">🖼️</div>`;
+                               <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                            : \`<div class="profile-image-placeholder">🖼️</div>\`;
                         
-                        card.innerHTML = `
+                        card.innerHTML = \`
                             <div class="profile-header">
                                 <div class="profile-info">
-                                    <div class="profile-name" style="color: #f44336;">🚫 ${profile.CharacterName}</div>
-                                    <div class="profile-id">${profile.CharacterId}</div>
+                                    <div class="profile-name" style="color: #f44336;">🚫 \${profile.CharacterName}</div>
+                                    <div class="profile-id">\${profile.CharacterId}</div>
                                     <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                        <span style="color: #ccc; font-size: 0.9em;">${profile.Server}</span>
+                                        <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
                                         <span style="color: #f44336;">BANNED</span>
                                     </div>
                                 </div>
-                                ${imageHtml}
+                                \${imageHtml}
                             </div>
                             <div class="profile-content">
-                                ${profile.Bio || profile.GalleryStatus || 'No bio'}
+                                \${profile.Bio || profile.GalleryStatus || 'No bio'}
                             </div>
                             <div class="profile-actions">
-                                <button class="btn btn-primary" onclick="unbanProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                                <button class="btn btn-primary" onclick="unbanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                     Unban
                                 </button>
                             </div>
-                        `;
+                        \`;
                     } else {
-                        card.innerHTML = `
+                        // Profile doesn't exist anymore - show basic info
+                        card.innerHTML = \`
                             <div class="profile-header">
                                 <div class="profile-info">
-                                    <div class="profile-name" style="color: #f44336;">🚫 ${bannedId}</div>
+                                    <div class="profile-name" style="color: #f44336;">🚫 \${bannedId}</div>
                                     <div class="profile-id">Profile Removed</div>
                                     <div style="margin-top: 8px;">
                                         <span style="color: #f44336;">BANNED</span>
@@ -5053,18 +2715,18 @@ app.get("/admin", (req, res) => {
                                 Profile was removed but ban still active
                             </div>
                             <div class="profile-actions">
-                                <button class="btn btn-primary" onclick="unbanProfile('${bannedId}', '${bannedId}')">
+                                <button class="btn btn-primary" onclick="unbanProfile('\${bannedId}', '\${bannedId}')">
                                     Unban
                                 </button>
                             </div>
-                        `;
+                        \`;
                     }
                     
                     container.appendChild(card);
                 });
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading banned profiles: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading banned profiles: \${error.message}</div>\`;
             }
         }
         
@@ -5076,7 +2738,7 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/admin/reports?status=pending&adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/reports?status=pending&adminKey=\${adminKey}\`);
                 const reports = await response.json();
                 
                 loading.style.display = 'none';
@@ -5089,10 +2751,11 @@ app.get("/admin", (req, res) => {
                 await renderReports(reports, container);
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading reports: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading reports: \${error.message}</div>\`;
             }
         }
         
+        // Global variable to store all archived reports for filtering
         let allArchivedReports = [];
         
         async function loadArchivedReports() {
@@ -5103,9 +2766,10 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/admin/reports?adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/reports?adminKey=\${adminKey}\`);
                 const allReports = await response.json();
                 
+                // Filter for resolved and dismissed reports
                 allArchivedReports = allReports.filter(report => 
                     report.status === 'resolved' || report.status === 'dismissed'
                 );
@@ -5120,7 +2784,7 @@ app.get("/admin", (req, res) => {
                 await renderReports(allArchivedReports, container, true);
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading archived reports: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading archived reports: \${error.message}</div>\`;
             }
         }
         
@@ -5144,6 +2808,7 @@ app.get("/admin", (req, res) => {
         async function renderReports(reports, container, isArchived = false) {
             container.innerHTML = '';
             
+            // Group reports by reported character for archived view
             if (isArchived) {
                 const groupedReports = {};
                 reports.forEach(report => {
@@ -5153,179 +2818,185 @@ app.get("/admin", (req, res) => {
                     groupedReports[report.reportedCharacterName].push(report);
                 });
                 
+                // Add summary header for archived reports
                 const summary = document.createElement('div');
                 summary.style.cssText = 'background: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px; color: #ccc;';
                 const uniqueReported = Object.keys(groupedReports).length;
                 const totalReports = reports.length;
                 const repeatOffenders = Object.entries(groupedReports).filter(([name, reports]) => reports.length > 1);
                 
-                summary.innerHTML = `
-                    📊 ${totalReports} archived reports for ${uniqueReported} characters
-                    ${repeatOffenders.length > 0 ? `<br>⚠️ ${repeatOffenders.length} characters with multiple reports` : ''}
-                `;
+                summary.innerHTML = \`
+                    📊 \${totalReports} archived reports for \${uniqueReported} characters
+                    \${repeatOffenders.length > 0 ? \`<br>⚠️ \${repeatOffenders.length} characters with multiple reports\` : ''}
+                \`;
                 container.appendChild(summary);
                 
+                // Show repeat offenders if any
                 if (repeatOffenders.length > 0) {
                     const repeatDiv = document.createElement('div');
                     repeatDiv.style.cssText = 'background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; padding: 10px; border-radius: 8px; margin-bottom: 15px;';
-                    repeatDiv.innerHTML = `
+                    repeatDiv.innerHTML = \`
                         <strong>🔄 Multiple Reports:</strong><br>
-                        ${repeatOffenders.map(([name, reps]) => `${name} (${reps.length} reports)`).join(', ')}
-                    `;
+                        \${repeatOffenders.map(([name, reps]) => \`\${name} (\${reps.length} reports)\`).join(', ')}
+                    \`;
                     container.appendChild(repeatDiv);
                 }
             }
             
+            // Process reports and fetch profile data
             for (const report of reports) {
                 const card = document.createElement('div');
                 
+                // Get reason class for color coding
                 const reasonClass = getReasonClass(report.reason);
-                card.className = `report-card ${reasonClass}`;
+                card.className = \`report-card \${reasonClass}\`;
                 
+                // Use EXACT same logic as Gallery Profiles tab
                 let profileHtml = '';
                 try {
-                    const response = await fetch(`${serverUrl}/gallery?admin=true&key=${adminKey}`);
+                    const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                     const profiles = await response.json();
                     
+                    // Find the profile using the same method as Gallery Profiles
                     const profile = profiles.find(p => 
                         p.CharacterName === report.reportedCharacterName || 
                         p.CharacterId === report.reportedCharacterId
                     );
                     
                     if (profile) {
+                        // EXACT same image logic as Gallery Profiles tab
                         const imageHtml = profile.ProfileImageUrl 
-                            ? `<img src="${profile.ProfileImageUrl}" 
-                                    alt="${profile.CharacterName}" 
+                            ? \`<img src="\${profile.ProfileImageUrl}" 
+                                    alt="\${profile.CharacterName}" 
                                     class="reported-profile-image" 
-                                    onclick="openImageModal('${profile.ProfileImageUrl}', '${profile.CharacterName}')"
+                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                               <div class="reported-profile-placeholder" style="display: none;">🖼️</div>`
-                            : `<div class="reported-profile-placeholder">🖼️</div>`;
+                               <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
+                            : \`<div class="reported-profile-placeholder">🖼️</div>\`;
                         
-                        const actionButtonsHtml = !isArchived ? `
+                        // FIXED: Only show action buttons for pending reports, and NO NSFW BUTTON for NSFW profiles
+                        const actionButtonsHtml = !isArchived ? \`
                             <div class="reported-profile-actions">
-                                <button class="btn btn-danger" onclick="initRemoveProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                                <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                     Remove
                                 </button>
-                                <button class="btn btn-warning" onclick="initBanProfile('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">
+                                <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                                     Ban
                                 </button>
-                                ${profile.IsNSFW ? '' : `<button class="btn btn-nsfw" onclick="initMarkNSFW('${profile.CharacterId}', '${profile.CharacterName.replace(/'/g, "\\'")}')">Mark NSFW</button>`}
+                                \${profile.IsNSFW ? '' : \`<button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">Mark NSFW</button>\`}
                             </div>
-                        ` : '';
+                        \` : '';
                         
+                        // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
                         let statusContent = '';
                         if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                            statusContent = `<div class="gallery-status">${profile.GalleryStatus}</div>`;
+                            statusContent = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
                         } else if (profile.Bio && profile.Bio.trim()) {
-                            statusContent = `<div style="color: #ddd; font-size: 0.9em; margin: 4px 0; max-height: 60px; overflow: hidden;">${profile.Bio}</div>`;
+                            statusContent = \`<div style="color: #ddd; font-size: 0.9em; margin: 4px 0; max-height: 60px; overflow: hidden;">\${profile.Bio}</div>\`;
                         } else {
-                            statusContent = `<div style="color: #999; font-style: italic; margin: 4px 0;">No bio</div>`;
+                            statusContent = \`<div style="color: #999; font-style: italic; margin: 4px 0;">No bio</div>\`;
                         }
 
-                        profileHtml = `
+                        profileHtml = \`
                             <div class="reported-profile">
-                                ${imageHtml}
-                                <div class="reported-profile-name">${profile.CharacterName}</div>
-                                <div class="reported-profile-server">${profile.Server}</div>
-                                ${statusContent}
-                                ${actionButtonsHtml}
+                                \${imageHtml}
+                                <div class="reported-profile-name">\${profile.CharacterName}</div>
+                                <div class="reported-profile-server">\${profile.Server}</div>
+                                \${statusContent}
+                                \${actionButtonsHtml}
                             </div>
-                        `;
+                        \`;
                     } else {
-                        profileHtml = `
+                        // Profile not found
+                        profileHtml = \`
                             <div class="reported-profile">
                                 <div class="reported-profile-placeholder">❌</div>
                                 <div class="reported-profile-name">Profile Missing</div>
                                 <div class="reported-profile-server">Removed/Private</div>
                             </div>
-                        `;
+                        \`;
                     }
                 } catch (error) {
-                    profileHtml = `
+                    // Error fetching
+                    profileHtml = \`
                         <div class="reported-profile">
                             <div class="reported-profile-placeholder">⚠️</div>
                             <div class="reported-profile-name">Error Loading</div>
                             <div class="reported-profile-server">-</div>
                         </div>
-                    `;
+                    \`;
                 }
                 
-                const actionButtons = report.status === 'pending' ? `
+                const actionButtons = report.status === 'pending' ? \`
                     <div style="margin-top: 10px;">
-                        <button class="btn btn-primary" onclick="initUpdateReport('${report.id}', 'resolved')">Mark Resolved</button>
-                        <button class="btn btn-warning" onclick="initUpdateReport('${report.id}', 'dismissed')">Dismiss</button>
+                        <button class="btn btn-primary" onclick="updateReport('\${report.id}', 'resolved')">Mark Resolved</button>
+                        <button class="btn btn-warning" onclick="updateReport('\${report.id}', 'dismissed')">Dismiss</button>
                     </div>
-                ` : `
+                \` : \`
                     <div style="margin-top: 10px;">
-                        <span style="color: #4CAF50; font-size: 0.9em;">✅ ${report.status.toUpperCase()}</span>
-                        ${report.reviewedAt ? ` on ${new Date(report.reviewedAt).toLocaleDateString()}` : ''}
-                        ${report.reviewedBy ? ` by ${report.reviewedBy}` : ''}
-                        ${report.adminNotes ? `<br><strong>Admin Notes:</strong> ${report.adminNotes}` : ''}
+                        <span style="color: #4CAF50; font-size: 0.9em;">✅ \${report.status.toUpperCase()}</span>
+                        \${report.reviewedAt ? \` on \${new Date(report.reviewedAt).toLocaleDateString()}\` : ''}
+                        \${report.reviewedBy ? \` by \${report.reviewedBy}\` : ''}
+                        \${report.adminNotes ? \`<br><strong>Admin Notes:</strong> \${report.adminNotes}\` : ''}
                     </div>
-                `;
+                \`;
                 
-                card.innerHTML = `
+                card.innerHTML = \`
                     <div class="report-info">
                         <div class="report-header">
-                            <strong>${report.reportedCharacterName}</strong>
-                            <span class="btn btn-${report.status === 'pending' ? 'warning' : (report.status === 'resolved' ? 'primary' : 'secondary')}">${report.status}</span>
+                            <strong>\${report.reportedCharacterName}</strong>
+                            <span class="btn btn-\${report.status === 'pending' ? 'warning' : (report.status === 'resolved' ? 'primary' : 'secondary')}">\${report.status}</span>
                         </div>
-                        <div class="reason-badge ${reasonClass}">${report.reason}</div>
-                        <p><strong>Details:</strong> ${report.details || 'None'}</p>
-                        <p><strong>Reported by:</strong> ${report.reporterCharacter}</p>
-                        <p><strong>Date:</strong> ${new Date(report.createdAt).toLocaleDateString()}</p>
-                        ${actionButtons}
+                        <div class="reason-badge \${reasonClass}">\${report.reason}</div>
+                        <p><strong>Details:</strong> \${report.details || 'None'}</p>
+                        <p><strong>Reported by:</strong> \${report.reporterCharacter}</p>
+                        <p><strong>Date:</strong> \${new Date(report.createdAt).toLocaleDateString()}</p>
+                        \${actionButtons}
                     </div>
-                    ${profileHtml}
-                `;
+                    \${profileHtml}
+                \`;
                 container.appendChild(card);
             }
         }
         
-        function initUpdateReport(reportId, status) {
-            const statusText = status === 'resolved' ? 'Mark as Resolved' : 'Dismiss Report';
-            const statusColor = status === 'resolved' ? 'success' : 'warning';
+        async function toggleNSFW(characterId, characterName, currentNSFW) {
+            // Only allow marking as NSFW, not removing NSFW flag
+            if (currentNSFW) {
+                alert('NSFW profiles cannot be unmarked. Use Remove button if needed.');
+                return;
+            }
             
-            const bodyContent = `
-                <p>Update report status to: <strong>${status.toUpperCase()}</strong></p>
-                <textarea id="adminNotes" class="modal-input modal-textarea" placeholder="Add admin notes (optional)"></textarea>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-${statusColor}" onclick="executeUpdateReport('${reportId}', '${status}')">${statusText}</button>
-            `;
-            
-            showModal('📋 Update Report', 'Add optional notes', bodyContent, actions);
-        }
-        
-        async function executeUpdateReport(reportId, status) {
-            const adminNotes = document.getElementById('adminNotes').value.trim();
-            
-            closeModal();
+            if (!confirm(\`Are you sure you want to mark \${characterName} as NSFW?\`)) {
+                return;
+            }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/reports/${reportId}`, {
+                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/nsfw\`, {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
+                        'X-Admin-Key': adminKey
                     },
-                    body: JSON.stringify({ status, adminNotes })
+                    body: JSON.stringify({ isNSFW: true })
                 });
                 
                 if (response.ok) {
-                    showToast('✅ Report updated', 'success');
-                    await loadReports();
-                    await loadArchivedReports();
-                    await refreshStats();
+                    alert(\`\${characterName} has been marked as NSFW\`);
+                    loadProfiles(); // Refresh the profiles
+                    // Refresh current tab if it's reports
+                    const activeTab = document.querySelector('.tab.active');
+                    if (activeTab && (activeTab.textContent.includes('Reports'))) {
+                        if (activeTab.textContent.includes('Pending')) {
+                            loadReports();
+                        } else if (activeTab.textContent.includes('Archived')) {
+                            loadArchivedReports();
+                        }
+                    }
                 } else {
-                    showToast('❌ Error updating report', 'error');
+                    alert('Error updating NSFW status');
                 }
             } catch (error) {
-                showToast(`❌ Error: ${error.message}`, 'error');
+                alert(\`Error: \${error.message}\`);
             }
         }
         
@@ -5339,18 +3010,45 @@ app.get("/admin", (req, res) => {
             return 'reason-other';
         }
         
+        async function updateReport(reportId, status) {
+            const adminNotes = prompt('Add admin notes (optional):');
+            
+            try {
+                const response = await fetch(\`\${serverUrl}/admin/reports/\${reportId}\`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ status, adminNotes })
+                });
+                
+                if (response.ok) {
+                    alert('✅ Report updated');
+                    await loadReports();
+                    await loadArchivedReports();
+                    await refreshStats();
+                } else {
+                    alert('❌ Error updating report');
+                }
+            } catch (error) {
+                alert(\`❌ Error: \${error.message}\`);
+            }
+        }
+        
         async function createAnnouncement() {
             const title = document.getElementById('announcementTitle').value;
             const message = document.getElementById('announcementMessage').value;
             const type = document.getElementById('announcementType').value;
             
             if (!title || !message) {
-                showToast('Please fill in title and message', 'error');
+                alert('Please fill in title and message');
                 return;
             }
             
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements`, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5361,16 +3059,16 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ Announcement created', 'success');
+                    alert('✅ Announcement created');
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error creating announcement', 'error');
+                    alert('❌ Error creating announcement');
                 }
             } catch (error) {
-                showToast(`❌ Error: ${error.message}`, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -5382,7 +3080,7 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements?adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/announcements?adminKey=\${adminKey}\`);
                 const announcements = await response.json();
                 
                 loading.style.display = 'none';
@@ -5390,30 +3088,30 @@ app.get("/admin", (req, res) => {
                 announcements.forEach(announcement => {
                     const card = document.createElement('div');
                     card.className = 'announcement-card';
-                    card.innerHTML = `
+                    card.innerHTML = \`
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <strong>${announcement.title}</strong>
-                            <span class="btn btn-${announcement.active ? 'primary' : 'warning'}">${announcement.active ? 'Active' : 'Inactive'}</span>
+                            <strong>\${announcement.title}</strong>
+                            <span class="btn btn-\${announcement.active ? 'primary' : 'warning'}">\${announcement.active ? 'Active' : 'Inactive'}</span>
                         </div>
-                        <p>${announcement.message}</p>
-                        <p><strong>Type:</strong> ${announcement.type}</p>
-                        <p><strong>Created:</strong> ${new Date(announcement.createdAt).toLocaleDateString()}</p>
-                        ${announcement.active ? `
-                            <button class="btn btn-warning" onclick="deactivateAnnouncement('${announcement.id}')">Deactivate</button>
-                        ` : ''}
-                        <button class="btn btn-danger" onclick="initDeleteAnnouncement('${announcement.id}', '${announcement.title.replace(/'/g, "\\'")}')">Delete</button>
-                    `;
+                        <p>\${announcement.message}</p>
+                        <p><strong>Type:</strong> \${announcement.type}</p>
+                        <p><strong>Created:</strong> \${new Date(announcement.createdAt).toLocaleDateString()}</p>
+                        \${announcement.active ? \`
+                            <button class="btn btn-warning" onclick="deactivateAnnouncement('\${announcement.id}')">Deactivate</button>
+                        \` : ''}
+                        <button class="btn btn-danger" onclick="deleteAnnouncement('\${announcement.id}')">Delete</button>
+                    \`;
                     container.appendChild(card);
                 });
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading announcements: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading announcements: \${error.message}</div>\`;
             }
         }
         
         async function deactivateAnnouncement(id) {
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements/${id}/deactivate`, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}/deactivate\`, {
                     method: 'PATCH',
                     headers: { 
                         'X-Admin-Key': adminKey,
@@ -5422,39 +3120,21 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('Announcement deactivated', 'success');
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error deactivating announcement', 'error');
+                    alert('❌ Error deactivating announcement');
                 }
             } catch (error) {
-                showToast(`❌ Error: ${error.message}`, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
-        function initDeleteAnnouncement(id, title) {
-            const bodyContent = `
-                <p>Are you sure you want to delete this announcement?</p>
-                <div style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
-                    <strong>${title}</strong>
-                </div>
-                <p style="color: #f44336;">This action cannot be undone.</p>
-            `;
-            
-            const actions = `
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="executeDeleteAnnouncement('${id}')">Delete</button>
-            `;
-            
-            showModal('🗑️ Delete Announcement', 'Confirm deletion', bodyContent, actions);
-        }
-        
-        async function executeDeleteAnnouncement(id) {
-            closeModal();
+        async function deleteAnnouncement(id) {
+            if (!confirm('Are you sure you want to delete this announcement?')) return;
             
             try {
-                const response = await fetch(`${serverUrl}/admin/announcements/${id}`, {
+                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
                     method: 'DELETE',
                     headers: { 
                         'X-Admin-Key': adminKey,
@@ -5463,14 +3143,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('Announcement deleted', 'success');
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error deleting announcement', 'error');
+                    alert('❌ Error deleting announcement');
                 }
             } catch (error) {
-                showToast(`❌ Error: ${error.message}`, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -5482,7 +3161,7 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                const response = await fetch(`${serverUrl}/admin/moderation/actions?adminKey=${adminKey}`);
+                const response = await fetch(\`\${serverUrl}/admin/moderation/actions?adminKey=\${adminKey}\`);
                 const actions = await response.json();
                 
                 loading.style.display = 'none';
@@ -5490,17 +3169,17 @@ app.get("/admin", (req, res) => {
                 actions.forEach(action => {
                     const card = document.createElement('div');
                     card.className = 'profile-card';
-                    card.innerHTML = `
-                        <div><strong>${action.action.toUpperCase()}</strong> - ${action.characterName}</div>
-                        <p><strong>Reason:</strong> ${action.reason}</p>
-                        <p><strong>Admin:</strong> ${action.adminId}</p>
-                        <p><strong>Date:</strong> ${new Date(action.timestamp).toLocaleString()}</p>
-                    `;
+                    card.innerHTML = \`
+                        <div><strong>\${action.action.toUpperCase()}</strong> - \${action.characterName}</div>
+                        <p><strong>Reason:</strong> \${action.reason}</p>
+                        <p><strong>Admin:</strong> \${action.adminId}</p>
+                        <p><strong>Date:</strong> \${new Date(action.timestamp).toLocaleString()}</p>
+                    \`;
                     container.appendChild(card);
                 });
                 
             } catch (error) {
-                loading.innerHTML = `<div class="error">Error loading moderation log: ${error.message}</div>`;
+                loading.innerHTML = \`<div class="error">Error loading moderation log: \${error.message}</div>\`;
             }
         }
     </script>
@@ -6431,8 +4110,8 @@ app.listen(PORT, () => {
     console.log(`📁 Profiles directory: ${profilesDir}`);
     console.log(`🖼️ Images directory: ${imagesDir}`);
     console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
-    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}, ${messagesDbFile}, ${storageDbFile}`);
-    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging, Bulk Actions, Communication System, Storage Management`);
+    console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}`);
+    console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging`);
     console.log(`🗂️ Using data directory: ${DATA_DIR}`);
     
     if (process.env.ADMIN_SECRET_KEY) {
