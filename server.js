@@ -2700,15 +2700,11 @@ app.get("/admin", (req, res) => {
                 
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + 
-                      '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + 
-                      '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; ' +
-                      'this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" ' +
-                      'style="display: none;">🖼️</div>'
-                    : '<div class="profile-image-placeholder">🖼️</div>';
+                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" style="display: none;">IMG</div>'
+                    : '<div class="profile-image-placeholder">IMG</div>';
                 
                 // Format character name with NSFW badge if needed
-                const characterNameHtml = '<div class="profile-name">' + profile.CharacterName + (profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : '') + '</div>';
+                const characterNameHtml = '<div class="profile-name">' + profile.CharacterName + (profile.IsNSFW ? '<span class="nsfw-badge">NSFW</span>' : '') + '</div>';
                 
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
