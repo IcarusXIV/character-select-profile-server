@@ -2050,6 +2050,50 @@ app.get("/admin", (req, res) => {
         let selectedProfiles = new Set(); // Store selected profile IDs across pages
         let bulkActionInProgress = false;
         
+        // Load Dashboard function
+        async function loadDashboard() {
+            const adminKeyInput = document.getElementById('adminKey');
+            const adminNameInput = document.getElementById('adminName');
+            
+            adminKey = adminKeyInput.value.trim();
+            adminName = adminNameInput.value.trim();
+            
+            if (!adminKey || !adminName) {
+                showToast('Please enter both admin key and name', 'error');
+                return;
+            }
+            
+            try {
+                // Test credentials by making a request to the dashboard endpoint
+                const response = await fetch(serverUrl + '/admin/dashboard', {
+                    headers: {
+                        'Admin-Key': adminKey,
+                        'Admin-Name': adminName
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Invalid credentials');
+                }
+                
+                // Save credentials to localStorage for auto-login
+                localStorage.setItem('cs_admin_key', adminKey);
+                localStorage.setItem('cs_admin_name', adminName);
+                
+                // Load dashboard
+                await refreshStats();
+                document.getElementById('dashboardContent').style.display = 'block';
+                document.querySelector('.auth-section').style.display = 'none';
+                loadProfiles();
+                
+                showToast('Dashboard loaded successfully', 'success');
+                
+            } catch (error) {
+                console.error('Login error:', error);
+                showToast('Invalid credentials. Please check your admin key and try again.', 'error');
+            }
+        }
+        
         // Toast notification function
         function showToast(message, type = 'info', duration = 3000) {
             const container = document.getElementById('toastContainer');
