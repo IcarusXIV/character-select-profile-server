@@ -2700,7 +2700,11 @@ app.get("/admin", (req, res) => {
                 
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" style="display: none;">🖼️</div>'
+                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + 
+                      '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + 
+                      '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; ' +
+                      'this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" ' +
+                      'style="display: none;">🖼️</div>'
                     : '<div class="profile-image-placeholder">🖼️</div>';
                 
                 // Format character name with NSFW badge if needed
