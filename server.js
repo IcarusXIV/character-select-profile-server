@@ -1583,193 +1583,6 @@ app.get("/admin", (req, res) => {
             max-height: 100px;
             overflow-y: auto;
         }
-        
-        /* Toast Notification Styles */
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            pointer-events: none;
-        }
-        
-        .toast {
-            background: rgba(30, 30, 54, 0.95);
-            color: #fff;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-            border-left: 4px solid #4CAF50;
-            min-width: 300px;
-            max-width: 500px;
-            word-wrap: break-word;
-            transform: translateX(400px);
-            opacity: 0;
-            transition: all 0.3s ease-in-out;
-            pointer-events: auto;
-            position: relative;
-            backdrop-filter: blur(10px);
-        }
-        
-        .toast.show {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        
-        .toast.toast-success {
-            border-left-color: #4CAF50;
-        }
-        
-        .toast.toast-error {
-            border-left-color: #f44336;
-        }
-        
-        .toast.toast-warning {
-            border-left-color: #ff9800;
-        }
-        
-        .toast.toast-info {
-            border-left-color: #2196F3;
-        }
-        
-        .toast-close {
-            position: absolute;
-            top: 5px;
-            right: 8px;
-            background: none;
-            border: none;
-            color: #ccc;
-            font-size: 16px;
-            cursor: pointer;
-            padding: 0;
-            width: 20px;
-            height: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .toast-close:hover {
-            color: #fff;
-        }
-        
-        /* Bulk Action Styles */
-        .bulk-action-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(30, 30, 54, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            padding: 15px 25px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            display: none;
-            align-items: center;
-            gap: 15px;
-            z-index: 1000;
-            min-width: 400px;
-        }
-        
-        .bulk-action-bar.show {
-            display: flex;
-        }
-        
-        .bulk-selection-info {
-            color: #4CAF50;
-            font-weight: bold;
-            margin-right: 10px;
-        }
-        
-        .bulk-actions {
-            display: flex;
-            gap: 10px;
-        }
-        
-        .bulk-actions .btn {
-            font-size: 0.9em;
-            padding: 8px 16px;
-        }
-        
-        .profile-checkbox {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            z-index: 10;
-        }
-        
-        .profile-card {
-            position: relative;
-        }
-        
-        .profile-card.selected {
-            border: 2px solid #4CAF50;
-            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
-        }
-        
-        .select-all-container {
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 15px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .select-all-checkbox {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-        
-        .select-all-label {
-            color: #ccc;
-            font-size: 0.9em;
-            cursor: pointer;
-        }
-        
-        .bulk-progress {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-            display: none;
-        }
-        
-        .bulk-progress.show {
-            display: block;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: #4CAF50;
-            transition: width 0.3s ease;
-            width: 0%;
-        }
-        
-        .progress-text {
-            color: #ccc;
-            font-size: 0.9em;
-            text-align: center;
-        }
     </style>
 </head>
 <body>
@@ -1885,21 +1698,6 @@ app.get("/admin", (req, res) => {
                         <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
                         <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
                         <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
-                    </div>
-                </div>
-                
-                <!-- Bulk Selection Controls -->
-                <div class="select-all-container">
-                    <input type="checkbox" id="selectAllCheckbox" class="select-all-checkbox" onchange="toggleSelectAll()">
-                    <label for="selectAllCheckbox" class="select-all-label">Select all profiles on this page</label>
-                    <div style="margin-left: auto; color: #666; font-size: 0.8em;" id="selectionCount">0 selected</div>
-                </div>
-                
-                <!-- Bulk Progress Indicator -->
-                <div id="bulkProgress" class="bulk-progress">
-                    <div class="progress-text" id="progressText">Processing bulk action...</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill"></div>
                     </div>
                 </div>
                 
@@ -2020,20 +1818,6 @@ app.get("/admin", (req, res) => {
         <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
         <img class="image-modal-content" id="modalImage">
     </div>
-    
-    <!-- Toast Notification Container -->
-    <div id="toastContainer" class="toast-container"></div>
-    
-    <!-- Bulk Action Bar -->
-    <div id="bulkActionBar" class="bulk-action-bar">
-        <div class="bulk-selection-info" id="bulkSelectionInfo">0 profiles selected</div>
-        <div class="bulk-actions">
-            <button class="btn btn-danger" onclick="bulkRemoveProfiles()">Remove Selected</button>
-            <button class="btn btn-warning" onclick="bulkBanProfiles()">Ban Selected</button>
-            <button class="btn btn-nsfw" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
-            <button class="btn btn-secondary" onclick="clearAllSelections()">Clear Selection</button>
-        </div>
-    </div>
 
     <script>
         let adminKey = '';
@@ -2045,381 +1829,6 @@ app.get("/admin", (req, res) => {
         const serverUrl = window.location.origin;
         let activityRefreshInterval = null;
         let availableServers = new Set();
-        
-        // Bulk selection variables
-        let selectedProfiles = new Set(); // Store selected profile IDs across pages
-        let bulkActionInProgress = false;
-        
-        async function loadDashboard() {
-            adminKey = document.getElementById('adminKey').value;
-            adminName = document.getElementById('adminName').value;
-            
-            if (!adminKey) {
-                alert('Please enter your admin key');
-                return;
-            }
-            
-            if (!adminName) {
-                alert('Please enter your admin name');
-                return;
-            }
-            
-            try {
-                console.log('🔐 Testing credentials before saving...');
-                await refreshStats();
-                
-                // Only save credentials AFTER successful authentication
-                console.log('✅ Authentication successful, saving credentials...');
-                localStorage.setItem('cs_admin_key', adminKey);
-                localStorage.setItem('cs_admin_name', adminName);
-                console.log('💾 Credentials saved to localStorage');
-                
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
-                loadProfiles();
-                
-            } catch (error) {
-                console.error('❌ Authentication failed:', error);
-                alert('Error: ' + error.message);
-                // Don't save credentials if login fails
-            }
-        }
-        
-        // Toast notification function
-        function showToast(message, type = 'info', duration = 3000) {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = 'toast toast-' + type;
-            
-            // Create close button
-            const closeBtn = document.createElement('button');
-            closeBtn.className = 'toast-close';
-            closeBtn.innerHTML = '×';
-            closeBtn.onclick = function() {
-                removeToast(toast);
-            };
-            
-            toast.innerHTML = message;
-            toast.appendChild(closeBtn);
-            container.appendChild(toast);
-            
-            // Show toast with animation
-            setTimeout(function() {
-                toast.classList.add('show');
-            }, 10);
-            
-            // Auto-dismiss after duration
-            setTimeout(function() {
-                removeToast(toast);
-            }, duration);
-        }
-        
-        function removeToast(toast) {
-            toast.classList.remove('show');
-            setTimeout(function() {
-                if (toast.parentNode) {
-                    toast.parentNode.removeChild(toast);
-                }
-            }, 300);
-        }
-        
-        // Bulk selection functions
-        function toggleProfileSelection(profileId, checkbox) {
-            if (checkbox.checked) {
-                selectedProfiles.add(profileId);
-            } else {
-                selectedProfiles.delete(profileId);
-            }
-            updateSelectionUI();
-        }
-        
-        function toggleSelectAll() {
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            const profileCards = document.querySelectorAll('.profile-card');
-            
-            profileCards.forEach(card => {
-                const checkbox = card.querySelector('.profile-checkbox');
-                const profileId = checkbox.getAttribute('data-profile-id');
-                
-                if (selectAllCheckbox.checked) {
-                    checkbox.checked = true;
-                    selectedProfiles.add(profileId);
-                    card.classList.add('selected');
-                } else {
-                    checkbox.checked = false;
-                    selectedProfiles.delete(profileId);
-                    card.classList.remove('selected');
-                }
-            });
-            
-            updateSelectionUI();
-        }
-        
-        function updateSelectionUI() {
-            const count = selectedProfiles.size;
-            const selectionCount = document.getElementById('selectionCount');
-            const bulkSelectionInfo = document.getElementById('bulkSelectionInfo');
-            const bulkActionBar = document.getElementById('bulkActionBar');
-            
-            // Update count displays
-            selectionCount.textContent = count + ' selected';
-            bulkSelectionInfo.textContent = count + ' profiles selected';
-            
-            // Show/hide bulk action bar
-            if (count > 0) {
-                bulkActionBar.classList.add('show');
-            } else {
-                bulkActionBar.classList.remove('show');
-            }
-            
-            // Update select all checkbox state
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            const visibleCheckboxes = document.querySelectorAll('.profile-checkbox');
-            const visibleSelected = Array.from(visibleCheckboxes).filter(cb => cb.checked).length;
-            
-            if (visibleSelected === 0) {
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.checked = false;
-            } else if (visibleSelected === visibleCheckboxes.length) {
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.checked = true;
-            } else {
-                selectAllCheckbox.indeterminate = true;
-            }
-        }
-        
-        function clearAllSelections() {
-            selectedProfiles.clear();
-            
-            // Uncheck all checkboxes and remove selection styling
-            document.querySelectorAll('.profile-checkbox').forEach(checkbox => {
-                checkbox.checked = false;
-            });
-            
-            document.querySelectorAll('.profile-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            
-            updateSelectionUI();
-            showToast('Selection cleared', 'info');
-        }
-        
-        // Bulk action functions
-        async function bulkRemoveProfiles() {
-            if (selectedProfiles.size === 0) {
-                showToast('No profiles selected', 'error');
-                return;
-            }
-            
-            const reason = document.getElementById('bulkActionReason').value.trim();
-            if (!reason) {
-                showToast('Please enter a reason for removal', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to remove ' + selectedProfiles.size + ' selected profiles? This action cannot be undone.')) {
-                return;
-            }
-            
-            bulkActionInProgress = true;
-            updateBulkProgress('Removing profiles...', 0, selectedProfiles.size);
-            
-            const profileIds = Array.from(selectedProfiles);
-            let completed = 0;
-            let errors = 0;
-            
-            for (const profileId of profileIds) {
-                try {
-                    const response = await fetch('/admin/remove-profile', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Admin-Key': adminKey,
-                            'Admin-Name': adminName
-                        },
-                        body: JSON.stringify({
-                            characterId: profileId,
-                            reason: reason
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        completed++;
-                        selectedProfiles.delete(profileId);
-                    } else {
-                        errors++;
-                    }
-                } catch (error) {
-                    errors++;
-                }
-                
-                updateBulkProgress('Removing profiles...', completed + errors, selectedProfiles.size + completed);
-            }
-            
-            bulkActionInProgress = false;
-            hideBulkProgress();
-            updateSelectionUI();
-            
-            if (errors === 0) {
-                showToast('Successfully removed ' + completed + ' profiles', 'success');
-            } else {
-                showToast('Removed ' + completed + ' profiles with ' + errors + ' errors', 'warning');
-            }
-            
-            // Refresh the profiles view
-            if (document.getElementById('profiles').classList.contains('active')) {
-                loadProfiles();
-            }
-        }
-        
-        async function bulkBanProfiles() {
-            if (selectedProfiles.size === 0) {
-                showToast('No profiles selected', 'error');
-                return;
-            }
-            
-            const reason = document.getElementById('bulkActionReason').value.trim();
-            if (!reason) {
-                showToast('Please enter a reason for banning', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to ban ' + selectedProfiles.size + ' selected profiles?')) {
-                return;
-            }
-            
-            bulkActionInProgress = true;
-            updateBulkProgress('Banning profiles...', 0, selectedProfiles.size);
-            
-            const profileIds = Array.from(selectedProfiles);
-            let completed = 0;
-            let errors = 0;
-            
-            for (const profileId of profileIds) {
-                try {
-                    const response = await fetch('/admin/ban-profile', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Admin-Key': adminKey,
-                            'Admin-Name': adminName
-                        },
-                        body: JSON.stringify({
-                            characterId: profileId,
-                            reason: reason
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        completed++;
-                        selectedProfiles.delete(profileId);
-                    } else {
-                        errors++;
-                    }
-                } catch (error) {
-                    errors++;
-                }
-                
-                updateBulkProgress('Banning profiles...', completed + errors, selectedProfiles.size + completed);
-            }
-            
-            bulkActionInProgress = false;
-            hideBulkProgress();
-            updateSelectionUI();
-            
-            if (errors === 0) {
-                showToast('Successfully banned ' + completed + ' profiles', 'success');
-            } else {
-                showToast('Banned ' + completed + ' profiles with ' + errors + ' errors', 'warning');
-            }
-            
-            // Refresh the profiles view
-            if (document.getElementById('profiles').classList.contains('active')) {
-                loadProfiles();
-            }
-        }
-        
-        async function bulkMarkNSFW() {
-            if (selectedProfiles.size === 0) {
-                showToast('No profiles selected', 'error');
-                return;
-            }
-            
-            const reason = document.getElementById('bulkActionReason').value.trim();
-            if (!reason) {
-                showToast('Please enter a reason for marking as NSFW', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to mark ' + selectedProfiles.size + ' selected profiles as NSFW?')) {
-                return;
-            }
-            
-            bulkActionInProgress = true;
-            updateBulkProgress('Marking profiles as NSFW...', 0, selectedProfiles.size);
-            
-            const profileIds = Array.from(selectedProfiles);
-            let completed = 0;
-            let skipped = 0;
-            let errors = 0;
-            
-            for (const profileId of profileIds) {
-                try {
-                    // First check if profile is already NSFW
-                    const profile = allProfiles.find(p => p.CharacterId === profileId);
-                    if (profile && profile.IsNSFW) {
-                        skipped++;
-                        selectedProfiles.delete(profileId);
-                        updateBulkProgress('Marking profiles as NSFW...', completed + skipped + errors, selectedProfiles.size + completed + skipped);
-                        continue;
-                    }
-                    
-                    const response = await fetch('/admin/toggle-nsfw', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Admin-Key': adminKey,
-                            'Admin-Name': adminName
-                        },
-                        body: JSON.stringify({
-                            characterId: profileId,
-                            isNSFW: true,
-                            reason: reason
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        completed++;
-                        selectedProfiles.delete(profileId);
-                    } else {
-                        errors++;
-                    }
-                } catch (error) {
-                    errors++;
-                }
-                
-                updateBulkProgress('Marking profiles as NSFW...', completed + skipped + errors, selectedProfiles.size + completed + skipped);
-            }
-            
-            bulkActionInProgress = false;
-            hideBulkProgress();
-            updateSelectionUI();
-            
-            let message = 'Marked ' + completed + ' profiles as NSFW';
-            if (skipped > 0) {
-                message = message + ', skipped ' + skipped + ' already NSFW';
-            }
-            if (errors > 0) {
-                message = message + ' with ' + errors + ' errors';
-            }
-            
-            showToast(message, errors === 0 ? 'success' : 'warning');
-            
-            // Refresh the profiles view
-            if (document.getElementById('profiles').classList.contains('active')) {
-                loadProfiles();
-            }
-        }
         
         // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -2456,7 +1865,7 @@ app.get("/admin", (req, res) => {
         async function autoLoadDashboard() {
             try {
                 // Test credentials first
-                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
+                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 
                 if (!testResponse.ok) {
                     throw new Error('Invalid saved credentials');
@@ -2478,7 +1887,7 @@ app.get("/admin", (req, res) => {
                 adminName = '';
                 document.getElementById('adminKey').value = '';
                 document.getElementById('adminName').value = '';
-                showToast('Saved credentials expired. Please log in again.', 'warning');
+                alert('Saved credentials expired. Please log in again.');
             }
         }
         
@@ -2560,7 +1969,7 @@ app.get("/admin", (req, res) => {
             currentPage = 1;
             
             // Update results display
-            document.getElementById('filterResults').textContent = filtered.length + ' profiles found';
+            document.getElementById('filterResults').textContent = \`\${filtered.length} profiles found\`;
             
             renderProfilesPage();
         }
@@ -2626,9 +2035,9 @@ app.get("/admin", (req, res) => {
             paginationBottom.style.display = 'flex';
             
             // Update page info
-            document.getElementById('pageInfo').textContent = 'Page ' + currentPage + ' of ' + totalPages;
-            document.getElementById('pageInfoBottom').textContent = 'Page ' + currentPage + ' of ' + totalPages;
-            document.getElementById('totalInfo').textContent = '(' + filteredProfiles.length + ' profiles)';
+            document.getElementById('pageInfo').textContent = \`Page \${currentPage} of \${totalPages}\`;
+            document.getElementById('pageInfoBottom').textContent = \`Page \${currentPage} of \${totalPages}\`;
+            document.getElementById('totalInfo').textContent = \`(\${filteredProfiles.length} profiles)\`;
             
             // Update buttons
             const prevButtons = [document.getElementById('prevPageBtn'), paginationBottom.querySelector('button:first-child')];
@@ -2666,72 +2075,71 @@ app.get("/admin", (req, res) => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
                 
-                // Add checkbox for bulk selection
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.className = 'profile-checkbox';
-                checkbox.setAttribute('data-profile-id', profile.CharacterId);
-                checkbox.checked = selectedProfiles.has(profile.CharacterId);
-                checkbox.onchange = function() {
-                    toggleProfileSelection(profile.CharacterId, this);
-                    if (this.checked) {
-                        card.classList.add('selected');
-                    } else {
-                        card.classList.remove('selected');
-                    }
-                };
-                
-                // Add checkbox to card
-                card.appendChild(checkbox);
-                
-                // Mark card as selected if profile is already selected
-                if (selectedProfiles.has(profile.CharacterId)) {
-                    card.classList.add('selected');
-                }
-                
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" style="display: none;">IMG</div>'
-                    : '<div class="profile-image-placeholder">IMG</div>';
+                    ? \`<img src="\${profile.ProfileImageUrl}" 
+                            alt="\${profile.CharacterName}" 
+                            class="profile-image" 
+                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
+                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
                 
                 // Format character name with NSFW badge if needed
-                const characterNameHtml = '<div class="profile-name">' + profile.CharacterName + (profile.IsNSFW ? '<span class="nsfw-badge">NSFW</span>' : '') + '</div>';
+                const characterNameHtml = \`
+                    <div class="profile-name">
+                        \${profile.CharacterName}
+                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
+                    </div>
+                \`;
                 
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = '<div class="gallery-status">' + profile.GalleryStatus + '</div>';
+                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
                 } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = '<div class="profile-content">' + profile.Bio + '</div>';
+                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
                 } else {
-                    contentHtml = '<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>';
+                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
                 // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
-                const actionButtons = profile.IsNSFW ? 
-                    '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
-                    '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>'
-                 : 
-                    '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
-                    '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>' +
-                    '<button class="btn btn-nsfw" onclick="toggleNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\', false)">Mark NSFW</button>';
+                const actionButtons = profile.IsNSFW ? \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Remove
+                    </button>
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Ban
+                    </button>
+                \` : \`
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Remove
+                    </button>
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Ban
+                    </button>
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
+                        Mark NSFW
+                    </button>
+                \`;
                 
-                card.innerHTML = 
-                    '<div class="profile-header">' +
-                        '<div class="profile-info">' +
-                            characterNameHtml +
-                            '<div class="profile-id">' + profile.CharacterId + '</div>' +
-                            '<div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">' +
-                                '<span style="color: #ccc; font-size: 0.9em;">' + profile.Server + '</span>' +
-                                '<span style="color: #4CAF50;">❤️ ' + profile.LikeCount + '</span>' +
-                            '</div>' +
-                        '</div>' +
-                        imageHtml +
-                    '</div>' +
-                    contentHtml +
-                    '<div class="profile-actions">' +
-                        actionButtons +
-                    '</div>';
+                card.innerHTML = \`
+                    <div class="profile-header">
+                        <div class="profile-info">
+                            \${characterNameHtml}
+                            <div class="profile-id">\${profile.CharacterId}</div>
+                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
+                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
+                            </div>
+                        </div>
+                        \${imageHtml}
+                    </div>
+                    \${contentHtml}
+                    <div class="profile-actions">
+                        \${actionButtons}
+                    </div>
+                \`;
                 grid.appendChild(card);
             });
         }
@@ -2779,6 +2187,41 @@ app.get("/admin", (req, res) => {
             }
         }
         
+        async function loadDashboard() {
+            adminKey = document.getElementById('adminKey').value;
+            adminName = document.getElementById('adminName').value;
+            
+            if (!adminKey) {
+                alert('Please enter your admin key');
+                return;
+            }
+            
+            if (!adminName) {
+                alert('Please enter your admin name');
+                return;
+            }
+            
+            try {
+                console.log('🔐 Testing credentials before saving...');
+                await refreshStats();
+                
+                // Only save credentials AFTER successful authentication
+                console.log('✅ Authentication successful, saving credentials...');
+                localStorage.setItem('cs_admin_key', adminKey);
+                localStorage.setItem('cs_admin_name', adminName);
+                console.log('💾 Credentials saved to localStorage');
+                
+                document.getElementById('dashboardContent').style.display = 'block';
+                document.querySelector('.auth-section').style.display = 'none';
+                loadProfiles();
+                
+            } catch (error) {
+                console.error('❌ Authentication failed:', error);
+                alert(\`Error: \${error.message}\`);
+                // Don't save credentials if login fails
+            }
+        }
+        
         async function refreshStats() {
             if (!adminKey) return;
             
@@ -2789,7 +2232,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
+                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
                 if (!response.ok) {
                     throw new Error('Failed to load stats');
                 }
@@ -2819,7 +2262,7 @@ app.get("/admin", (req, res) => {
             grid.innerHTML = '';
             
             try {
-                const response = await fetch(serverUrl + '/gallery?admin=true&key=' + adminKey);
+                const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                 const profiles = await response.json();
                 
                 loading.style.display = 'none';
@@ -2838,7 +2281,7 @@ app.get("/admin", (req, res) => {
                 applyFilters();
                 
             } catch (error) {
-                loading.innerHTML = '<div class="error">Error loading profiles: ' + error.message + '</div>';
+                loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
             }
         }
         
@@ -2852,9 +2295,9 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                let url = serverUrl + '/admin/activity?adminKey=' + adminKey;
+                let url = \`\${serverUrl}/admin/activity?adminKey=\${adminKey}\`;
                 if (typeFilter) {
-                    url += '&type=' + typeFilter;
+                    url += \`&type=\${typeFilter}\`;
                 }
                 
                 const response = await fetch(url);
@@ -2869,7 +2312,7 @@ app.get("/admin", (req, res) => {
                 
                 activities.forEach(activity => {
                     const item = document.createElement('div');
-                    item.className = 'activity-item ' + activity.type;
+                    item.className = \`activity-item \${activity.type}\`;
                     
                     const timeAgo = getTimeAgo(activity.timestamp);
                     let metadataText = '';
@@ -2878,35 +2321,36 @@ app.get("/admin", (req, res) => {
                         const meta = activity.metadata;
                         switch(activity.type) {
                             case 'upload':
-                                metadataText = 'Server: ' + (meta.server || 'Unknown') + (meta.hasImage ? ' • Has Image' : '');
+                                metadataText = \`Server: \${meta.server || 'Unknown'}\${meta.hasImage ? ' • Has Image' : ''}\`;
                                 break;
                             case 'like':
-                                metadataText = 'Total Likes: ' + (meta.newCount || 0);
+                                metadataText = \`Total Likes: \${meta.newCount || 0}\`;
                                 break;
                             case 'report':
-                                metadataText = 'Reason: ' + (meta.reason || 'Unknown') + ' • Reporter: ' + (meta.reporterCharacter || 'Anonymous');
+                                metadataText = \`Reason: \${meta.reason || 'Unknown'} • Reporter: \${meta.reporterCharacter || 'Anonymous'}\`;
                                 break;
                             case 'moderation':
-                                metadataText = 'Action: ' + (meta.action || 'Unknown') + ' • Admin: ' + (meta.adminId || 'Unknown');
+                                metadataText = \`Action: \${meta.action || 'Unknown'} • Admin: \${meta.adminId || 'Unknown'}\`;
                                 break;
                             case 'flag':
-                                metadataText = 'Keywords: ' + (meta.keywords ? meta.keywords.join(', ') : 'Unknown');
+                                metadataText = \`Keywords: \${meta.keywords ? meta.keywords.join(', ') : 'Unknown'}\`;
                                 break;
                         }
                     }
                     
-                    item.innerHTML = 
-                        '<div class="activity-content">' +
-                            '<div class="activity-message">' + activity.message + '</div>' +
-                            (metadataText ? '<div class="activity-metadata">' + metadataText + '</div>' : '') +
-                        '</div>' +
-                        '<div class="activity-time">' + timeAgo + '</div>';
+                    item.innerHTML = \`
+                        <div class="activity-content">
+                            <div class="activity-message">\${activity.message}</div>
+                            \${metadataText ? \`<div class="activity-metadata">\${metadataText}</div>\` : ''}
+                        </div>
+                        <div class="activity-time">\${timeAgo}</div>
+                    \`;
                     
                     container.appendChild(item);
                 });
                 
             } catch (error) {
-                loading.innerHTML = '<div class="error">Error loading activity: ' + error.message + '</div>';
+                loading.innerHTML = \`<div class="error">Error loading activity: \${error.message}</div>\`;
             }
         }
         
@@ -2939,9 +2383,9 @@ app.get("/admin", (req, res) => {
             const diffDays = Math.floor(diffHours / 24);
             
             if (diffMins < 1) return 'Just now';
-            if (diffMins < 60) return diffMins + 'm ago';
-            if (diffHours < 24) return diffHours + 'h ago';
-            if (diffDays < 7) return diffDays + 'd ago';
+            if (diffMins < 60) return \`\${diffMins}m ago\`;
+            if (diffHours < 24) return \`\${diffHours}h ago\`;
+            if (diffDays < 7) return \`\${diffDays}d ago\`;
             
             return time.toLocaleDateString();
         }
@@ -2956,9 +2400,9 @@ app.get("/admin", (req, res) => {
             container.innerHTML = '';
             
             try {
-                let url = serverUrl + '/admin/flagged?adminKey=' + adminKey;
+                let url = \`\${serverUrl}/admin/flagged?adminKey=\${adminKey}\`;
                 if (statusFilter) {
-                    url += '&status=' + statusFilter;
+                    url += \`&status=\${statusFilter}\`;
                 }
                 
                 const response = await fetch(url);
@@ -2977,7 +2421,7 @@ app.get("/admin", (req, res) => {
                     
                     const timeAgo = getTimeAgo(flag.flaggedAt);
                     const keywordsHtml = flag.flaggedKeywords.map(kw => 
-                        '<span class="flagged-keywords">' + kw + '</span>'
+                        \`<span class="flagged-keywords">\${kw}</span>\`
                     ).join('');
                     
                     const statusBadge = flag.status === 'pending' ? 
@@ -2986,37 +2430,38 @@ app.get("/admin", (req, res) => {
                         '<span style="background: rgba(76, 175, 80, 0.2); color: #4CAF50; padding: 4px 8px; border-radius: 4px;">✅ APPROVED</span>' :
                         '<span style="background: rgba(244, 67, 54, 0.2); color: #f44336; padding: 4px 8px; border-radius: 4px;">❌ REMOVED</span>';
                     
-                    const actionButtons = flag.status === 'pending' ? 
-                        '<div style="margin-top: 10px;">' +
-                            '<button class="btn btn-primary" onclick="updateFlagStatus(\'' + flag.id + '\', \'approved\')">Approve</button>' +
-                            '<button class="btn btn-danger" onclick="updateFlagStatus(\'' + flag.id + '\', \'removed\')">Remove</button>' +
-                            '<button class="btn btn-warning" onclick="confirmRemoveProfile(\'' + flag.characterId + '\', \'' + flag.characterName + '\')">Remove Profile</button>' +
-                        '</div>'
-                    : '';
+                    const actionButtons = flag.status === 'pending' ? \`
+                        <div style="margin-top: 10px;">
+                            <button class="btn btn-primary" onclick="updateFlagStatus('\${flag.id}', 'approved')">Approve</button>
+                            <button class="btn btn-danger" onclick="updateFlagStatus('\${flag.id}', 'removed')">Remove</button>
+                            <button class="btn btn-warning" onclick="confirmRemoveProfile('\${flag.characterId}', '\${flag.characterName}')">Remove Profile</button>
+                        </div>
+                    \` : '';
                     
-                    card.innerHTML = 
-                        '<div class="flagged-header">' +
-                            '<strong>' + flag.characterName + '</strong>' +
-                            statusBadge +
-                        '</div>' +
-                        '<div style="margin: 10px 0;">' +
-                            '<strong>Flagged Keywords:</strong><br>' +
-                            keywordsHtml +
-                        '</div>' +
-                        '<div class="flagged-content">' +
-                            flag.content +
-                        '</div>' +
-                        '<div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">' +
-                            '<strong>Flagged:</strong> ' + timeAgo +
-                            (flag.reviewedBy ? ' • <strong>Reviewed by:</strong> ' + flag.reviewedBy : '') +
-                        '</div>' +
-                        actionButtons;
+                    card.innerHTML = \`
+                        <div class="flagged-header">
+                            <strong>\${flag.characterName}</strong>
+                            \${statusBadge}
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>Flagged Keywords:</strong><br>
+                            \${keywordsHtml}
+                        </div>
+                        <div class="flagged-content">
+                            \${flag.content}
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
+                            <strong>Flagged:</strong> \${timeAgo}
+                            \${flag.reviewedBy ? \` • <strong>Reviewed by:</strong> \${flag.reviewedBy}\` : ''}
+                        </div>
+                        \${actionButtons}
+                    \`;
                     
                     container.appendChild(card);
                 });
                 
             } catch (error) {
-                loading.innerHTML = '<div class="error">Error loading flagged content: ' + error.message + '</div>';
+                loading.innerHTML = \`<div class="error">Error loading flagged content: \${error.message}</div>\`;
             }
         }
         
@@ -3033,13 +2478,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ Flag ' + status, 'success');
+                    alert(\`✅ Flag \${status}\`);
                     loadFlaggedProfiles();
                 } else {
-                    showToast('❌ Error updating flag status', 'error');
+                    alert('❌ Error updating flag status');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -3063,46 +2508,28 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ Added keyword: "' + keyword + '"', 'success');
+                    alert(\`✅ Added keyword: "\${keyword}"\`);
                 } else {
-                    showToast('❌ Error adding keyword', 'error');
+                    alert('❌ Error adding keyword');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
         async function confirmRemoveProfile(characterId, characterName) {
-            showToast('🗑️ Confirm: Click Remove button again to remove ' + characterName + ' from gallery', 'warning', 5000);
+            const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
-            // Replace the remove button with a confirmation button temporarily
-            const removeButtons = document.querySelectorAll('button[onclick*="confirmRemoveProfile"]');
-            for (const btn of removeButtons) {
-                if (btn.onclick.toString().includes(characterId)) {
-                    const originalText = btn.textContent;
-                    const originalOnclick = btn.onclick;
-                    btn.textContent = 'Confirm Remove';
-                    btn.style.background = '#d32f2f';
-                    btn.onclick = function() { executeRemoveProfile(characterId, characterName); };
-                    
-                    // Reset button after 5 seconds
-                    setTimeout(function() {
-                        btn.textContent = originalText;
-                        btn.style.background = '';
-                        btn.onclick = originalOnclick;
-                    }, 5000);
-                    break;
-                }
-            }
-        }
-        
-        async function executeRemoveProfile(characterId, characterName) {
+            if (!action) return;
             
-            const reason = prompt('📝 REMOVAL REASON\n\nWhy are you removing "' + characterName + '"?\n\n(This will be logged for moderation records)');
+            const reason = prompt(\`📝 REMOVAL REASON\\n\\nWhy are you removing "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
-                showToast('❌ Removal cancelled - reason is required', 'warning');
+                alert('❌ Removal cancelled - reason is required');
                 return;
             }
+            
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
+            if (!finalConfirm) return;
             
             try {
                 const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
@@ -3116,48 +2543,30 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ "' + characterName + '" has been removed from gallery', 'success');
+                    alert(\`✅ "\${characterName}" has been removed from gallery\`);
                     loadProfiles();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error removing profile', 'error');
+                    alert('❌ Error removing profile');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            showToast('🚫 Confirm: Click Ban button again to permanently ban ' + characterName, 'warning', 5000);
+            const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
-            // Replace the ban button with a confirmation button temporarily
-            const banButtons = document.querySelectorAll('button[onclick*="confirmBanProfile"]');
-            for (const btn of banButtons) {
-                if (btn.onclick.toString().includes(characterId)) {
-                    const originalText = btn.textContent;
-                    const originalOnclick = btn.onclick;
-                    btn.textContent = 'Confirm Ban';
-                    btn.style.background = '#d32f2f';
-                    btn.onclick = function() { executeBanProfile(characterId, characterName); };
-                    
-                    // Reset button after 5 seconds
-                    setTimeout(function() {
-                        btn.textContent = originalText;
-                        btn.style.background = '';
-                        btn.onclick = originalOnclick;
-                    }, 5000);
-                    break;
-                }
-            }
-        }
-        
-        async function executeBanProfile(characterId, characterName) {
+            if (!action) return;
             
-            const reason = prompt('📝 BAN REASON\n\nWhy are you banning "' + characterName + '"?\n\n(This will be logged for moderation records)');
+            const reason = prompt(\`📝 BAN REASON\\n\\nWhy are you banning "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
-                showToast('❌ Ban cancelled - reason is required', 'warning'); 
+                alert('❌ Ban cancelled - reason is required'); 
                 return;
             }
+            
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
+            if (!finalConfirm) return;
             
             try {
                 const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
@@ -3171,13 +2580,13 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ "' + characterName + '" has been banned', 'success');
+                    alert(\`✅ "\${characterName}" has been banned\`);
                     await refreshStats();
                 } else {
-                    showToast('❌ Error banning profile', 'error');
+                    alert('❌ Error banning profile');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -3216,14 +2625,14 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast(characterName || characterId + ' has been unbanned', 'success');
+                    alert(\`\${characterName || characterId} has been unbanned\`);
                     await loadBannedProfiles();
                     await refreshStats();
                 } else {
-                    showToast('Error unbanning profile', 'error');
+                    alert('Error unbanning profile');
                 }
             } catch (error) {
-                showToast('Error: ' + error.message, 'error');
+                alert(\`Error: \${error.message}\`);
             }
         }
         
@@ -3445,7 +2854,7 @@ app.get("/admin", (req, res) => {
                 // Use EXACT same logic as Gallery Profiles tab
                 let profileHtml = '';
                 try {
-                    const response = await fetch(serverUrl + '/gallery?admin=true&key=' + adminKey);
+                    const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
                     const profiles = await response.json();
                     
                     // Find the profile using the same method as Gallery Profiles
@@ -3476,7 +2885,7 @@ app.get("/admin", (req, res) => {
                                 </button>
                                 \${profile.IsNSFW ? '' : \`<button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">Mark NSFW</button>\`}
                             </div>
-                        ' : '';
+                        \` : '';
                         
                         // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
                         let statusContent = '';
@@ -3553,35 +2962,13 @@ app.get("/admin", (req, res) => {
         async function toggleNSFW(characterId, characterName, currentNSFW) {
             // Only allow marking as NSFW, not removing NSFW flag
             if (currentNSFW) {
-                showToast('NSFW profiles cannot be unmarked. Use Remove button if needed.', 'warning');
+                alert('NSFW profiles cannot be unmarked. Use Remove button if needed.');
                 return;
             }
             
-            showToast('🔞 Confirm: Click Mark NSFW button again to mark ' + characterName + ' as NSFW', 'warning', 5000);
-            
-            // Replace the NSFW button with a confirmation button temporarily
-            const nsfwButtons = document.querySelectorAll('button[onclick*="toggleNSFW"]');
-            for (const btn of nsfwButtons) {
-                if (btn.onclick.toString().includes(characterId)) {
-                    const originalText = btn.textContent;
-                    const originalOnclick = btn.onclick;
-                    btn.textContent = 'Confirm NSFW';
-                    btn.style.background = '#d32f2f';
-                    btn.onclick = function() { executeToggleNSFW(characterId, characterName); };
-                    
-                    // Reset button after 5 seconds
-                    setTimeout(function() {
-                        btn.textContent = originalText;
-                        btn.style.background = '';
-                        btn.onclick = originalOnclick;
-                    }, 5000);
-                    break;
-                }
+            if (!confirm(\`Are you sure you want to mark \${characterName} as NSFW?\`)) {
+                return;
             }
-            return;
-        }
-        
-        async function executeToggleNSFW(characterId, characterName) {
             
             try {
                 const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/nsfw\`, {
@@ -3594,7 +2981,7 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast(characterName + ' has been marked as NSFW', 'success');
+                    alert(\`\${characterName} has been marked as NSFW\`);
                     loadProfiles(); // Refresh the profiles
                     // Refresh current tab if it's reports
                     const activeTab = document.querySelector('.tab.active');
@@ -3606,10 +2993,10 @@ app.get("/admin", (req, res) => {
                         }
                     }
                 } else {
-                    showToast('Error updating NSFW status', 'error');
+                    alert('Error updating NSFW status');
                 }
             } catch (error) {
-                showToast('Error: ' + error.message, 'error');
+                alert(\`Error: \${error.message}\`);
             }
         }
         
@@ -3638,15 +3025,15 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ Report updated', 'success');
+                    alert('✅ Report updated');
                     await loadReports();
                     await loadArchivedReports();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error updating report', 'error');
+                    alert('❌ Error updating report');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -3656,7 +3043,7 @@ app.get("/admin", (req, res) => {
             const type = document.getElementById('announcementType').value;
             
             if (!title || !message) {
-                showToast('Please fill in title and message', 'warning');
+                alert('Please fill in title and message');
                 return;
             }
             
@@ -3672,16 +3059,16 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    showToast('✅ Announcement created', 'success');
+                    alert('✅ Announcement created');
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error creating announcement', 'error');
+                    alert('❌ Error creating announcement');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -3736,15 +3123,15 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error deactivating announcement', 'error');
+                    alert('❌ Error deactivating announcement');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
         async function deleteAnnouncement(id) {
-            showToast('🗑️ Deleting announcement...', 'info');
+            if (!confirm('Are you sure you want to delete this announcement?')) return;
             
             try {
                 const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
@@ -3759,10 +3146,10 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    showToast('❌ Error deleting announcement', 'error');
+                    alert('❌ Error deleting announcement');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                alert(\`❌ Error: \${error.message}\`);
             }
         }
         
@@ -3792,7 +3179,7 @@ app.get("/admin", (req, res) => {
                 });
                 
             } catch (error) {
-                loading.innerHTML = '<div class="error">Error loading moderation log: ' + error.message + '</div>';
+                loading.innerHTML = \`<div class="error">Error loading moderation log: \${error.message}</div>\`;
             }
         }
     </script>
