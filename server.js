@@ -2050,7 +2050,6 @@ app.get("/admin", (req, res) => {
         let selectedProfiles = new Set(); // Store selected profile IDs across pages
         let bulkActionInProgress = false;
         
-        // Load Dashboard function
         async function loadDashboard() {
             adminKey = document.getElementById('adminKey').value;
             adminName = document.getElementById('adminName').value;
@@ -2081,7 +2080,7 @@ app.get("/admin", (req, res) => {
                 
             } catch (error) {
                 console.error('❌ Authentication failed:', error);
-                alert(\`Error: \${error.message}\`);
+                alert('Error: ' + error.message);
                 // Don't save credentials if login fails
             }
         }
@@ -2692,30 +2691,20 @@ app.get("/admin", (req, res) => {
                 
                 // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? \`<img src="\${profile.ProfileImageUrl}" 
-                            alt="\${profile.CharacterName}" 
-                            class="profile-image" 
-                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';"><div class="profile-image-placeholder" style="display: none;">IMG</div>'
+                    : '<div class="profile-image-placeholder">IMG</div>';
                 
                 // Format character name with NSFW badge if needed
-                const characterNameHtml = \`
-                    <div class="profile-name">
-                        \${profile.CharacterName}
-                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
-                    </div>
-                \`;
+                const characterNameHtml = '<div class="profile-name">' + profile.CharacterName + (profile.IsNSFW ? '<span class="nsfw-badge">NSFW</span>' : '') + '</div>';
                 
                 // Show either Gallery Status OR Bio (Gallery Status takes priority)
                 let contentHtml = '';
                 if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
+                    contentHtml = '<div class="gallery-status">' + profile.GalleryStatus + '</div>';
                 } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
+                    contentHtml = '<div class="profile-content">' + profile.Bio + '</div>';
                 } else {
-                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
+                    contentHtml = '<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>';
                 }
                 
                 // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
