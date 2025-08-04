@@ -2986,7 +2986,7 @@ app.get("/admin", (req, res) => {
                     
                     const timeAgo = getTimeAgo(flag.flaggedAt);
                     const keywordsHtml = flag.flaggedKeywords.map(kw => 
-                        \`<span class="flagged-keywords">\${kw}</span>\`
+                        '<span class="flagged-keywords">' + kw + '</span>'
                     ).join('');
                     
                     const statusBadge = flag.status === 'pending' ? 
@@ -2995,38 +2995,37 @@ app.get("/admin", (req, res) => {
                         '<span style="background: rgba(76, 175, 80, 0.2); color: #4CAF50; padding: 4px 8px; border-radius: 4px;">✅ APPROVED</span>' :
                         '<span style="background: rgba(244, 67, 54, 0.2); color: #f44336; padding: 4px 8px; border-radius: 4px;">❌ REMOVED</span>';
                     
-                    const actionButtons = flag.status === 'pending' ? \`
+                    const actionButtons = flag.status === 'pending' ? '
                         <div style="margin-top: 10px;">
                             <button class="btn btn-primary" onclick="updateFlagStatus('\${flag.id}', 'approved')">Approve</button>
                             <button class="btn btn-danger" onclick="updateFlagStatus('\${flag.id}', 'removed')">Remove</button>
                             <button class="btn btn-warning" onclick="confirmRemoveProfile('\${flag.characterId}', '\${flag.characterName}')">Remove Profile</button>
                         </div>
-                    \` : '';
+                    ' : '';
                     
-                    card.innerHTML = \`
-                        <div class="flagged-header">
-                            <strong>\${flag.characterName}</strong>
-                            \${statusBadge}
-                        </div>
-                        <div style="margin: 10px 0;">
-                            <strong>Flagged Keywords:</strong><br>
-                            \${keywordsHtml}
-                        </div>
-                        <div class="flagged-content">
-                            \${flag.content}
-                        </div>
-                        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
-                            <strong>Flagged:</strong> \${timeAgo}
-                            \${flag.reviewedBy ? \` • <strong>Reviewed by:</strong> \${flag.reviewedBy}\` : ''}
-                        </div>
-                        \${actionButtons}
-                    \`;
+                    card.innerHTML = 
+                        '<div class="flagged-header">' +
+                            '<strong>' + flag.characterName + '</strong>' +
+                            statusBadge +
+                        '</div>' +
+                        '<div style="margin: 10px 0;">' +
+                            '<strong>Flagged Keywords:</strong><br>' +
+                            keywordsHtml +
+                        '</div>' +
+                        '<div class="flagged-content">' +
+                            flag.content +
+                        '</div>' +
+                        '<div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">' +
+                            '<strong>Flagged:</strong> ' + timeAgo +
+                            (flag.reviewedBy ? ' • <strong>Reviewed by:</strong> ' + flag.reviewedBy : '') +
+                        '</div>' +
+                        actionButtons;
                     
                     container.appendChild(card);
                 });
                 
             } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading flagged content: \${error.message}</div>\`;
+                loading.innerHTML = '<div class="error">Error loading flagged content: ' + error.message + '</div>';
             }
         }
         
@@ -3486,7 +3485,7 @@ app.get("/admin", (req, res) => {
                                 </button>
                                 \${profile.IsNSFW ? '' : \`<button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">Mark NSFW</button>\`}
                             </div>
-                        \` : '';
+                        ' : '';
                         
                         // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
                         let statusContent = '';
