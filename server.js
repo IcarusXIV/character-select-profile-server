@@ -2995,13 +2995,13 @@ app.get("/admin", (req, res) => {
                         '<span style="background: rgba(76, 175, 80, 0.2); color: #4CAF50; padding: 4px 8px; border-radius: 4px;">✅ APPROVED</span>' :
                         '<span style="background: rgba(244, 67, 54, 0.2); color: #f44336; padding: 4px 8px; border-radius: 4px;">❌ REMOVED</span>';
                     
-                    const actionButtons = flag.status === 'pending' ? '
-                        <div style="margin-top: 10px;">
-                            <button class="btn btn-primary" onclick="updateFlagStatus('\${flag.id}', 'approved')">Approve</button>
-                            <button class="btn btn-danger" onclick="updateFlagStatus('\${flag.id}', 'removed')">Remove</button>
-                            <button class="btn btn-warning" onclick="confirmRemoveProfile('\${flag.characterId}', '\${flag.characterName}')">Remove Profile</button>
-                        </div>
-                    ' : '';
+                    const actionButtons = flag.status === 'pending' ? 
+                        '<div style="margin-top: 10px;">' +
+                            '<button class="btn btn-primary" onclick="updateFlagStatus(\'' + flag.id + '\', \'approved\')">Approve</button>' +
+                            '<button class="btn btn-danger" onclick="updateFlagStatus(\'' + flag.id + '\', \'removed\')">Remove</button>' +
+                            '<button class="btn btn-warning" onclick="confirmRemoveProfile(\'' + flag.characterId + '\', \'' + flag.characterName + '\')">Remove Profile</button>' +
+                        '</div>'
+                    : '';
                     
                     card.innerHTML = 
                         '<div class="flagged-header">' +
