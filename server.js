@@ -1987,6 +1987,51 @@ app.get("/admin", (req, res) => {
         let availableServers = new Set();
         
         // Load saved admin credentials on page load
+        async function loadDashboard() {
+            console.log('🔄 Loading dashboard...');
+            
+            adminKey = document.getElementById('adminKey').value.trim();
+            adminName = document.getElementById('adminName').value.trim();
+            
+            if (!adminKey) {
+                alert('Please enter the admin secret key');
+                return;
+            }
+            
+            if (!adminName) {
+                alert('Please enter your admin name');
+                return;
+            }
+            
+            try {
+                // Test the admin key by fetching stats
+                const response = await fetch(serverUrl + '/admin/stats', {
+                    headers: {
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    }
+                });
+                
+                if (response.ok) {
+                    // Save credentials and show dashboard
+                    localStorage.setItem('cs_admin_key', adminKey);
+                    localStorage.setItem('cs_admin_name', adminName);
+                    
+                    document.querySelector('.auth-section').style.display = 'none';
+                    document.getElementById('dashboardContent').style.display = 'block';
+                    
+                    // Load initial data
+                    await refreshStats();
+                    await loadProfiles();
+                } else {
+                    alert('Invalid admin credentials');
+                }
+            } catch (error) {
+                console.error('Auth error:', error);
+                alert('Failed to authenticate: ' + error.message);
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔄 Page loaded, checking for saved credentials...');
             
@@ -3426,7 +3471,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            if (!confirm('Remove ' + selectedProfiles.size + ' selected profiles?\n\nReason: ' + reason + '\n\nThis action cannot be undone.')) {
+            if (!confirm('Remove ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis action cannot be undone.')) {
                 return;
             }
             
@@ -3462,7 +3507,7 @@ app.get("/admin", (req, res) => {
             document.getElementById('bulkActionReason').value = '';
             
             showModal('✅ Bulk Remove Complete', 
-                'Successfully removed: ' + successCount + ' profiles\n' +
+                'Successfully removed: ' + successCount + ' profiles\\n' +
                 'Failed: ' + errorCount + ' profiles', 
                 null, null, 'OK', 'btn-success');
             
@@ -3478,7 +3523,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            if (!confirm('Ban ' + selectedProfiles.size + ' selected profiles?\n\nReason: ' + reason + '\n\nThis will prevent them from uploading new profiles.')) {
+            if (!confirm('Ban ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis will prevent them from uploading new profiles.')) {
                 return;
             }
             
@@ -3514,7 +3559,7 @@ app.get("/admin", (req, res) => {
             document.getElementById('bulkActionReason').value = '';
             
             showModal('✅ Bulk Ban Complete', 
-                'Successfully banned: ' + successCount + ' profiles\n' +
+                'Successfully banned: ' + successCount + ' profiles\\n' +
                 'Failed: ' + errorCount + ' profiles', 
                 null, null, 'OK', 'btn-success');
             
@@ -3530,7 +3575,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            if (!confirm('Mark selected profiles as NSFW?\n\nReason: ' + reason + '\n\n(Profiles already marked as NSFW will be skipped)')) {
+            if (!confirm('Mark selected profiles as NSFW?\\n\\nReason: ' + reason + '\\n\\n(Profiles already marked as NSFW will be skipped)')) {
                 return;
             }
             
@@ -3572,8 +3617,8 @@ app.get("/admin", (req, res) => {
             document.getElementById('bulkActionReason').value = '';
             
             showModal('✅ Bulk NSFW Complete', 
-                'Successfully marked as NSFW: ' + successCount + ' profiles\n' +
-                'Skipped (already NSFW): ' + skippedCount + ' profiles\n' +
+                'Successfully marked as NSFW: ' + successCount + ' profiles\\n' +
+                'Skipped (already NSFW): ' + skippedCount + ' profiles\\n' +
                 'Failed: ' + errorCount + ' profiles', 
                 null, null, 'OK', 'btn-success');
             
