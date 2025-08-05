@@ -1586,21 +1586,11 @@ app.get("/admin", (req, res) => {
         
         /* Bulk selection styles */
         .profile-checkbox {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            width: 20px;
-            height: 20px;
+            display: block;
+            width: 18px;
+            height: 18px;
+            margin: 10px auto 0 auto;
             cursor: pointer;
-            z-index: 10;
-            background: rgba(255, 255, 255, 0.9);
-            border: 2px solid #ccc;
-            border-radius: 3px;
-        }
-        
-        .profile-checkbox:checked {
-            background: #4CAF50;
-            border-color: #4CAF50;
         }
         
         .profile-card {
@@ -2323,7 +2313,6 @@ app.get("/admin", (req, res) => {
                 \`;
                 
                 card.innerHTML = \`
-                    <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}', this); this.checked ? this.closest('.profile-card').classList.add('selected') : this.closest('.profile-card').classList.remove('selected');">
                     <div class="profile-header">
                         <div class="profile-info">
                             \${characterNameHtml}
@@ -2335,6 +2324,7 @@ app.get("/admin", (req, res) => {
                         </div>
                         \${imageHtml}
                     </div>
+                    <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}', this); this.checked ? this.closest('.profile-card').classList.add('selected') : this.closest('.profile-card').classList.remove('selected');">
                     \${contentHtml}
                     <div class="profile-actions">
                         \${actionButtons}
@@ -2719,8 +2709,17 @@ app.get("/admin", (req, res) => {
         
         async function confirmModalAction() {
             if (modalAction && modalData) {
-                closeModal();
-                await modalAction(modalData);
+                console.log('Modal action:', modalAction, 'Data:', modalData);
+                if (typeof modalAction === 'function') {
+                    closeModal();
+                    await modalAction(modalData);
+                } else {
+                    console.error('modalAction is not a function:', modalAction);
+                    alert('Error: Modal action is not a function');
+                }
+            } else {
+                console.error('No modal action or data set');
+                alert('Error: No modal action set');
             }
         }
         
