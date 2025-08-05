@@ -1587,12 +1587,20 @@ app.get("/admin", (req, res) => {
         /* Bulk selection styles */
         .profile-checkbox {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            bottom: 10px;
+            right: 10px;
             width: 20px;
             height: 20px;
             cursor: pointer;
             z-index: 10;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid #ccc;
+            border-radius: 3px;
+        }
+        
+        .profile-checkbox:checked {
+            background: #4CAF50;
+            border-color: #4CAF50;
         }
         
         .profile-card {
@@ -2512,15 +2520,14 @@ app.get("/admin", (req, res) => {
             
             for (const profileId of profileIds) {
                 try {
-                    const response = await fetch('/admin/remove-profile', {
-                        method: 'POST',
+                    const response = await fetch('/admin/profiles/' + encodeURIComponent(profileId), {
+                        method: 'DELETE',
                         headers: {
                             'Content-Type': 'application/json',
                             'Admin-Key': adminKey,
                             'Admin-Name': adminName
                         },
                         body: JSON.stringify({
-                            characterId: profileId,
                             reason: reason
                         })
                     });
@@ -2574,7 +2581,7 @@ app.get("/admin", (req, res) => {
             
             for (const profileId of profileIds) {
                 try {
-                    const response = await fetch('/admin/ban-profile', {
+                    const response = await fetch('/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -2582,7 +2589,6 @@ app.get("/admin", (req, res) => {
                             'Admin-Name': adminName
                         },
                         body: JSON.stringify({
-                            characterId: profileId,
                             reason: reason
                         })
                     });
@@ -2645,17 +2651,15 @@ app.get("/admin", (req, res) => {
                         continue;
                     }
                     
-                    const response = await fetch('/admin/toggle-nsfw', {
-                        method: 'POST',
+                    const response = await fetch('/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
+                        method: 'PATCH',
                         headers: {
                             'Content-Type': 'application/json',
                             'Admin-Key': adminKey,
                             'Admin-Name': adminName
                         },
                         body: JSON.stringify({
-                            characterId: profileId,
-                            isNSFW: true,
-                            reason: reason
+                            isNSFW: true
                         })
                     });
                     
@@ -2784,15 +2788,14 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch('/admin/remove-profile', {
-                    method: 'POST',
+                const response = await fetch('/admin/profiles/' + encodeURIComponent(data.characterId), {
+                    method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
                         'Admin-Key': adminKey,
                         'Admin-Name': adminName
                     },
                     body: JSON.stringify({
-                        characterId: data.characterId,
                         reason: reason
                     })
                 });
@@ -2816,7 +2819,7 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch('/admin/ban-profile', {
+                const response = await fetch('/admin/profiles/' + encodeURIComponent(data.characterId) + '/ban', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2824,7 +2827,6 @@ app.get("/admin", (req, res) => {
                         'Admin-Name': adminName
                     },
                     body: JSON.stringify({
-                        characterId: data.characterId,
                         reason: reason
                     })
                 });
@@ -2848,17 +2850,15 @@ app.get("/admin", (req, res) => {
             }
             
             try {
-                const response = await fetch('/admin/toggle-nsfw', {
-                    method: 'POST',
+                const response = await fetch('/admin/profiles/' + encodeURIComponent(data.characterId) + '/nsfw', {
+                    method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
                         'Admin-Key': adminKey,
                         'Admin-Name': adminName
                     },
                     body: JSON.stringify({
-                        characterId: data.characterId,
-                        isNSFW: data.isNSFW,
-                        reason: reason
+                        isNSFW: data.isNSFW
                     })
                 });
                 
