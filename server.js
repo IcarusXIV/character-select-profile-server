@@ -2226,19 +2226,39 @@ app.get("/admin", (req, res) => {
             const grid = document.getElementById('profilesGrid');
             grid.innerHTML = '';
             
+            // Add select all container
+            if (profiles.length > 0) {
+                const selectAllContainer = document.createElement('div');
+                selectAllContainer.className = 'select-all-container';
+                selectAllContainer.innerHTML = '<label><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (' + profiles.length + ')</label>';
+                grid.appendChild(selectAllContainer);
+            }
+            
             profiles.forEach(profile => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
                 
-                // Create clickable image element or placeholder
+                const isSelected = selectedProfiles.has(profile.CharacterId);
+                
+                // Create clickable image element or placeholder with checkbox
                 const imageHtml = profile.ProfileImageUrl 
-                    ? \`<img src="\${profile.ProfileImageUrl}" 
+                    ? \`<div style="position: relative;">
+                        <img src="\${profile.ProfileImageUrl}" 
                             alt="\${profile.CharacterName}" 
                             class="profile-image" 
                             onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
+                        <div class="profile-image-placeholder" style="display: none;">🖼️</div>
+                        <div class="profile-checkbox-container">
+                            <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${isSelected ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}')">
+                        </div>
+                       </div>\`
+                    : \`<div style="position: relative;">
+                        <div class="profile-image-placeholder">🖼️</div>
+                        <div class="profile-checkbox-container">
+                            <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${isSelected ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}')">
+                        </div>
+                       </div>\`;
                 
                 // Format character name with NSFW badge if needed
                 const characterNameHtml = \`
@@ -2258,23 +2278,23 @@ app.get("/admin", (req, res) => {
                     contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
-                // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
+                // Action buttons using modal system - NSFW profiles only get Remove and Ban buttons
                 const actionButtons = profile.IsNSFW ? \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Remove
+                    <button class="btn btn-danger" onclick="showModal('🗑️ Remove Profile', 'Are you sure you want to remove <strong>\${profile.CharacterName}</strong> from the gallery?<br><br>This action cannot be undone.', 'remove', '\${profile.CharacterId}', 'Remove Profile', 'btn-danger')">
+                        Remove Profile
                     </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Ban
+                    <button class="btn btn-warning" onclick="showModal('🚫 Ban Profile', 'Are you sure you want to ban <strong>\${profile.CharacterName}</strong>?<br><br>This will prevent them from uploading new profiles.', 'ban', '\${profile.CharacterId}', 'Ban Profile', 'btn-warning')">
+                        Ban Profile
                     </button>
                 \` : \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Remove
+                    <button class="btn btn-danger" onclick="showModal('🗑️ Remove Profile', 'Are you sure you want to remove <strong>\${profile.CharacterName}</strong> from the gallery?<br><br>This action cannot be undone.', 'remove', '\${profile.CharacterId}', 'Remove Profile', 'btn-danger')">
+                        Remove Profile
                     </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Ban
+                    <button class="btn btn-warning" onclick="showModal('🚫 Ban Profile', 'Are you sure you want to ban <strong>\${profile.CharacterName}</strong>?<br><br>This will prevent them from uploading new profiles.', 'ban', '\${profile.CharacterId}', 'Ban Profile', 'btn-warning')">
+                        Ban Profile
                     </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
-                        Mark NSFW
+                    <button class="btn btn-nsfw" onclick="showModal('🔞 Mark as NSFW', 'Are you sure you want to mark <strong>\${profile.CharacterName}</strong> as NSFW?', 'nsfw', '\${profile.CharacterId}', 'Mark NSFW', 'btn-nsfw')">
+                        Mark as NSFW
                     </button>
                 \`;
                 
