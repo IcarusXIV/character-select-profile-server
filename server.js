@@ -2233,7 +2233,7 @@ app.get("/admin", (req, res) => {
                 const selectAllLabel = document.querySelector('label[style*="#4CAF50"]');
                 if (selectAllLabel) {
                     const checkbox = selectAllLabel.querySelector('#selectAllCheckbox');
-                    selectAllLabel.innerHTML = `<input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (${profiles.length})`;
+                    selectAllLabel.innerHTML = '<input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (' + profiles.length + ')';
                 }
             }
             
