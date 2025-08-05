@@ -2322,9 +2322,11 @@ app.get("/admin", (req, res) => {
                                 <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        \${imageHtml}
+                        <div style="text-align: center;">
+                            \${imageHtml}
+                            <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}', this); this.checked ? this.closest('.profile-card').classList.add('selected') : this.closest('.profile-card').classList.remove('selected');">
+                        </div>
                     </div>
-                    <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}', this); this.checked ? this.closest('.profile-card').classList.add('selected') : this.closest('.profile-card').classList.remove('selected');">
                     \${contentHtml}
                     <div class="profile-actions">
                         \${actionButtons}
@@ -2687,7 +2689,7 @@ app.get("/admin", (req, res) => {
         let modalAction = null;
         let modalData = null;
         
-        function showModal(title, body, confirmText, confirmClass, action, data) {
+        function showModal(title, body, confirmText, confirmClass, actionName, data) {
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalBody').innerHTML = body;
             
@@ -2695,7 +2697,7 @@ app.get("/admin", (req, res) => {
             confirmBtn.textContent = confirmText;
             confirmBtn.className = 'btn ' + confirmClass;
             
-            modalAction = action;
+            modalAction = actionName;
             modalData = data;
             
             document.getElementById('confirmModal').classList.add('show');
@@ -2710,12 +2712,18 @@ app.get("/admin", (req, res) => {
         async function confirmModalAction() {
             if (modalAction && modalData) {
                 console.log('Modal action:', modalAction, 'Data:', modalData);
-                if (typeof modalAction === 'function') {
-                    closeModal();
-                    await modalAction(modalData);
+                closeModal();
+                
+                // Dispatch to the correct function
+                if (modalAction === 'removeProfile') {
+                    await removeProfile(modalData);
+                } else if (modalAction === 'banProfile') {
+                    await banProfile(modalData);
+                } else if (modalAction === 'toggleNSFW') {
+                    await toggleNSFW(modalData);
                 } else {
-                    console.error('modalAction is not a function:', modalAction);
-                    alert('Error: Modal action is not a function');
+                    console.error('Unknown modal action:', modalAction);
+                    alert('Error: Unknown action');
                 }
             } else {
                 console.error('No modal action or data set');
@@ -2738,7 +2746,7 @@ app.get("/admin", (req, res) => {
                 <p style="color: #f44336; margin-top: 10px; font-size: 0.9em;"><strong>Warning:</strong> This action cannot be undone.</p>
             \`;
             
-            showModal('Remove Profile', body, 'Remove', 'btn-danger', removeProfile, { characterId, characterName });
+            showModal('Remove Profile', body, 'Remove', 'btn-danger', 'removeProfile', { characterId, characterName });
         }
         
         function confirmBanProfile(characterId, characterName) {
@@ -2755,7 +2763,7 @@ app.get("/admin", (req, res) => {
                 <p style="color: #ff9800; margin-top: 10px; font-size: 0.9em;">This will prevent the profile from being uploaded again.</p>
             \`;
             
-            showModal('Ban Profile', body, 'Ban', 'btn-warning', banProfile, { characterId, characterName });
+            showModal('Ban Profile', body, 'Ban', 'btn-warning', 'banProfile', { characterId, characterName });
         }
         
         function confirmToggleNSFW(characterId, characterName, isCurrentlyNSFW) {
@@ -2775,7 +2783,7 @@ app.get("/admin", (req, res) => {
                 </div>
             \`;
             
-            showModal(\`\${actionCaps} NSFW\`, body, actionCaps, 'btn-nsfw', toggleNSFW, { characterId, characterName, isNSFW: !isCurrentlyNSFW });
+            showModal(\`\${actionCaps} NSFW\`, body, actionCaps, 'btn-nsfw', 'toggleNSFW', { characterId, characterName, isNSFW: !isCurrentlyNSFW });
         }
         
         // Updated action functions
