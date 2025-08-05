@@ -2173,6 +2173,111 @@ app.get("/admin", (req, res) => {
             applyFilters();
         }
         
+        async function refreshStats() {
+            try {
+                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
+                const data = await response.json();
+                
+                // Update dashboard stats
+                document.getElementById('totalProfiles').textContent = data.totalProfiles || '0';
+                document.getElementById('recentProfiles').textContent = data.recentProfiles || '0';
+                document.getElementById('totalReports').textContent = data.totalReports || '0';
+                document.getElementById('pendingReports').textContent = data.pendingReports || '0';
+                document.getElementById('totalLikes').textContent = data.totalLikes || '0';
+                document.getElementById('nsfwProfiles').textContent = data.nsfwProfiles || '0';
+                document.getElementById('bannedUsers').textContent = data.bannedUsers || '0';
+                document.getElementById('flaggedProfiles').textContent = data.flaggedProfiles || '0';
+                
+            } catch (error) {
+                console.error('Error refreshing stats:', error);
+            }
+        }
+        
+        async function loadProfiles() {
+            const loading = document.getElementById('profilesLoading');
+            const container = document.getElementById('profilesContainer');
+            
+            loading.style.display = 'block';
+            container.innerHTML = '';
+            
+            try {
+                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
+                const data = await response.json();
+                
+                loading.style.display = 'none';
+                allProfiles = data.profiles || [];
+                
+                // Build available servers set
+                availableServers.clear();
+                allProfiles.forEach(profile => {
+                    if (profile.Server) {
+                        availableServers.add(profile.Server);
+                    }
+                });
+                
+                populateServerDropdown();
+                applyFilters();
+                
+            } catch (error) {
+                loading.innerHTML = '<div class="error">Error loading profiles: ' + error.message + '</div>';
+            }
+        }
+        
+        function renderProfilesPage() {
+            const startIndex = (currentPage - 1) * profilesPerPage;
+            const endIndex = startIndex + profilesPerPage;
+            const profilesToShow = filteredProfiles.slice(startIndex, endIndex);
+            
+            const container = document.getElementById('profilesContainer');
+            container.innerHTML = '';
+            
+            // Add select all container
+            const selectAllContainer = document.createElement('div');
+            selectAllContainer.className = 'select-all-container';
+            selectAllContainer.innerHTML = '<label><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (' + profilesToShow.length + ')</label>';
+            container.appendChild(selectAllContainer);
+            
+            // Render profile cards
+            profilesToShow.forEach(profile => {
+                const card = document.createElement('div');
+                card.className = 'profile-card';
+                card.id = 'profile-' + profile.CharacterId;
+                
+                const isSelected = selectedProfiles.has(profile.CharacterId);
+                const nsfwBadge = profile.IsNSFW ? '<div class="nsfw-badge">🔞 NSFW</div>' : '';
+                const likesCount = profile.Likes || 0;
+                const timeAgo = getTimeAgo(profile.UploadDate);
+                
+                card.innerHTML = '' +
+                    '<div class="profile-checkbox-container">' +
+                        '<input type="checkbox" class="profile-checkbox" data-profile-id="' + profile.CharacterId + '" ' + (isSelected ? 'checked' : '') + ' onchange="toggleProfileSelection(\'' + profile.CharacterId + '\')">' +
+                    '</div>' +
+                    '<div class="profile-image-container">' +
+                        '<img src="' + serverUrl + '/images/' + profile.CharacterId + '.jpg" alt="' + profile.CharacterName + '" onclick="showImage(\'' + serverUrl + '/images/' + profile.CharacterId + '.jpg\')">' +
+                        nsfwBadge +
+                    '</div>' +
+                    '<div class="profile-info">' +
+                        '<div class="character-name">' + profile.CharacterName + '</div>' +
+                        '<div class="server-badge">' + profile.Server + '</div>' +
+                        '<div class="profile-stats">' +
+                            '<span class="likes-count">❤️ ' + likesCount + '</span>' +
+                            '<span class="upload-time">📅 ' + timeAgo + '</span>' +
+                        '</div>' +
+                        (profile.Bio ? '<div class="profile-bio">' + profile.Bio + '</div>' : '') +
+                        '<div class="profile-actions">' +
+                            '<button class="btn btn-danger" onclick="showModal(\'🗑️ Remove Profile\', \'Are you sure you want to remove <strong>' + profile.CharacterName + '</strong> from the gallery?<br><br>This action cannot be undone.\', \'remove\', \'' + profile.CharacterId + '\', \'Remove Profile\', \'btn-danger\')">Remove Profile</button>' +
+                            '<button class="btn btn-warning" onclick="showModal(\'🚫 Ban Profile\', \'Are you sure you want to ban <strong>' + profile.CharacterName + '</strong>?<br><br>This will prevent them from uploading new profiles.\', \'ban\', \'' + profile.CharacterId + '\', \'Ban Profile\', \'btn-warning\')">Ban Profile</button>' +
+                            '<button class="btn btn-nsfw" onclick="showModal(\'🔞 Toggle NSFW\', \'Are you sure you want to ' + (profile.IsNSFW ? 'remove NSFW marking from' : 'mark as NSFW') + ' <strong>' + profile.CharacterName + '</strong>?\', \'nsfw\', \'' + profile.CharacterId + '\', \'' + (profile.IsNSFW ? 'Remove NSFW' : 'Mark NSFW') + '\', \'btn-nsfw\')">' + (profile.IsNSFW ? 'Remove NSFW' : 'Mark as NSFW') + '</button>' +
+                        '</div>' +
+                    '</div>';
+                
+                container.appendChild(card);
+            });
+            
+            updatePagination();
+            updateBulkActionBar();
+        }
+        
         function populateServerDropdown() {
             const serverSelect = document.getElementById('serverFilter');
             const currentValue = serverSelect.value;
@@ -2193,6 +2298,310 @@ app.get("/admin", (req, res) => {
             if (sortedServers.includes(currentValue)) {
                 serverSelect.value = currentValue;
             }
+        }
+        
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredProfiles.length / profilesPerPage);
+            const paginationContainer = document.getElementById('paginationContainer');
+            
+            if (totalPages <= 1) {
+                paginationContainer.innerHTML = '';
+                return;
+            }
+            
+            let paginationHtml = '<div class="pagination">';
+            
+            // Previous button
+            if (currentPage > 1) {
+                paginationHtml += '<button class="btn btn-secondary" onclick="changePage(' + (currentPage - 1) + ')">Previous</button>';
+            }
+            
+            // Page numbers
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+            
+            if (startPage > 1) {
+                paginationHtml += '<button class="btn btn-secondary" onclick="changePage(1)">1</button>';
+                if (startPage > 2) {
+                    paginationHtml += '<span>...</span>';
+                }
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                if (i === currentPage) {
+                    paginationHtml += '<button class="btn btn-primary">' + i + '</button>';
+                } else {
+                    paginationHtml += '<button class="btn btn-secondary" onclick="changePage(' + i + ')">' + i + '</button>';
+                }
+            }
+            
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationHtml += '<span>...</span>';
+                }
+                paginationHtml += '<button class="btn btn-secondary" onclick="changePage(' + totalPages + ')">' + totalPages + '</button>';
+            }
+            
+            // Next button
+            if (currentPage < totalPages) {
+                paginationHtml += '<button class="btn btn-secondary" onclick="changePage(' + (currentPage + 1) + ')">Next</button>';
+            }
+            
+            paginationHtml += '</div>';
+            paginationContainer.innerHTML = paginationHtml;
+        }
+        
+        function changePage(page) {
+            currentPage = page;
+            localStorage.setItem('cs_admin_current_page', currentPage);
+            renderProfilesPage();
+        }
+        
+        function getTimeAgo(uploadDate) {
+            if (!uploadDate) return 'Unknown';
+            
+            const now = new Date();
+            const uploadTime = new Date(uploadDate);
+            const diffMs = now - uploadTime;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+            
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return diffMins + 'm ago';
+            if (diffHours < 24) return diffHours + 'h ago';
+            if (diffDays < 7) return diffDays + 'd ago';
+            
+            return uploadTime.toLocaleDateString();
+        }
+        
+        function showImage(src) {
+            document.getElementById('modalImage').src = src;
+            document.getElementById('imageModal').style.display = 'block';
+        }
+        
+        function closeImageModal() {
+            document.getElementById('imageModal').style.display = 'none';
+        }
+        
+        // Bulk selection functions
+        function toggleProfileSelection(profileId) {
+            if (selectedProfiles.has(profileId)) {
+                selectedProfiles.delete(profileId);
+            } else {
+                selectedProfiles.add(profileId);
+            }
+            updateBulkActionBar();
+        }
+        
+        function toggleSelectAll() {
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
+            
+            profileCheckboxes.forEach(checkbox => {
+                const profileId = checkbox.dataset.profileId;
+                if (selectAllCheckbox.checked) {
+                    selectedProfiles.add(profileId);
+                    checkbox.checked = true;
+                } else {
+                    selectedProfiles.delete(profileId);
+                    checkbox.checked = false;
+                }
+            });
+            
+            updateBulkActionBar();
+        }
+        
+        function updateBulkActionBar() {
+            const bulkActionBar = document.getElementById('bulkActionBar');
+            const selectedCount = selectedProfiles.size;
+            
+            if (selectedCount > 0) {
+                bulkActionBar.style.display = 'flex';
+                document.getElementById('bulkSelectionCount').textContent = selectedCount + ' selected';
+            } else {
+                bulkActionBar.style.display = 'none';
+            }
+        }
+        
+        function clearAllSelections() {
+            selectedProfiles.clear();
+            document.querySelectorAll('.profile-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = false;
+            }
+            updateBulkActionBar();
+        }
+        
+        // Bulk action functions
+        async function bulkRemoveProfiles() {
+            if (selectedProfiles.size === 0) return;
+            
+            const reason = document.getElementById('bulkActionReason').value.trim();
+            if (!reason) {
+                showModal('❌ Error', 'Please enter a reason for the bulk removal.', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            if (!confirm('Remove ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis action cannot be undone.')) {
+                return;
+            }
+            
+            bulkActionInProgress = true;
+            const profileIds = Array.from(selectedProfiles);
+            let successCount = 0;
+            let errorCount = 0;
+            
+            for (const profileId of profileIds) {
+                try {
+                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId), {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Admin-Key': adminKey,
+                            'X-Admin-Id': adminName
+                        },
+                        body: JSON.stringify({ reason: reason })
+                    });
+                    
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                    }
+                } catch (error) {
+                    errorCount++;
+                }
+            }
+            
+            bulkActionInProgress = false;
+            clearAllSelections();
+            document.getElementById('bulkActionReason').value = '';
+            
+            showModal('✅ Bulk Remove Complete', 
+                'Successfully removed: ' + successCount + ' profiles\\n' +
+                'Failed: ' + errorCount + ' profiles', 
+                null, null, 'OK', 'btn-success');
+            
+            loadProfiles();
+        }
+        
+        async function bulkBanProfiles() {
+            if (selectedProfiles.size === 0) return;
+            
+            const reason = document.getElementById('bulkActionReason').value.trim();
+            if (!reason) {
+                showModal('❌ Error', 'Please enter a reason for the bulk ban.', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            if (!confirm('Ban ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis will prevent them from uploading new profiles.')) {
+                return;
+            }
+            
+            bulkActionInProgress = true;
+            const profileIds = Array.from(selectedProfiles);
+            let successCount = 0;
+            let errorCount = 0;
+            
+            for (const profileId of profileIds) {
+                try {
+                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Admin-Key': adminKey,
+                            'X-Admin-Id': adminName
+                        },
+                        body: JSON.stringify({ reason: reason })
+                    });
+                    
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                    }
+                } catch (error) {
+                    errorCount++;
+                }
+            }
+            
+            bulkActionInProgress = false;
+            clearAllSelections();
+            document.getElementById('bulkActionReason').value = '';
+            
+            showModal('✅ Bulk Ban Complete', 
+                'Successfully banned: ' + successCount + ' profiles\\n' +
+                'Failed: ' + errorCount + ' profiles', 
+                null, null, 'OK', 'btn-success');
+            
+            loadProfiles();
+        }
+        
+        async function bulkMarkNSFW() {
+            if (selectedProfiles.size === 0) return;
+            
+            const reason = document.getElementById('bulkActionReason').value.trim();
+            if (!reason) {
+                showModal('❌ Error', 'Please enter a reason for the bulk NSFW marking.', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            // Filter out profiles that are already NSFW
+            const profilesToMark = Array.from(selectedProfiles).filter(profileId => {
+                const profile = allProfiles.find(p => p.CharacterId === profileId);
+                return profile && !profile.IsNSFW;
+            });
+            
+            if (profilesToMark.length === 0) {
+                showModal('ℹ️ No Action Needed', 'All selected profiles are already marked as NSFW.', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            if (!confirm('Mark ' + profilesToMark.length + ' profiles as NSFW?\\n\\nReason: ' + reason + '\\n\\n(Skipping ' + (selectedProfiles.size - profilesToMark.length) + ' already NSFW profiles)')) {
+                return;
+            }
+            
+            bulkActionInProgress = true;
+            let successCount = 0;
+            let errorCount = 0;
+            
+            for (const profileId of profilesToMark) {
+                try {
+                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Admin-Key': adminKey,
+                            'X-Admin-Id': adminName
+                        },
+                        body: JSON.stringify({ reason: reason })
+                    });
+                    
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                    }
+                } catch (error) {
+                    errorCount++;
+                }
+            }
+            
+            bulkActionInProgress = false;
+            clearAllSelections();
+            document.getElementById('bulkActionReason').value = '';
+            
+            showModal('✅ Bulk NSFW Complete', 
+                'Successfully marked as NSFW: ' + successCount + ' profiles\\n' +
+                'Failed: ' + errorCount + ' profiles\\n' +
+                'Skipped (already NSFW): ' + (selectedProfiles.size - profilesToMark.length) + ' profiles', 
+                null, null, 'OK', 'btn-success');
+            
+            loadProfiles();
         }
         
         function renderProfilesPage() {
@@ -2690,6 +3099,8 @@ app.get("/admin", (req, res) => {
         let modalData = null;
         
         function showModal(title, body, confirmText, confirmClass, actionName, data) {
+            console.log('showModal called with:', {title, confirmText, confirmClass, actionName, data});
+            
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalBody').innerHTML = body;
             
@@ -2699,6 +3110,8 @@ app.get("/admin", (req, res) => {
             
             modalAction = actionName;
             modalData = data;
+            
+            console.log('modalAction set to:', modalAction, 'modalData set to:', modalData);
             
             document.getElementById('confirmModal').classList.add('show');
         }
@@ -3839,6 +4252,165 @@ app.get("/admin", (req, res) => {
                 
             } catch (error) {
                 loading.innerHTML = \`<div class="error">Error loading moderation log: \${error.message}</div>\`;
+            }
+        }
+        
+        // Modal system variables and functions
+        let modalAction = null;
+        let modalTarget = null;
+        
+        function showModal(title, message, action, target, buttonText = 'Confirm', buttonClass = 'btn-danger') {
+            console.log('showModal called with:', { title, message, action, target, buttonText, buttonClass });
+            modalAction = action;
+            modalTarget = target;
+            console.log('modalAction set to:', modalAction);
+            console.log('modalTarget set to:', modalTarget);
+            
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalBody').innerHTML = message;
+            
+            const confirmBtn = document.getElementById('modalConfirmBtn');
+            confirmBtn.textContent = buttonText;
+            confirmBtn.className = 'btn ' + buttonClass;
+            
+            document.getElementById('confirmModal').style.display = 'block';
+        }
+        
+        function closeModal() {
+            console.log('closeModal called');
+            document.getElementById('confirmModal').style.display = 'none';
+            modalAction = null;
+            modalTarget = null;
+            console.log('modalAction reset to:', modalAction);
+        }
+        
+        function confirmModalAction() {
+            console.log('confirmModalAction called');
+            console.log('modalAction is:', modalAction);
+            console.log('modalTarget is:', modalTarget);
+            console.log('modalAction type:', typeof modalAction);
+            
+            if (!modalAction) {
+                console.error('Unknown modal action:', modalAction);
+                closeModal();
+                return;
+            }
+            
+            closeModal();
+            
+            // Execute the action
+            switch(modalAction) {
+                case 'remove':
+                    console.log('Executing remove action for:', modalTarget);
+                    executeRemoveProfile(modalTarget);
+                    break;
+                case 'ban':
+                    console.log('Executing ban action for:', modalTarget);
+                    executeBanProfile(modalTarget);
+                    break;
+                case 'nsfw':
+                    console.log('Executing NSFW action for:', modalTarget);
+                    executeToggleNSFW(modalTarget);
+                    break;
+                default:
+                    console.error('Unknown modal action:', modalAction);
+            }
+        }
+        
+        async function executeRemoveProfile(profileId) {
+            console.log('executeRemoveProfile called with:', profileId);
+            const reason = prompt('📝 REMOVAL REASON\n\nWhy are you removing this profile?\n\n(This will be logged for moderation records)');
+            if (!reason || reason.trim() === '') {
+                showModal('❌ Error', 'Removal cancelled - reason is required', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            try {
+                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId), {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason: reason.trim() })
+                });
+                
+                if (response.ok) {
+                    showModal('✅ Success', 'Profile removed successfully', null, null, 'OK', 'btn-success');
+                    loadDashboard();
+                } else {
+                    const error = await response.text();
+                    showModal('❌ Error', 'Failed to remove profile: ' + error, null, null, 'OK', 'btn-secondary');
+                }
+            } catch (error) {
+                console.error('Remove profile error:', error);
+                showModal('❌ Error', 'Error removing profile: ' + error.message, null, null, 'OK', 'btn-secondary');
+            }
+        }
+        
+        async function executeBanProfile(profileId) {
+            console.log('executeBanProfile called with:', profileId);
+            const reason = prompt('📝 BAN REASON\n\nWhy are you banning this user?\n\n(This will be logged for moderation records)');
+            if (!reason || reason.trim() === '') {
+                showModal('❌ Error', 'Ban cancelled - reason is required', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            try {
+                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason: reason.trim() })
+                });
+                
+                if (response.ok) {
+                    showModal('✅ Success', 'Profile banned successfully', null, null, 'OK', 'btn-success');
+                    loadDashboard();
+                } else {
+                    const error = await response.text();
+                    showModal('❌ Error', 'Failed to ban profile: ' + error, null, null, 'OK', 'btn-secondary');
+                }
+            } catch (error) {
+                console.error('Ban profile error:', error);
+                showModal('❌ Error', 'Error banning profile: ' + error.message, null, null, 'OK', 'btn-secondary');
+            }
+        }
+        
+        async function executeToggleNSFW(profileId) {
+            console.log('executeToggleNSFW called with:', profileId);
+            const reason = prompt('📝 NSFW REASON\n\nWhy are you marking this as NSFW?\n\n(This will be logged for moderation records)');
+            if (!reason || reason.trim() === '') {
+                showModal('❌ Error', 'NSFW action cancelled - reason is required', null, null, 'OK', 'btn-secondary');
+                return;
+            }
+            
+            try {
+                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
+                    },
+                    body: JSON.stringify({ reason: reason.trim() })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showModal('✅ Success', result.message || 'NSFW status updated successfully', null, null, 'OK', 'btn-success');
+                    loadDashboard();
+                } else {
+                    const error = await response.text();
+                    showModal('❌ Error', 'Failed to update NSFW status: ' + error, null, null, 'OK', 'btn-secondary');
+                }
+            } catch (error) {
+                console.error('Toggle NSFW error:', error);
+                showModal('❌ Error', 'Error updating NSFW status: ' + error.message, null, null, 'OK', 'btn-secondary');
             }
         }
     </script>
