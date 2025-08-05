@@ -2710,8 +2710,9 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmModalAction() {
+            console.log('confirmModalAction called - modalAction:', modalAction, 'modalData:', modalData);
+            
             if (modalAction && modalData) {
-                console.log('Modal action:', modalAction, 'Data:', modalData);
                 closeModal();
                 
                 // Dispatch to the correct function
@@ -2723,11 +2724,10 @@ app.get("/admin", (req, res) => {
                     await toggleNSFW(modalData);
                 } else {
                     console.error('Unknown modal action:', modalAction);
-                    alert('Error: Unknown action');
                 }
             } else {
-                console.error('No modal action or data set');
-                alert('Error: No modal action set');
+                console.error('No modal action or data set - modalAction:', modalAction, 'modalData:', modalData);
+                closeModal();
             }
         }
         
@@ -2790,7 +2790,7 @@ app.get("/admin", (req, res) => {
         async function removeProfile(data) {
             const reason = document.getElementById('removeReason')?.value?.trim();
             if (!reason) {
-                alert('Please enter a reason for removal');
+                showModal('Error', '<p>Please enter a reason for removal.</p>', 'OK', 'btn-secondary', null, null);
                 return;
             }
             
@@ -2808,20 +2808,20 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('Profile removed successfully');
+                    showModal('Success', '<p>Profile <strong>' + data.characterName + '</strong> has been removed successfully.</p>', 'OK', 'btn-primary', null, null);
                     loadProfiles();
                 } else {
-                    alert('Failed to remove profile');
+                    showModal('Error', '<p>Failed to remove profile. Please try again.</p>', 'OK', 'btn-secondary', null, null);
                 }
             } catch (error) {
-                alert('Error removing profile: ' + error.message);
+                showModal('Error', '<p>Error removing profile: ' + error.message + '</p>', 'OK', 'btn-secondary', null, null);
             }
         }
         
         async function banProfile(data) {
             const reason = document.getElementById('banReason')?.value?.trim();
             if (!reason) {
-                alert('Please enter a reason for ban');
+                showModal('Error', '<p>Please enter a reason for ban.</p>', 'OK', 'btn-secondary', null, null);
                 return;
             }
             
@@ -2839,20 +2839,20 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('Profile banned successfully');
+                    showModal('Success', '<p>Profile <strong>' + data.characterName + '</strong> has been banned successfully.</p>', 'OK', 'btn-primary', null, null);
                     loadProfiles();
                 } else {
-                    alert('Failed to ban profile');
+                    showModal('Error', '<p>Failed to ban profile. Please try again.</p>', 'OK', 'btn-secondary', null, null);
                 }
             } catch (error) {
-                alert('Error banning profile: ' + error.message);
+                showModal('Error', '<p>Error banning profile: ' + error.message + '</p>', 'OK', 'btn-secondary', null, null);
             }
         }
         
         async function toggleNSFW(data) {
             const reason = document.getElementById('nsfwReason')?.value?.trim();
             if (!reason) {
-                alert('Please enter a reason');
+                showModal('Error', '<p>Please enter a reason.</p>', 'OK', 'btn-secondary', null, null);
                 return;
             }
             
@@ -2870,13 +2870,14 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('Profile NSFW status updated successfully');
+                    const status = data.isNSFW ? 'marked as NSFW' : 'unmarked from NSFW';
+                    showModal('Success', '<p>Profile <strong>' + data.characterName + '</strong> has been ' + status + ' successfully.</p>', 'OK', 'btn-primary', null, null);
                     loadProfiles();
                 } else {
-                    alert('Failed to update NSFW status');
+                    showModal('Error', '<p>Failed to update NSFW status. Please try again.</p>', 'OK', 'btn-secondary', null, null);
                 }
             } catch (error) {
-                alert('Error updating NSFW status: ' + error.message);
+                showModal('Error', '<p>Error updating NSFW status: ' + error.message + '</p>', 'OK', 'btn-secondary', null, null);
             }
         }
         
