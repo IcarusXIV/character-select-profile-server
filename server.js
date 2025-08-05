@@ -1674,6 +1674,91 @@ app.get("/admin", (req, res) => {
         .bulk-actions input[type="text"]::placeholder {
             color: rgba(255, 255, 255, 0.6);
         }
+        
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 25px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 15px;
+        }
+        
+        .modal-title {
+            color: #fff;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: #ccc;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-close:hover {
+            color: #fff;
+        }
+        
+        .modal-body {
+            margin-bottom: 20px;
+            color: #ccc;
+            line-height: 1.5;
+        }
+        
+        .modal-body .profile-info {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .modal-footer .btn {
+            min-width: 80px;
+        }
     </style>
 </head>
 <body>
@@ -2176,24 +2261,6 @@ app.get("/admin", (req, res) => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
                 
-                // Add checkbox for bulk selection
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.className = 'profile-checkbox';
-                checkbox.setAttribute('data-profile-id', profile.CharacterId);
-                checkbox.checked = selectedProfiles.has(profile.CharacterId);
-                checkbox.onchange = function() {
-                    toggleProfileSelection(profile.CharacterId, this);
-                    if (this.checked) {
-                        card.classList.add('selected');
-                    } else {
-                        card.classList.remove('selected');
-                    }
-                };
-                
-                // Add checkbox to card
-                card.appendChild(checkbox);
-                
                 // Mark card as selected if profile is already selected
                 if (selectedProfiles.has(profile.CharacterId)) {
                     card.classList.add('selected');
@@ -2242,12 +2309,13 @@ app.get("/admin", (req, res) => {
                     <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
                         Ban
                     </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
+                    <button class="btn btn-nsfw" onclick="confirmToggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
                         Mark NSFW
                     </button>
                 \`;
                 
                 card.innerHTML = \`
+                    <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}', this); this.checked ? this.closest('.profile-card').classList.add('selected') : this.closest('.profile-card').classList.remove('selected');">
                     <div class="profile-header">
                         <div class="profile-info">
                             \${characterNameHtml}
@@ -2618,6 +2686,190 @@ app.get("/admin", (req, res) => {
             // Refresh the profiles view
             if (document.getElementById('profiles').classList.contains('active')) {
                 loadProfiles();
+            }
+        }
+        
+        // Modal functions
+        let modalAction = null;
+        let modalData = null;
+        
+        function showModal(title, body, confirmText, confirmClass, action, data) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalBody').innerHTML = body;
+            
+            const confirmBtn = document.getElementById('modalConfirmBtn');
+            confirmBtn.textContent = confirmText;
+            confirmBtn.className = 'btn ' + confirmClass;
+            
+            modalAction = action;
+            modalData = data;
+            
+            document.getElementById('confirmModal').classList.add('show');
+        }
+        
+        function closeModal() {
+            document.getElementById('confirmModal').classList.remove('show');
+            modalAction = null;
+            modalData = null;
+        }
+        
+        async function confirmModalAction() {
+            if (modalAction && modalData) {
+                closeModal();
+                await modalAction(modalData);
+            }
+        }
+        
+        // Individual profile action functions (updated to use modals)
+        function confirmRemoveProfile(characterId, characterName) {
+            const body = \`
+                <p>Are you sure you want to <strong>remove</strong> this profile?</p>
+                <div class="profile-info">
+                    <strong>Character:</strong> \${characterName}<br>
+                    <strong>ID:</strong> \${characterId}
+                </div>
+                <div class="input-group" style="margin-top: 15px;">
+                    <label for="removeReason">Reason for removal:</label>
+                    <input type="text" id="removeReason" placeholder="Enter reason..." style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
+                <p style="color: #f44336; margin-top: 10px; font-size: 0.9em;"><strong>Warning:</strong> This action cannot be undone.</p>
+            \`;
+            
+            showModal('Remove Profile', body, 'Remove', 'btn-danger', removeProfile, { characterId, characterName });
+        }
+        
+        function confirmBanProfile(characterId, characterName) {
+            const body = \`
+                <p>Are you sure you want to <strong>ban</strong> this profile?</p>
+                <div class="profile-info">
+                    <strong>Character:</strong> \${characterName}<br>
+                    <strong>ID:</strong> \${characterId}
+                </div>
+                <div class="input-group" style="margin-top: 15px;">
+                    <label for="banReason">Reason for ban:</label>
+                    <input type="text" id="banReason" placeholder="Enter reason..." style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
+                <p style="color: #ff9800; margin-top: 10px; font-size: 0.9em;">This will prevent the profile from being uploaded again.</p>
+            \`;
+            
+            showModal('Ban Profile', body, 'Ban', 'btn-warning', banProfile, { characterId, characterName });
+        }
+        
+        function confirmToggleNSFW(characterId, characterName, isCurrentlyNSFW) {
+            const action = isCurrentlyNSFW ? 'unmark from' : 'mark as';
+            const actionCaps = isCurrentlyNSFW ? 'Unmark' : 'Mark';
+            
+            const body = \`
+                <p>Are you sure you want to <strong>\${action} NSFW</strong> this profile?</p>
+                <div class="profile-info">
+                    <strong>Character:</strong> \${characterName}<br>
+                    <strong>ID:</strong> \${characterId}<br>
+                    <strong>Current Status:</strong> \${isCurrentlyNSFW ? 'NSFW' : 'Safe'}
+                </div>
+                <div class="input-group" style="margin-top: 15px;">
+                    <label for="nsfwReason">Reason:</label>
+                    <input type="text" id="nsfwReason" placeholder="Enter reason..." style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
+            \`;
+            
+            showModal(\`\${actionCaps} NSFW\`, body, actionCaps, 'btn-nsfw', toggleNSFW, { characterId, characterName, isNSFW: !isCurrentlyNSFW });
+        }
+        
+        // Updated action functions
+        async function removeProfile(data) {
+            const reason = document.getElementById('removeReason')?.value?.trim();
+            if (!reason) {
+                alert('Please enter a reason for removal');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/admin/remove-profile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Admin-Key': adminKey,
+                        'Admin-Name': adminName
+                    },
+                    body: JSON.stringify({
+                        characterId: data.characterId,
+                        reason: reason
+                    })
+                });
+                
+                if (response.ok) {
+                    alert('Profile removed successfully');
+                    loadProfiles();
+                } else {
+                    alert('Failed to remove profile');
+                }
+            } catch (error) {
+                alert('Error removing profile: ' + error.message);
+            }
+        }
+        
+        async function banProfile(data) {
+            const reason = document.getElementById('banReason')?.value?.trim();
+            if (!reason) {
+                alert('Please enter a reason for ban');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/admin/ban-profile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Admin-Key': adminKey,
+                        'Admin-Name': adminName
+                    },
+                    body: JSON.stringify({
+                        characterId: data.characterId,
+                        reason: reason
+                    })
+                });
+                
+                if (response.ok) {
+                    alert('Profile banned successfully');
+                    loadProfiles();
+                } else {
+                    alert('Failed to ban profile');
+                }
+            } catch (error) {
+                alert('Error banning profile: ' + error.message);
+            }
+        }
+        
+        async function toggleNSFW(data) {
+            const reason = document.getElementById('nsfwReason')?.value?.trim();
+            if (!reason) {
+                alert('Please enter a reason');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/admin/toggle-nsfw', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Admin-Key': adminKey,
+                        'Admin-Name': adminName
+                    },
+                    body: JSON.stringify({
+                        characterId: data.characterId,
+                        isNSFW: data.isNSFW,
+                        reason: reason
+                    })
+                });
+                
+                if (response.ok) {
+                    alert('Profile NSFW status updated successfully');
+                    loadProfiles();
+                } else {
+                    alert('Failed to update NSFW status');
+                }
+            } catch (error) {
+                alert('Error updating NSFW status: ' + error.message);
             }
         }
         
@@ -3582,6 +3834,23 @@ app.get("/admin", (req, res) => {
             }
         }
     </script>
+    
+    <!-- Confirmation Modal -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Confirm Action</div>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Content will be dynamically set -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn" id="modalConfirmBtn" onclick="confirmModalAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
     
     <!-- Bulk Action Bar -->  
     <div id="bulkActionBar" class="bulk-action-bar">
