@@ -1604,9 +1604,8 @@ app.get("/admin", (req, res) => {
         
         .profile-checkbox-container {
             position: absolute;
-            top: 140px;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 8px;
+            right: 8px;
             z-index: 10;
             background: rgba(0, 0, 0, 0.8);
             padding: 5px;
@@ -1852,6 +1851,9 @@ app.get("/admin", (req, res) => {
                     <div class="filter-controls">
                         <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
                         <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
+                        <label style="color: #4CAF50; margin-left: 15px; display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page
+                        </label>
                         <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
                     </div>
                 </div>
@@ -2226,12 +2228,13 @@ app.get("/admin", (req, res) => {
             const grid = document.getElementById('profilesGrid');
             grid.innerHTML = '';
             
-            // Add select all container
+            // Update select all checkbox count in Advanced Filters
             if (profiles.length > 0) {
-                const selectAllContainer = document.createElement('div');
-                selectAllContainer.className = 'select-all-container';
-                selectAllContainer.innerHTML = '<label><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (' + profiles.length + ')</label>';
-                grid.appendChild(selectAllContainer);
+                const selectAllLabel = document.querySelector('label[style*="#4CAF50"]');
+                if (selectAllLabel) {
+                    const checkbox = selectAllLabel.querySelector('#selectAllCheckbox');
+                    selectAllLabel.innerHTML = `<input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (${profiles.length})`;
+                }
             }
             
             profiles.forEach(profile => {
@@ -3596,12 +3599,12 @@ app.get("/admin", (req, res) => {
             confirmBtn.textContent = buttonText;
             confirmBtn.className = 'btn ' + buttonClass;
             
-            document.getElementById('confirmModal').style.display = 'block';
+            const modal = document.getElementById('confirmModal');\n            modal.style.display = 'block';\n            modal.classList.add('show');
         }
         
         function closeModal() {
             console.log('closeModal called');
-            document.getElementById('confirmModal').style.display = 'none';
+            const modal = document.getElementById('confirmModal');\n            modal.style.display = 'none';\n            modal.classList.remove('show');
             modalAction = null;
             modalTarget = null;
             console.log('modalAction reset to:', modalAction);
@@ -3619,24 +3622,28 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
+            // Store action and target before closing modal
+            const actionToExecute = modalAction;
+            const targetToExecute = modalTarget;
+            
             closeModal();
             
             // Execute the action
-            switch(modalAction) {
+            switch(actionToExecute) {
                 case 'remove':
-                    console.log('Executing remove action for:', modalTarget);
-                    executeRemoveProfile(modalTarget);
+                    console.log('Executing remove action for:', targetToExecute);
+                    executeRemoveProfile(targetToExecute);
                     break;
                 case 'ban':
-                    console.log('Executing ban action for:', modalTarget);
-                    executeBanProfile(modalTarget);
+                    console.log('Executing ban action for:', targetToExecute);
+                    executeBanProfile(targetToExecute);
                     break;
                 case 'nsfw':
-                    console.log('Executing NSFW action for:', modalTarget);
-                    executeToggleNSFW(modalTarget);
+                    console.log('Executing NSFW action for:', targetToExecute);
+                    executeToggleNSFW(targetToExecute);
                     break;
                 default:
-                    console.error('Unknown modal action:', modalAction);
+                    console.error('Unknown modal action:', actionToExecute);
             }
         }
         
