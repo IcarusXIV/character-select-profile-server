@@ -1608,9 +1608,7 @@ app.get("/admin", (req, res) => {
             bottom: -25px;
             right: 8px;
             z-index: 10;
-            background: rgba(0, 0, 0, 0.8);
             padding: 5px;
-            border-radius: 4px;
         }
         
         .profile-checkbox {
@@ -2669,7 +2667,7 @@ app.get("/admin", (req, res) => {
         
         function showKeywordManager() {
             // Simple keyword manager for now
-            const newKeyword = prompt('Add new keyword to auto-flag list:\\n(Leave empty to cancel)');
+            const newKeyword = prompt('Add new keyword to auto-flag list:\n(Leave empty to cancel)');
             if (newKeyword && newKeyword.trim()) {
                 addFlagKeyword(newKeyword.trim());
             }
@@ -2697,17 +2695,17 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmRemoveProfile(characterId, characterName) {
-            const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
+            const action = confirm(\`🗑️ REMOVE PROFILE\n\nCharacter: \${characterName}\n\nThis will remove their profile from the gallery.\nThey can still upload new profiles unless banned separately.\n\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
             
-            const reason = prompt(\`📝 REMOVAL REASON\\n\\nWhy are you removing "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
+            const reason = prompt(\`📝 REMOVAL REASON\n\nWhy are you removing "\${characterName}"?\n\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
                 alert('❌ Removal cancelled - reason is required');
                 return;
             }
             
-            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\n\nRemove "\${characterName}" from gallery?\nReason: \${reason}\n\nThis action cannot be undone.\n\nClick OK to REMOVE PROFILE\`);
             if (!finalConfirm) return;
             
             try {
@@ -2734,17 +2732,17 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
+            const action = confirm(\`🚫 BAN PROFILE\n\nCharacter: \${characterName}\n\nThis will permanently ban them from uploading any profiles.\nTheir current profile will remain in the gallery unless removed separately.\n\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
             
-            const reason = prompt(\`📝 BAN REASON\\n\\nWhy are you banning "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
+            const reason = prompt(\`📝 BAN REASON\n\nWhy are you banning "\${characterName}"?\n\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
                 alert('❌ Ban cancelled - reason is required'); 
                 return;
             }
             
-            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\n\nPermanently ban "\${characterName}"?\nReason: \${reason}\n\nThey will not be able to upload new profiles.\n\nClick OK to BAN PROFILE\`);
             if (!finalConfirm) return;
             
             try {
@@ -3428,7 +3426,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            if (!confirm('Remove ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis action cannot be undone.')) {
+            if (!confirm('Remove ' + selectedProfiles.size + ' selected profiles?\n\nReason: ' + reason + '\n\nThis action cannot be undone.')) {
                 return;
             }
             
@@ -3464,7 +3462,7 @@ app.get("/admin", (req, res) => {
             document.getElementById('bulkActionReason').value = '';
             
             showModal('✅ Bulk Remove Complete', 
-                'Successfully removed: ' + successCount + ' profiles\\n' +
+                'Successfully removed: ' + successCount + ' profiles\n' +
                 'Failed: ' + errorCount + ' profiles', 
                 null, null, 'OK', 'btn-success');
             
@@ -3480,7 +3478,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            if (!confirm('Ban ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis will prevent them from uploading new profiles.')) {
+            if (!confirm('Ban ' + selectedProfiles.size + ' selected profiles?\n\nReason: ' + reason + '\n\nThis will prevent them from uploading new profiles.')) {
                 return;
             }
             
@@ -3516,7 +3514,7 @@ app.get("/admin", (req, res) => {
             document.getElementById('bulkActionReason').value = '';
             
             showModal('✅ Bulk Ban Complete', 
-                'Successfully banned: ' + successCount + ' profiles\\n' +
+                'Successfully banned: ' + successCount + ' profiles\n' +
                 'Failed: ' + errorCount + ' profiles', 
                 null, null, 'OK', 'btn-success');
             
@@ -3532,7 +3530,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            if (!confirm('Mark selected profiles as NSFW?\\n\\nReason: ' + reason + '\\n\\n(Profiles already marked as NSFW will be skipped)')) {
+            if (!confirm('Mark selected profiles as NSFW?\n\nReason: ' + reason + '\n\n(Profiles already marked as NSFW will be skipped)')) {
                 return;
             }
             
@@ -3574,8 +3572,8 @@ app.get("/admin", (req, res) => {
             document.getElementById('bulkActionReason').value = '';
             
             showModal('✅ Bulk NSFW Complete', 
-                'Successfully marked as NSFW: ' + successCount + ' profiles\\n' +
-                'Skipped (already NSFW): ' + skippedCount + ' profiles\\n' +
+                'Successfully marked as NSFW: ' + successCount + ' profiles\n' +
+                'Skipped (already NSFW): ' + skippedCount + ' profiles\n' +
                 'Failed: ' + errorCount + ' profiles', 
                 null, null, 'OK', 'btn-success');
             
@@ -3754,7 +3752,11 @@ app.get("/admin", (req, res) => {
                 <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
             <div class="modal-body" id="modalBody">
-                <!-- Content will be dynamically set -->\n                <div id="modalReasonContainer" style="display: none; margin-top: 15px;">\n                    <label for="modalReasonInput" style="display: block; margin-bottom: 5px; color: #ddd;">Reason (required):</label>\n                    <textarea id="modalReasonInput" placeholder="Enter reason for this action..." style="width: 100%; padding: 8px; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; background: rgba(255,255,255,0.1); color: #fff; resize: vertical; min-height: 60px;"></textarea>\n                </div>
+                <!-- Content will be dynamically set -->
+                <div id="modalReasonContainer" style="display: none; margin-top: 15px;">
+                    <label for="modalReasonInput" style="display: block; margin-bottom: 5px; color: #ddd;">Reason (required):</label>
+                    <textarea id="modalReasonInput" placeholder="Enter reason for this action..." style="width: 100%; padding: 8px; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; background: rgba(255,255,255,0.1); color: #fff; resize: vertical; min-height: 60px;"></textarea>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
