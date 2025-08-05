@@ -1539,6 +1539,7 @@ app.get("/admin", (req, res) => {
             display: flex;
             gap: 10px;
             justify-content: center;
+            align-items: center;
         }
         
         .filter-active {
@@ -1604,7 +1605,7 @@ app.get("/admin", (req, res) => {
         
         .profile-checkbox-container {
             position: absolute;
-            bottom: 8px;
+            bottom: -25px;
             right: 8px;
             z-index: 10;
             background: rgba(0, 0, 0, 0.8);
@@ -1854,7 +1855,7 @@ app.get("/admin", (req, res) => {
                         <label style="color: #4CAF50; margin-left: 15px; display: flex; align-items: center; gap: 8px;">
                             <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page
                         </label>
-                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
+                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px; display: flex; align-items: center;"></span>
                     </div>
                 </div>
                 
@@ -3593,19 +3594,19 @@ app.get("/admin", (req, res) => {
             console.log('modalTarget set to:', modalTarget);
             
             document.getElementById('modalTitle').textContent = title;
-            document.getElementById('modalBody').innerHTML = message;
+            document.getElementById('modalBody').innerHTML = message;\n            \n            // Show reason input for actions that need it\n            const reasonContainer = document.getElementById('modalReasonContainer');\n            const reasonInput = document.getElementById('modalReasonInput');\n            if (action === 'remove' || action === 'ban' || action === 'nsfw') {\n                reasonContainer.style.display = 'block';\n                reasonInput.value = '';\n                setTimeout(() => reasonInput.focus(), 100);\n            } else {\n                reasonContainer.style.display = 'none';\n            }
             
             const confirmBtn = document.getElementById('modalConfirmBtn');
             confirmBtn.textContent = buttonText;
             confirmBtn.className = 'btn ' + buttonClass;
             
-            const modal = document.getElementById('confirmModal');\n            modal.style.display = 'block';\n            modal.classList.add('show');
+            const modal = document.getElementById('confirmModal');\n            modal.classList.add('show');
         }
         
         function closeModal() {
             console.log('closeModal called');
-            const modal = document.getElementById('confirmModal');\n            modal.style.display = 'none';\n            modal.classList.remove('show');
-            modalAction = null;
+            const modal = document.getElementById('confirmModal');\n            modal.classList.remove('show');
+            // Clear reason input\n            const reasonInput = document.getElementById('modalReasonInput');\n            if (reasonInput) reasonInput.value = '';\n            \n            modalAction = null;
             modalTarget = null;
             console.log('modalAction reset to:', modalAction);
         }
@@ -3622,7 +3623,7 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
-            // Store action and target before closing modal
+            // Check if reason is required and provided\n            if (modalAction === 'remove' || modalAction === 'ban' || modalAction === 'nsfw') {\n                const reasonInput = document.getElementById('modalReasonInput');\n                const reason = reasonInput ? reasonInput.value.trim() : '';\n                if (!reason) {\n                    reasonInput.style.borderColor = '#f44336';\n                    reasonInput.focus();\n                    return;\n                } else {\n                    reasonInput.style.borderColor = 'rgba(255,255,255,0.3)';\n                }\n            }\n            \n            // Store action and target before closing modal
             const actionToExecute = modalAction;
             const targetToExecute = modalTarget;
             
@@ -3649,7 +3650,7 @@ app.get("/admin", (req, res) => {
         
         async function executeRemoveProfile(profileId) {
             console.log('executeRemoveProfile called with:', profileId);
-            const reason = prompt('📝 REMOVAL REASON\\n\\nWhy are you removing this profile?\\n\\n(This will be logged for moderation records)');
+            const reasonInput = document.getElementById('modalReasonInput');\n            const reason = reasonInput ? reasonInput.value.trim() : '';
             if (!reason || reason.trim() === '') {
                 showModal('❌ Error', 'Removal cancelled - reason is required', null, null, 'OK', 'btn-secondary');
                 return;
@@ -3681,7 +3682,7 @@ app.get("/admin", (req, res) => {
         
         async function executeBanProfile(profileId) {
             console.log('executeBanProfile called with:', profileId);
-            const reason = prompt('📝 BAN REASON\\n\\nWhy are you banning this user?\\n\\n(This will be logged for moderation records)');
+            const reasonInput = document.getElementById('modalReasonInput');\n            const reason = reasonInput ? reasonInput.value.trim() : '';
             if (!reason || reason.trim() === '') {
                 showModal('❌ Error', 'Ban cancelled - reason is required', null, null, 'OK', 'btn-secondary');
                 return;
@@ -3713,7 +3714,7 @@ app.get("/admin", (req, res) => {
         
         async function executeToggleNSFW(profileId) {
             console.log('executeToggleNSFW called with:', profileId);
-            const reason = prompt('📝 NSFW REASON\\n\\nWhy are you marking this as NSFW?\\n\\n(This will be logged for moderation records)');
+            const reasonInput = document.getElementById('modalReasonInput');\n            const reason = reasonInput ? reasonInput.value.trim() : '';
             if (!reason || reason.trim() === '') {
                 showModal('❌ Error', 'NSFW action cancelled - reason is required', null, null, 'OK', 'btn-secondary');
                 return;
@@ -3753,7 +3754,7 @@ app.get("/admin", (req, res) => {
                 <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
             <div class="modal-body" id="modalBody">
-                <!-- Content will be dynamically set -->
+                <!-- Content will be dynamically set -->\n                <div id="modalReasonContainer" style="display: none; margin-top: 15px;">\n                    <label for="modalReasonInput" style="display: block; margin-bottom: 5px; color: #ddd;">Reason (required):</label>\n                    <textarea id="modalReasonInput" placeholder="Enter reason for this action..." style="width: 100%; padding: 8px; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; background: rgba(255,255,255,0.1); color: #fff; resize: vertical; min-height: 60px;"></textarea>\n                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
