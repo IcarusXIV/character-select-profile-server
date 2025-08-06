@@ -2243,7 +2243,12 @@ app.get("/admin", (req, res) => {
                 }
                 
                 showToast('✅ Removed ' + successCount + ' of ' + totalCount + ' profiles');
+                
+                // Update profiles in memory and re-render
+                updateMultipleProfilesInMemory(Array.from(selectedProfiles), 'remove');
                 clearBulkSelection();
+                renderProfilesPage();
+                
                 await refreshStats();
                 
             } catch (error) {
@@ -2281,7 +2286,12 @@ app.get("/admin", (req, res) => {
                 }
                 
                 showToast('✅ Banned ' + successCount + ' of ' + totalCount + ' profiles');
+                
+                // Update profiles in memory and re-render
+                updateMultipleProfilesInMemory(Array.from(selectedProfiles), 'ban');
                 clearBulkSelection();
+                renderProfilesPage();
+                
                 await refreshStats();
                 
             } catch (error) {
@@ -2326,11 +2336,70 @@ app.get("/admin", (req, res) => {
                 const message = '✅ Marked ' + successCount + ' profiles as NSFW' + 
                                (skippedCount > 0 ? ' (skipped ' + skippedCount + ' already NSFW)' : '');
                 showToast(message);
+                
+                // Update profiles in memory and re-render
+                updateMultipleProfilesInMemory(Array.from(selectedProfiles), 'nsfw');
                 clearBulkSelection();
+                renderProfilesPage();
+                
                 await refreshStats();
                 
             } catch (error) {
                 showToast('❌ Error performing bulk NSFW marking: ' + error.message, 'error');
+            }
+        }
+        
+        function updateProfileInMemory(characterId, action) {
+            // Update the profile in both allProfiles and filteredProfiles arrays
+            const updateProfile = (profile) => {
+                if (profile.CharacterId === characterId) {
+                    switch(action) {
+                        case 'remove':
+                        case 'ban':
+                            // For remove/ban, we'll mark it as removed rather than actually removing
+                            // This prevents issues with array indexing during bulk operations
+                            profile.IsRemoved = true;
+                            break;
+                        case 'nsfw':
+                            profile.IsNSFW = true;
+                            break;
+                    }
+                }
+                return profile;
+            };
+            
+            allProfiles = allProfiles.map(updateProfile);
+            filteredProfiles = filteredProfiles.map(updateProfile);
+            
+            // If profile was removed/banned, filter it out from the display
+            if (action === 'remove' || action === 'ban') {
+                filteredProfiles = filteredProfiles.filter(profile => !profile.IsRemoved);
+            }
+        }
+        
+        function updateMultipleProfilesInMemory(characterIds, action) {
+            // Update multiple profiles for bulk operations
+            const updateProfile = (profile) => {
+                if (characterIds.includes(profile.CharacterId)) {
+                    switch(action) {
+                        case 'remove':
+                        case 'ban':
+                            profile.IsRemoved = true;
+                            break;
+                        case 'nsfw':
+                            profile.IsNSFW = true;
+                            break;
+                    }
+                }
+                return profile;
+            };
+            
+            allProfiles = allProfiles.map(updateProfile);
+            filteredProfiles = filteredProfiles.map(updateProfile);
+            
+            // If profiles were removed/banned, filter them out from the display
+            if (action === 'remove' || action === 'ban') {
+                filteredProfiles = filteredProfiles.filter(profile => !profile.IsRemoved);
             }
         }
         
@@ -2429,6 +2498,11 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     closeModal();
                     showToast('✅ ' + successMessage);
+                    
+                    // Update the profile data in memory and re-render
+                    updateProfileInMemory(characterId, action);
+                    renderProfilesPage();
+                    
                     await refreshStats();
                 } else {
                     showToast('❌ Error performing action', 'error');
