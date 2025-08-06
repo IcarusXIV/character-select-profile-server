@@ -1664,25 +1664,19 @@ app.get("/admin", (req, res) => {
         
         /* Profile Checkbox Styles */
         .profile-checkbox {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             cursor: pointer;
             accent-color: #4CAF50;
-            transform: scale(1.1);
-            z-index: 10;
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 3px;
-            padding: 2px;
+            margin-right: 8px;
+            flex-shrink: 0;
         }
         
-        /* Profile Image Container Styles */
-        .profile-image-container {
-            position: relative;
-            margin-top: 30px;
-            margin-right: 8px;
+        /* Profile Name Row Styles */
+        .profile-name-row {
+            display: flex;
+            align-items: center;
+            gap: 0;
         }
         
         /* Advanced Filters Styles */
@@ -2820,18 +2814,18 @@ app.get("/admin", (req, res) => {
                 card.innerHTML = \`
                     <div class="profile-header">
                         <div class="profile-info">
-                            \${characterNameHtml}
+                            <div class="profile-name-row">
+                                <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
+                                \${characterNameHtml}
+                            </div>
                             <div class="profile-id">\${profile.CharacterId}</div>
                             <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
                                 <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
                                 <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        <div class="profile-image-container">
-                            \${imageHtml}
-                        </div>
+                        \${imageHtml}
                     </div>
-                    <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
                     \${contentHtml}
                     <div class="profile-actions">
                         \${actionButtons}
