@@ -1665,13 +1665,17 @@ app.get("/admin", (req, res) => {
         /* Profile Checkbox Styles */
         .profile-checkbox {
             position: absolute;
-            bottom: -15px;
-            right: 0px;
+            top: 8px;
+            right: 8px;
             width: 18px;
             height: 18px;
             cursor: pointer;
             accent-color: #4CAF50;
             transform: scale(1.1);
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 3px;
+            padding: 2px;
         }
         
         /* Advanced Filters Styles */
@@ -2816,11 +2820,11 @@ app.get("/admin", (req, res) => {
                                 <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        <div style="position: relative;">
+                        <div style="position: relative; margin-top: 8px;">
                             \${imageHtml}
-                            <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
                         </div>
                     </div>
+                    <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
                     \${contentHtml}
                     <div class="profile-actions">
                         \${actionButtons}
