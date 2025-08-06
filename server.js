@@ -1629,7 +1629,8 @@ app.get("/admin", (req, res) => {
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(76, 175, 80, 0.95);
+            background: rgba(42, 42, 62, 0.95);
+            border: 1px solid rgba(76, 175, 80, 0.3);
             padding: 15px 25px;
             border-radius: 25px;
             backdrop-filter: blur(10px);
@@ -1637,7 +1638,7 @@ app.get("/admin", (req, res) => {
             align-items: center;
             gap: 15px;
             z-index: 1000;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }
         
         .bulk-action-bar.show {
@@ -1664,11 +1665,13 @@ app.get("/admin", (req, res) => {
         /* Profile Checkbox Styles */
         .profile-checkbox {
             position: absolute;
-            bottom: 15px;
-            right: 15px;
-            width: 20px;
-            height: 20px;
+            bottom: -15px;
+            right: 0px;
+            width: 18px;
+            height: 18px;
             cursor: pointer;
+            accent-color: #4CAF50;
+            transform: scale(1.1);
         }
         
         /* Advanced Filters Styles */
@@ -1689,9 +1692,10 @@ app.get("/admin", (req, res) => {
         
         .filter-controls {
             display: flex;
-            gap: 10px;
-            justify-content: center;
+            gap: 20px;
+            justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
         }
         
         /* Modal Styles */
@@ -1924,18 +1928,18 @@ app.get("/admin", (req, res) => {
                         </div>
                     </div>
                     <div class="filter-controls">
-                        <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
-                        <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
-                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
-                    </div>
-                    
-                    <!-- Bulk Selection Controls -->
-                    <div class="filter-controls" style="margin-top: 15px;">
-                        <label style="color: #ccc;">
-                            <input type="checkbox" id="selectAllOnPage" onchange="toggleSelectAllOnPage()"> Select All on Page
-                        </label>
-                        <span id="selectedCount" style="color: #4CAF50; margin-left: 15px;">0 selected</span>
-                        <button class="btn" onclick="clearBulkSelection()" style="margin-left: 15px; display: none;" id="clearSelectionBtn">Clear All</button>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+                            <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+                            <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
+                        </div>
+                        <div style="display: flex; gap: 15px; align-items: center; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 15px;">
+                            <label style="color: #ccc; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                <input type="checkbox" id="selectAllOnPage" onchange="toggleSelectAllOnPage()" style="margin: 0;"> Select All on Page
+                            </label>
+                            <span id="selectedCount" style="color: #4CAF50; font-weight: bold;">0 selected</span>
+                            <button class="btn btn-secondary" onclick="clearBulkSelection()" style="display: none; font-size: 0.8em; padding: 4px 8px;" id="clearSelectionBtn">Clear Selection</button>
+                        </div>
                     </div>
                 </div>
                 
@@ -2240,7 +2244,6 @@ app.get("/admin", (req, res) => {
                 
                 showToast('✅ Removed ' + successCount + ' of ' + totalCount + ' profiles');
                 clearBulkSelection();
-                loadProfiles();
                 await refreshStats();
                 
             } catch (error) {
@@ -2279,7 +2282,6 @@ app.get("/admin", (req, res) => {
                 
                 showToast('✅ Banned ' + successCount + ' of ' + totalCount + ' profiles');
                 clearBulkSelection();
-                loadProfiles();
                 await refreshStats();
                 
             } catch (error) {
@@ -2325,7 +2327,6 @@ app.get("/admin", (req, res) => {
                                (skippedCount > 0 ? ' (skipped ' + skippedCount + ' already NSFW)' : '');
                 showToast(message);
                 clearBulkSelection();
-                loadProfiles();
                 await refreshStats();
                 
             } catch (error) {
@@ -2428,7 +2429,6 @@ app.get("/admin", (req, res) => {
                 if (response.ok) {
                     closeModal();
                     showToast('✅ ' + successMessage);
-                    loadProfiles(); // Refresh profiles without page reload
                     await refreshStats();
                 } else {
                     showToast('❌ Error performing action', 'error');
@@ -2733,7 +2733,6 @@ app.get("/admin", (req, res) => {
                 \`;
                 
                 card.innerHTML = \`
-                    <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
                     <div class="profile-header">
                         <div class="profile-info">
                             \${characterNameHtml}
@@ -2743,7 +2742,10 @@ app.get("/admin", (req, res) => {
                                 <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        \${imageHtml}
+                        <div style="position: relative;">
+                            \${imageHtml}
+                            <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
+                        </div>
                     </div>
                     \${contentHtml}
                     <div class="profile-actions">
