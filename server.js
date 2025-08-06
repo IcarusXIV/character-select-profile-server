@@ -1678,6 +1678,13 @@ app.get("/admin", (req, res) => {
             padding: 2px;
         }
         
+        /* Profile Image Container Styles */
+        .profile-image-container {
+            position: relative;
+            margin-top: 30px;
+            margin-right: 8px;
+        }
+        
         /* Advanced Filters Styles */
         .filter-section {
             background: rgba(255, 255, 255, 0.05);
@@ -2820,7 +2827,7 @@ app.get("/admin", (req, res) => {
                                 <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
                             </div>
                         </div>
-                        <div style="position: relative; margin-top: 8px;">
+                        <div class="profile-image-container">
                             \${imageHtml}
                         </div>
                     </div>
