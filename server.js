@@ -1539,7 +1539,6 @@ app.get("/admin", (req, res) => {
             display: flex;
             gap: 10px;
             justify-content: center;
-            align-items: center;
         }
         
         .filter-active {
@@ -1583,158 +1582,6 @@ app.get("/admin", (req, res) => {
             font-size: 0.9em;
             max-height: 100px;
             overflow-y: auto;
-        }
-        
-        /* Bulk selection styles */
-        .select-all-container {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .select-all-container label {
-            color: #4CAF50;
-            font-weight: bold;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .profile-checkbox-container {
-            position: absolute;
-            bottom: -25px;
-            right: 8px;
-            z-index: 10;
-            padding: 5px;
-        }
-        
-        .profile-checkbox {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-        
-        .bulk-action-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            border: 2px solid #4CAF50;
-            border-radius: 12px;
-            padding: 15px 25px;
-            display: none;
-            align-items: center;
-            gap: 15px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(10px);
-            z-index: 1000;
-            max-width: 90vw;
-            flex-wrap: wrap;
-        }
-        
-        .bulk-selection-count {
-            color: #4CAF50;
-            font-weight: bold;
-            margin-right: 10px;
-        }
-        
-        .bulk-actions {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        
-        .bulk-actions input[type="text"] {
-            padding: 8px 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            font-size: 0.9em;
-            width: 200px;
-        }
-        
-        .bulk-actions input[type="text"]::placeholder {
-            color: rgba(255, 255, 255, 0.6);
-        }
-        
-        /* Modal styles */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 2000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(5px);
-        }
-        
-        .modal.show {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .modal-content {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px;
-            padding: 25px;
-            max-width: 500px;
-            width: 90%;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        }
-        
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .modal-title {
-            font-size: 1.3em;
-            font-weight: bold;
-            color: #fff;
-        }
-        
-        .modal-close {
-            background: none;
-            border: none;
-            font-size: 1.8em;
-            color: #aaa;
-            cursor: pointer;
-            padding: 0;
-            width: 30px;
-            height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .modal-close:hover {
-            color: #fff;
-        }
-        
-        .modal-body {
-            margin-bottom: 25px;
-            line-height: 1.6;
-            color: #ccc;
-        }
-        
-        .modal-footer {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
         }
     </style>
 </head>
@@ -1850,10 +1697,7 @@ app.get("/admin", (req, res) => {
                     <div class="filter-controls">
                         <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
                         <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
-                        <label style="color: #4CAF50; margin-left: 15px; display: flex; align-items: center; gap: 8px;">
-                            <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page
-                        </label>
-                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px; display: flex; align-items: center;"></span>
+                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
                     </div>
                 </div>
                 
@@ -1987,51 +1831,6 @@ app.get("/admin", (req, res) => {
         let availableServers = new Set();
         
         // Load saved admin credentials on page load
-        async function loadDashboard() {
-            console.log('🔄 Loading dashboard...');
-            
-            adminKey = document.getElementById('adminKey').value.trim();
-            adminName = document.getElementById('adminName').value.trim();
-            
-            if (!adminKey) {
-                alert('Please enter the admin secret key');
-                return;
-            }
-            
-            if (!adminName) {
-                alert('Please enter your admin name');
-                return;
-            }
-            
-            try {
-                // Test the admin key by fetching stats
-                const response = await fetch(serverUrl + '/admin/stats', {
-                    headers: {
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    }
-                });
-                
-                if (response.ok) {
-                    // Save credentials and show dashboard
-                    localStorage.setItem('cs_admin_key', adminKey);
-                    localStorage.setItem('cs_admin_name', adminName);
-                    
-                    document.querySelector('.auth-section').style.display = 'none';
-                    document.getElementById('dashboardContent').style.display = 'block';
-                    
-                    // Load initial data
-                    await refreshStats();
-                    await loadProfiles();
-                } else {
-                    alert('Invalid admin credentials');
-                }
-            } catch (error) {
-                console.error('Auth error:', error);
-                alert('Failed to authenticate: ' + error.message);
-            }
-        }
-        
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔄 Page loaded, checking for saved credentials...');
             
@@ -2272,40 +2071,19 @@ app.get("/admin", (req, res) => {
             const grid = document.getElementById('profilesGrid');
             grid.innerHTML = '';
             
-            // Update select all checkbox count in Advanced Filters
-            if (profiles.length > 0) {
-                const selectAllLabel = document.querySelector('label[style*="#4CAF50"]');
-                if (selectAllLabel) {
-                    const checkbox = selectAllLabel.querySelector('#selectAllCheckbox');
-                    selectAllLabel.innerHTML = '<input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All on Page (' + profiles.length + ')';
-                }
-            }
-            
             profiles.forEach(profile => {
                 const card = document.createElement('div');
                 card.className = 'profile-card';
                 
-                const isSelected = selectedProfiles.has(profile.CharacterId);
-                
-                // Create clickable image element or placeholder with checkbox
+                // Create clickable image element or placeholder
                 const imageHtml = profile.ProfileImageUrl 
-                    ? \`<div style="position: relative;">
-                        <img src="\${profile.ProfileImageUrl}" 
+                    ? \`<img src="\${profile.ProfileImageUrl}" 
                             alt="\${profile.CharacterName}" 
                             class="profile-image" 
                             onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <div class="profile-image-placeholder" style="display: none;">🖼️</div>
-                        <div class="profile-checkbox-container">
-                            <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${isSelected ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}')">
-                        </div>
-                       </div>\`
-                    : \`<div style="position: relative;">
-                        <div class="profile-image-placeholder">🖼️</div>
-                        <div class="profile-checkbox-container">
-                            <input type="checkbox" class="profile-checkbox" data-profile-id="\${profile.CharacterId}" \${isSelected ? 'checked' : ''} onchange="toggleProfileSelection('\${profile.CharacterId}')">
-                        </div>
-                       </div>\`;
+                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
+                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
                 
                 // Format character name with NSFW badge if needed
                 const characterNameHtml = \`
@@ -2325,23 +2103,23 @@ app.get("/admin", (req, res) => {
                     contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
                 }
                 
-                // Action buttons using modal system - NSFW profiles only get Remove and Ban buttons
+                // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
                 const actionButtons = profile.IsNSFW ? \`
-                    <button class="btn btn-danger" onclick="showModal('🗑️ Remove Profile', 'Are you sure you want to remove <strong>\${profile.CharacterName}</strong> from the gallery?<br><br>This action cannot be undone.', 'remove', '\${profile.CharacterId}', 'Remove Profile', 'btn-danger')">
-                        Remove Profile
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Remove
                     </button>
-                    <button class="btn btn-warning" onclick="showModal('🚫 Ban Profile', 'Are you sure you want to ban <strong>\${profile.CharacterName}</strong>?<br><br>This will prevent them from uploading new profiles.', 'ban', '\${profile.CharacterId}', 'Ban Profile', 'btn-warning')">
-                        Ban Profile
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Ban
                     </button>
                 \` : \`
-                    <button class="btn btn-danger" onclick="showModal('🗑️ Remove Profile', 'Are you sure you want to remove <strong>\${profile.CharacterName}</strong> from the gallery?<br><br>This action cannot be undone.', 'remove', '\${profile.CharacterId}', 'Remove Profile', 'btn-danger')">
-                        Remove Profile
+                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Remove
                     </button>
-                    <button class="btn btn-warning" onclick="showModal('🚫 Ban Profile', 'Are you sure you want to ban <strong>\${profile.CharacterName}</strong>?<br><br>This will prevent them from uploading new profiles.', 'ban', '\${profile.CharacterId}', 'Ban Profile', 'btn-warning')">
-                        Ban Profile
+                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
+                        Ban
                     </button>
-                    <button class="btn btn-nsfw" onclick="showModal('🔞 Mark as NSFW', 'Are you sure you want to mark <strong>\${profile.CharacterName}</strong> as NSFW?', 'nsfw', '\${profile.CharacterId}', 'Mark NSFW', 'btn-nsfw')">
-                        Mark as NSFW
+                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
+                        Mark NSFW
                     </button>
                 \`;
                 
@@ -2712,7 +2490,7 @@ app.get("/admin", (req, res) => {
         
         function showKeywordManager() {
             // Simple keyword manager for now
-            const newKeyword = prompt('Add new keyword to auto-flag list:\n(Leave empty to cancel)');
+            const newKeyword = prompt('Add new keyword to auto-flag list:\\n(Leave empty to cancel)');
             if (newKeyword && newKeyword.trim()) {
                 addFlagKeyword(newKeyword.trim());
             }
@@ -2740,17 +2518,17 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmRemoveProfile(characterId, characterName) {
-            const action = confirm(\`🗑️ REMOVE PROFILE\n\nCharacter: \${characterName}\n\nThis will remove their profile from the gallery.\nThey can still upload new profiles unless banned separately.\n\nClick OK to continue, Cancel to abort.\`);
+            const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
             
-            const reason = prompt(\`📝 REMOVAL REASON\n\nWhy are you removing "\${characterName}"?\n\n(This will be logged for moderation records)\`);
+            const reason = prompt(\`📝 REMOVAL REASON\\n\\nWhy are you removing "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
                 alert('❌ Removal cancelled - reason is required');
                 return;
             }
             
-            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\n\nRemove "\${characterName}" from gallery?\nReason: \${reason}\n\nThis action cannot be undone.\n\nClick OK to REMOVE PROFILE\`);
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
             if (!finalConfirm) return;
             
             try {
@@ -2777,17 +2555,17 @@ app.get("/admin", (req, res) => {
         }
         
         async function confirmBanProfile(characterId, characterName) {
-            const action = confirm(\`🚫 BAN PROFILE\n\nCharacter: \${characterName}\n\nThis will permanently ban them from uploading any profiles.\nTheir current profile will remain in the gallery unless removed separately.\n\nClick OK to continue, Cancel to abort.\`);
+            const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
             
             if (!action) return;
             
-            const reason = prompt(\`📝 BAN REASON\n\nWhy are you banning "\${characterName}"?\n\n(This will be logged for moderation records)\`);
+            const reason = prompt(\`📝 BAN REASON\\n\\nWhy are you banning "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
             if (!reason || reason.trim() === '') {
                 alert('❌ Ban cancelled - reason is required'); 
                 return;
             }
             
-            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\n\nPermanently ban "\${characterName}"?\nReason: \${reason}\n\nThey will not be able to upload new profiles.\n\nClick OK to BAN PROFILE\`);
+            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
             if (!finalConfirm) return;
             
             try {
@@ -3404,423 +3182,7 @@ app.get("/admin", (req, res) => {
                 loading.innerHTML = \`<div class="error">Error loading moderation log: \${error.message}</div>\`;
             }
         }
-        
-        // Bulk selection variables
-        let selectedProfiles = new Set(); // Store selected profile IDs across pages
-        let bulkActionInProgress = false;
-        
-        // Bulk selection functions
-        function toggleProfileSelection(profileId) {
-            if (selectedProfiles.has(profileId)) {
-                selectedProfiles.delete(profileId);
-            } else {
-                selectedProfiles.add(profileId);
-            }
-            updateBulkActionBar();
-        }
-        
-        function toggleSelectAll() {
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
-            
-            profileCheckboxes.forEach(checkbox => {
-                const profileId = checkbox.dataset.profileId;
-                if (selectAllCheckbox.checked) {
-                    selectedProfiles.add(profileId);
-                    checkbox.checked = true;
-                } else {
-                    selectedProfiles.delete(profileId);
-                    checkbox.checked = false;
-                }
-            });
-            
-            updateBulkActionBar();
-        }
-        
-        function updateBulkActionBar() {
-            const bulkActionBar = document.getElementById('bulkActionBar');
-            const selectedCount = selectedProfiles.size;
-            
-            if (selectedCount > 0) {
-                bulkActionBar.style.display = 'flex';
-                document.getElementById('bulkSelectionCount').textContent = selectedCount + ' selected';
-            } else {
-                bulkActionBar.style.display = 'none';
-            }
-        }
-        
-        function clearAllSelections() {
-            selectedProfiles.clear();
-            document.querySelectorAll('.profile-checkbox').forEach(checkbox => {
-                checkbox.checked = false;
-            });
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            if (selectAllCheckbox) {
-                selectAllCheckbox.checked = false;
-            }
-            updateBulkActionBar();
-        }
-        
-        // Bulk action functions
-        async function bulkRemoveProfiles() {
-            if (selectedProfiles.size === 0) return;
-            
-            const reason = document.getElementById('bulkActionReason').value.trim();
-            if (!reason) {
-                showModal('❌ Error', 'Please enter a reason for the bulk removal.', null, null, 'OK', 'btn-secondary');
-                return;
-            }
-            
-            if (!confirm('Remove ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis action cannot be undone.')) {
-                return;
-            }
-            
-            bulkActionInProgress = true;
-            const profileIds = Array.from(selectedProfiles);
-            let successCount = 0;
-            let errorCount = 0;
-            
-            for (const profileId of profileIds) {
-                try {
-                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId), {
-                        method: 'DELETE',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason: reason })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            bulkActionInProgress = false;
-            clearAllSelections();
-            document.getElementById('bulkActionReason').value = '';
-            
-            showModal('✅ Bulk Remove Complete', 
-                'Successfully removed: ' + successCount + ' profiles\\n' +
-                'Failed: ' + errorCount + ' profiles', 
-                null, null, 'OK', 'btn-success');
-            
-            loadDashboard();
-        }
-        
-        async function bulkBanProfiles() {
-            if (selectedProfiles.size === 0) return;
-            
-            const reason = document.getElementById('bulkActionReason').value.trim();
-            if (!reason) {
-                showModal('❌ Error', 'Please enter a reason for the bulk ban.', null, null, 'OK', 'btn-secondary');
-                return;
-            }
-            
-            if (!confirm('Ban ' + selectedProfiles.size + ' selected profiles?\\n\\nReason: ' + reason + '\\n\\nThis will prevent them from uploading new profiles.')) {
-                return;
-            }
-            
-            bulkActionInProgress = true;
-            const profileIds = Array.from(selectedProfiles);
-            let successCount = 0;
-            let errorCount = 0;
-            
-            for (const profileId of profileIds) {
-                try {
-                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason: reason })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            bulkActionInProgress = false;
-            clearAllSelections();
-            document.getElementById('bulkActionReason').value = '';
-            
-            showModal('✅ Bulk Ban Complete', 
-                'Successfully banned: ' + successCount + ' profiles\\n' +
-                'Failed: ' + errorCount + ' profiles', 
-                null, null, 'OK', 'btn-success');
-            
-            loadDashboard();
-        }
-        
-        async function bulkMarkNSFW() {
-            if (selectedProfiles.size === 0) return;
-            
-            const reason = document.getElementById('bulkActionReason').value.trim();
-            if (!reason) {
-                showModal('❌ Error', 'Please enter a reason for the bulk NSFW marking.', null, null, 'OK', 'btn-secondary');
-                return;
-            }
-            
-            if (!confirm('Mark selected profiles as NSFW?\\n\\nReason: ' + reason + '\\n\\n(Profiles already marked as NSFW will be skipped)')) {
-                return;
-            }
-            
-            bulkActionInProgress = true;
-            const profileIds = Array.from(selectedProfiles);
-            let successCount = 0;
-            let errorCount = 0;
-            let skippedCount = 0;
-            
-            for (const profileId of profileIds) {
-                try {
-                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
-                        method: 'PATCH',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason: reason })
-                    });
-                    
-                    if (response.ok) {
-                        const result = await response.json();
-                        if (result.message && result.message.includes('already')) {
-                            skippedCount++;
-                        } else {
-                            successCount++;
-                        }
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            bulkActionInProgress = false;
-            clearAllSelections();
-            document.getElementById('bulkActionReason').value = '';
-            
-            showModal('✅ Bulk NSFW Complete', 
-                'Successfully marked as NSFW: ' + successCount + ' profiles\\n' +
-                'Skipped (already NSFW): ' + skippedCount + ' profiles\\n' +
-                'Failed: ' + errorCount + ' profiles', 
-                null, null, 'OK', 'btn-success');
-            
-            loadDashboard();
-        }
-        
-        // Modal system variables and functions
-        let modalAction = null;
-        let modalTarget = null;
-        
-        function showModal(title, message, action, target, buttonText = 'Confirm', buttonClass = 'btn-danger') {
-            console.log('showModal called with:', { title, message, action, target, buttonText, buttonClass });
-            modalAction = action;
-            modalTarget = target;
-            console.log('modalAction set to:', modalAction);
-            console.log('modalTarget set to:', modalTarget);
-            
-            document.getElementById('modalTitle').textContent = title;
-            document.getElementById('modalBody').innerHTML = message;\n            \n            // Show reason input for actions that need it\n            const reasonContainer = document.getElementById('modalReasonContainer');\n            const reasonInput = document.getElementById('modalReasonInput');\n            if (action === 'remove' || action === 'ban' || action === 'nsfw') {\n                reasonContainer.style.display = 'block';\n                reasonInput.value = '';\n                setTimeout(() => reasonInput.focus(), 100);\n            } else {\n                reasonContainer.style.display = 'none';\n            }
-            
-            const confirmBtn = document.getElementById('modalConfirmBtn');
-            confirmBtn.textContent = buttonText;
-            confirmBtn.className = 'btn ' + buttonClass;
-            
-            const modal = document.getElementById('confirmModal');\n            modal.classList.add('show');
-        }
-        
-        function closeModal() {
-            console.log('closeModal called');
-            const modal = document.getElementById('confirmModal');\n            modal.classList.remove('show');
-            // Clear reason input\n            const reasonInput = document.getElementById('modalReasonInput');\n            if (reasonInput) reasonInput.value = '';\n            \n            modalAction = null;
-            modalTarget = null;
-            console.log('modalAction reset to:', modalAction);
-        }
-        
-        function confirmModalAction() {
-            console.log('confirmModalAction called');
-            console.log('modalAction is:', modalAction);
-            console.log('modalTarget is:', modalTarget);
-            console.log('modalAction type:', typeof modalAction);
-            
-            if (!modalAction) {
-                console.error('Unknown modal action:', modalAction);
-                closeModal();
-                return;
-            }
-            
-            // Check if reason is required and provided\n            if (modalAction === 'remove' || modalAction === 'ban' || modalAction === 'nsfw') {\n                const reasonInput = document.getElementById('modalReasonInput');\n                const reason = reasonInput ? reasonInput.value.trim() : '';\n                if (!reason) {\n                    reasonInput.style.borderColor = '#f44336';\n                    reasonInput.focus();\n                    return;\n                } else {\n                    reasonInput.style.borderColor = 'rgba(255,255,255,0.3)';\n                }\n            }\n            \n            // Store action and target before closing modal
-            const actionToExecute = modalAction;
-            const targetToExecute = modalTarget;
-            
-            closeModal();
-            
-            // Execute the action
-            switch(actionToExecute) {
-                case 'remove':
-                    console.log('Executing remove action for:', targetToExecute);
-                    executeRemoveProfile(targetToExecute);
-                    break;
-                case 'ban':
-                    console.log('Executing ban action for:', targetToExecute);
-                    executeBanProfile(targetToExecute);
-                    break;
-                case 'nsfw':
-                    console.log('Executing NSFW action for:', targetToExecute);
-                    executeToggleNSFW(targetToExecute);
-                    break;
-                default:
-                    console.error('Unknown modal action:', actionToExecute);
-            }
-        }
-        
-        async function executeRemoveProfile(profileId) {
-            console.log('executeRemoveProfile called with:', profileId);
-            const reasonInput = document.getElementById('modalReasonInput');\n            const reason = reasonInput ? reasonInput.value.trim() : '';
-            if (!reason || reason.trim() === '') {
-                showModal('❌ Error', 'Removal cancelled - reason is required', null, null, 'OK', 'btn-secondary');
-                return;
-            }
-            
-            try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId), {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason: reason.trim() })
-                });
-                
-                if (response.ok) {
-                    showModal('✅ Success', 'Profile removed successfully', null, null, 'OK', 'btn-success');
-                    loadDashboard();
-                } else {
-                    const error = await response.text();
-                    showModal('❌ Error', 'Failed to remove profile: ' + error, null, null, 'OK', 'btn-secondary');
-                }
-            } catch (error) {
-                console.error('Remove profile error:', error);
-                showModal('❌ Error', 'Error removing profile: ' + error.message, null, null, 'OK', 'btn-secondary');
-            }
-        }
-        
-        async function executeBanProfile(profileId) {
-            console.log('executeBanProfile called with:', profileId);
-            const reasonInput = document.getElementById('modalReasonInput');\n            const reason = reasonInput ? reasonInput.value.trim() : '';
-            if (!reason || reason.trim() === '') {
-                showModal('❌ Error', 'Ban cancelled - reason is required', null, null, 'OK', 'btn-secondary');
-                return;
-            }
-            
-            try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason: reason.trim() })
-                });
-                
-                if (response.ok) {
-                    showModal('✅ Success', 'Profile banned successfully', null, null, 'OK', 'btn-success');
-                    loadDashboard();
-                } else {
-                    const error = await response.text();
-                    showModal('❌ Error', 'Failed to ban profile: ' + error, null, null, 'OK', 'btn-secondary');
-                }
-            } catch (error) {
-                console.error('Ban profile error:', error);
-                showModal('❌ Error', 'Error banning profile: ' + error.message, null, null, 'OK', 'btn-secondary');
-            }
-        }
-        
-        async function executeToggleNSFW(profileId) {
-            console.log('executeToggleNSFW called with:', profileId);
-            const reasonInput = document.getElementById('modalReasonInput');\n            const reason = reasonInput ? reasonInput.value.trim() : '';
-            if (!reason || reason.trim() === '') {
-                showModal('❌ Error', 'NSFW action cancelled - reason is required', null, null, 'OK', 'btn-secondary');
-                return;
-            }
-            
-            try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason: reason.trim() })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    showModal('✅ Success', result.message || 'NSFW status updated successfully', null, null, 'OK', 'btn-success');
-                    loadDashboard();
-                } else {
-                    const error = await response.text();
-                    showModal('❌ Error', 'Failed to update NSFW status: ' + error, null, null, 'OK', 'btn-secondary');
-                }
-            } catch (error) {
-                console.error('Toggle NSFW error:', error);
-                showModal('❌ Error', 'Error updating NSFW status: ' + error.message, null, null, 'OK', 'btn-secondary');
-            }
-        }
     </script>
-    
-    <!-- Confirmation Modal -->
-    <div id="confirmModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div class="modal-title" id="modalTitle">Confirm Action</div>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
-            </div>
-            <div class="modal-body" id="modalBody">
-                <!-- Content will be dynamically set -->
-                <div id="modalReasonContainer" style="display: none; margin-top: 15px;">
-                    <label for="modalReasonInput" style="display: block; margin-bottom: 5px; color: #ddd;">Reason (required):</label>
-                    <textarea id="modalReasonInput" placeholder="Enter reason for this action..." style="width: 100%; padding: 8px; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; background: rgba(255,255,255,0.1); color: #fff; resize: vertical; min-height: 60px;"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn" id="modalConfirmBtn" onclick="confirmModalAction()">Confirm</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Bulk Action Bar -->  
-    <div id="bulkActionBar" class="bulk-action-bar">
-        <div class="bulk-selection-count" id="bulkSelectionCount">0 selected</div>
-        <div class="bulk-actions">
-            <input type="text" id="bulkActionReason" placeholder="Enter reason for action...">
-            <button class="btn btn-danger" onclick="bulkRemoveProfiles()">Remove Selected</button>
-            <button class="btn btn-warning" onclick="bulkBanProfiles()">Ban Selected</button>
-            <button class="btn btn-nsfw" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
-            <button class="btn btn-secondary" onclick="clearAllSelections()">Clear Selection</button>
-        </div>
-    </div>
 </body>
 </html>
     `;
