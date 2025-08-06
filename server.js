@@ -1583,6 +1583,235 @@ app.get("/admin", (req, res) => {
             max-height: 100px;
             overflow-y: auto;
         }
+        
+        /* Toast Notification Styles */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            pointer-events: none;
+        }
+        
+        .toast {
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            backdrop-filter: blur(10px);
+            border-left: 4px solid #4CAF50;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transform: translateX(100%);
+            transition: all 0.3s ease-in-out;
+            pointer-events: auto;
+            max-width: 350px;
+            word-wrap: break-word;
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+        }
+        
+        .toast.error {
+            background: rgba(244, 67, 54, 0.9);
+            border-left-color: #f44336;
+        }
+        
+        .toast.warning {
+            background: rgba(255, 152, 0, 0.9);
+            border-left-color: #ff9800;
+        }
+        
+        /* Bulk Action Bar Styles */
+        .bulk-action-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(76, 175, 80, 0.95);
+            padding: 15px 25px;
+            border-radius: 25px;
+            backdrop-filter: blur(10px);
+            display: none;
+            align-items: center;
+            gap: 15px;
+            z-index: 1000;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .bulk-action-bar.show {
+            display: flex;
+        }
+        
+        .bulk-count {
+            font-weight: bold;
+            color: white;
+        }
+        
+        .bulk-action-bar .btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            font-size: 0.9em;
+        }
+        
+        .bulk-action-bar .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        /* Profile Checkbox Styles */
+        .profile-checkbox {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        
+        /* Advanced Filters Styles */
+        .filter-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .filter-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-overlay.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-header {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .modal-header h3 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+        
+        .modal-header .character-name {
+            color: #fff;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+        
+        .modal-body {
+            margin-bottom: 25px;
+        }
+        
+        .modal-body label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+            font-weight: 500;
+        }
+        
+        .modal-body textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            resize: vertical;
+            font-family: inherit;
+        }
+        
+        .modal-body textarea:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+        }
+        
+        .modal-footer {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        
+        .modal-footer .btn {
+            padding: 12px 25px;
+            font-size: 1em;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .modal-footer .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .modal-footer .btn-primary:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        
+        .modal-footer .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .modal-footer .btn-danger:hover {
+            background: #d32f2f;
+            transform: translateY(-2px);
+        }
+        
+        .modal-footer .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .modal-footer .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body>
@@ -1699,6 +1928,15 @@ app.get("/admin", (req, res) => {
                         <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
                         <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
                     </div>
+                    
+                    <!-- Bulk Selection Controls -->
+                    <div class="filter-controls" style="margin-top: 15px;">
+                        <label style="color: #ccc;">
+                            <input type="checkbox" id="selectAllOnPage" onchange="toggleSelectAllOnPage()"> Select All on Page
+                        </label>
+                        <span id="selectedCount" style="color: #4CAF50; margin-left: 15px;">0 selected</span>
+                        <button class="btn" onclick="clearBulkSelection()" style="margin-left: 15px; display: none;" id="clearSelectionBtn">Clear All</button>
+                    </div>
                 </div>
                 
                 <div class="pagination" id="profilesPagination" style="display: none;">
@@ -1711,6 +1949,16 @@ app.get("/admin", (req, res) => {
                 </div>
                 <div class="loading" id="profilesLoading">Loading profiles...</div>
                 <div class="profile-grid" id="profilesGrid"></div>
+                
+                <!-- Bulk Action Bar (appears when profiles are selected) -->
+                <div class="bulk-action-bar" id="bulkActionBar">
+                    <span class="bulk-count" id="bulkCount">0 profiles selected</span>
+                    <button class="btn btn-danger" onclick="bulkRemoveProfiles()">Remove Selected</button>
+                    <button class="btn btn-warning" onclick="bulkBanProfiles()">Ban Selected</button>
+                    <button class="btn btn-nsfw" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
+                    <button class="btn" onclick="clearBulkSelection()" style="background-color: #666;">Clear Selection</button>
+                </div>
+                
                 <div class="pagination" id="profilesPaginationBottom" style="display: none;">
                     <button onclick="changePage(-1)">Previous</button>
                     <div class="pagination-info">
@@ -1829,6 +2077,367 @@ app.get("/admin", (req, res) => {
         const serverUrl = window.location.origin;
         let activityRefreshInterval = null;
         let availableServers = new Set();
+        let selectedProfiles = new Set(); // Store selected profile IDs across pages
+        
+        // Toast notification system
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + (type === 'success' ? '' : type);
+            toast.textContent = message;
+            
+            container.appendChild(toast);
+            
+            // Show toast
+            setTimeout(() => toast.classList.add('show'), 100);
+            
+            // Auto-remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => container.removeChild(toast), 300);
+            }, 3000);
+        }
+        
+        // Bulk selection system
+        function updateBulkActionBar() {
+            const bar = document.getElementById('bulkActionBar');
+            const count = document.getElementById('bulkCount');
+            
+            if (selectedProfiles.size > 0) {
+                count.textContent = selectedProfiles.size + ' selected';
+                bar.classList.add('show');
+            } else {
+                bar.classList.remove('show');
+            }
+        }
+        
+        function updateBulkSelection() {
+            const checkbox = event.target;
+            const profileId = checkbox.value;
+            
+            if (checkbox.checked) {
+                selectedProfiles.add(profileId);
+            } else {
+                selectedProfiles.delete(profileId);
+            }
+            
+            // Update UI
+            const selectedCount = document.getElementById('selectedCount');
+            const clearBtn = document.getElementById('clearSelectionBtn');
+            const bulkBar = document.getElementById('bulkActionBar');
+            const bulkCount = document.getElementById('bulkCount');
+            
+            selectedCount.textContent = selectedProfiles.size + ' selected';
+            bulkCount.textContent = selectedProfiles.size + ' profiles selected';
+            
+            if (selectedProfiles.size > 0) {
+                clearBtn.style.display = 'inline-block';
+                bulkBar.classList.add('show');
+            } else {
+                clearBtn.style.display = 'none';
+                bulkBar.classList.remove('show');
+            }
+            
+            // Update "Select All on Page" checkbox state
+            updateSelectAllCheckbox();
+        }
+        
+        function toggleSelectAllOnPage() {
+            const checkbox = document.getElementById('selectAllOnPage');
+            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
+            
+            profileCheckboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+                const profileId = cb.value;
+                if (checkbox.checked) {
+                    selectedProfiles.add(profileId);
+                } else {
+                    selectedProfiles.delete(profileId);
+                }
+            });
+            
+            // Update UI
+            const selectedCount = document.getElementById('selectedCount');
+            const clearBtn = document.getElementById('clearSelectionBtn');
+            const bulkBar = document.getElementById('bulkActionBar');
+            const bulkCount = document.getElementById('bulkCount');
+            
+            selectedCount.textContent = selectedProfiles.size + ' selected';
+            bulkCount.textContent = selectedProfiles.size + ' profiles selected';
+            
+            if (selectedProfiles.size > 0) {
+                clearBtn.style.display = 'inline-block';
+                bulkBar.classList.add('show');
+            } else {
+                clearBtn.style.display = 'none';
+                bulkBar.classList.remove('show');
+            }
+        }
+        
+        function clearBulkSelection() {
+            selectedProfiles.clear();
+            document.querySelectorAll('.profile-checkbox').forEach(cb => cb.checked = false);
+            document.getElementById('selectAllOnPage').checked = false;
+            
+            // Update UI
+            const selectedCount = document.getElementById('selectedCount');
+            const clearBtn = document.getElementById('clearSelectionBtn');
+            const bulkBar = document.getElementById('bulkActionBar');
+            
+            selectedCount.textContent = '0 selected';
+            clearBtn.style.display = 'none';
+            bulkBar.classList.remove('show');
+        }
+        
+        function updateSelectAllCheckbox() {
+            const selectAllCheckbox = document.getElementById('selectAllOnPage');
+            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
+            const checkedBoxes = document.querySelectorAll('.profile-checkbox:checked');
+            
+            if (profileCheckboxes.length === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedBoxes.length === profileCheckboxes.length) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedBoxes.length > 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
+        }
+        
+        async function bulkRemoveProfiles() {
+            if (selectedProfiles.size === 0) return;
+            
+            const reason = prompt('Reason for removing ' + selectedProfiles.size + ' profiles (optional):') || 'Bulk removal';
+            
+            try {
+                let successCount = 0;
+                const totalCount = selectedProfiles.size;
+                
+                for (const profileId of selectedProfiles) {
+                    try {
+                        const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId), {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Admin-Key': adminKey,
+                                'X-Admin-Id': adminName
+                            },
+                            body: JSON.stringify({ reason, ban: false, adminId: adminName })
+                        });
+                        
+                        if (response.ok) {
+                            successCount++;
+                        }
+                    } catch (error) {
+                        console.error('Error removing profile ' + profileId + ':', error);
+                    }
+                }
+                
+                showToast('✅ Removed ' + successCount + ' of ' + totalCount + ' profiles');
+                clearBulkSelection();
+                loadProfiles();
+                await refreshStats();
+                
+            } catch (error) {
+                showToast('❌ Error performing bulk removal: ' + error.message, 'error');
+            }
+        }
+        
+        async function bulkBanProfiles() {
+            if (selectedProfiles.size === 0) return;
+            
+            const reason = prompt('Reason for banning ' + selectedProfiles.size + ' profiles (optional):') || 'Bulk ban';
+            
+            try {
+                let successCount = 0;
+                const totalCount = selectedProfiles.size;
+                
+                for (const profileId of selectedProfiles) {
+                    try {
+                        const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Admin-Key': adminKey,
+                                'X-Admin-Id': adminName
+                            },
+                            body: JSON.stringify({ reason, adminId: adminName })
+                        });
+                        
+                        if (response.ok) {
+                            successCount++;
+                        }
+                    } catch (error) {
+                        console.error('Error banning profile ' + profileId + ':', error);
+                    }
+                }
+                
+                showToast('✅ Banned ' + successCount + ' of ' + totalCount + ' profiles');
+                clearBulkSelection();
+                loadProfiles();
+                await refreshStats();
+                
+            } catch (error) {
+                showToast('❌ Error performing bulk ban: ' + error.message, 'error');
+            }
+        }
+        
+        async function bulkMarkNSFW() {
+            if (selectedProfiles.size === 0) return;
+            
+            try {
+                let successCount = 0;
+                let skippedCount = 0;
+                const totalCount = selectedProfiles.size;
+                
+                for (const profileId of selectedProfiles) {
+                    try {
+                        // Check if profile is already NSFW by looking at current profile data
+                        const currentProfile = allProfiles.find(p => p.CharacterId === profileId);
+                        if (currentProfile && currentProfile.IsNSFW) {
+                            skippedCount++;
+                            continue;
+                        }
+                        
+                        const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Admin-Key': adminKey
+                            },
+                            body: JSON.stringify({ isNSFW: true })
+                        });
+                        
+                        if (response.ok) {
+                            successCount++;
+                        }
+                    } catch (error) {
+                        console.error('Error marking profile ' + profileId + ' as NSFW:', error);
+                    }
+                }
+                
+                const message = '✅ Marked ' + successCount + ' profiles as NSFW' + 
+                               (skippedCount > 0 ? ' (skipped ' + skippedCount + ' already NSFW)' : '');
+                showToast(message);
+                clearBulkSelection();
+                loadProfiles();
+                await refreshStats();
+                
+            } catch (error) {
+                showToast('❌ Error performing bulk NSFW marking: ' + error.message, 'error');
+            }
+        }
+        
+        // Modal system for smooth in-panel moderation
+        function openModal(action, characterId, characterName) {
+            const modal = document.getElementById('moderationModal');
+            const title = document.getElementById('modalTitle');
+            const charName = document.getElementById('modalCharacterName');
+            const confirmBtn = document.getElementById('modalConfirmBtn');
+            
+            // Set modal content based on action
+            switch(action) {
+                case 'remove':
+                    title.textContent = '🗑️ Remove Profile';
+                    confirmBtn.textContent = 'Remove Profile';
+                    confirmBtn.className = 'btn btn-danger';
+                    break;
+                case 'ban':
+                    title.textContent = '🚫 Ban Profile';
+                    confirmBtn.textContent = 'Ban Profile';
+                    confirmBtn.className = 'btn btn-danger';
+                    break;
+                case 'nsfw':
+                    title.textContent = '🔞 Mark as NSFW';
+                    confirmBtn.textContent = 'Mark NSFW';
+                    confirmBtn.className = 'btn btn-primary';
+                    break;
+            }
+            
+            charName.textContent = characterName;
+            document.getElementById('modalReason').value = '';
+            
+            // Set up confirm button click handler
+            confirmBtn.onclick = () => executeAction(action, characterId, characterName);
+            
+            modal.classList.add('show');
+        }
+        
+        function closeModal() {
+            const modal = document.getElementById('moderationModal');
+            modal.classList.remove('show');
+        }
+        
+        async function executeAction(action, characterId, characterName) {
+            const reason = document.getElementById('modalReason').value.trim();
+            
+            if (!reason) {
+                showToast('Please enter a reason for this action', 'error');
+                return;
+            }
+            
+            try {
+                let response;
+                let successMessage;
+                
+                switch(action) {
+                    case 'remove':
+                        response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Admin-Key': adminKey,
+                                'X-Admin-Id': adminName
+                            },
+                            body: JSON.stringify({ reason, ban: false, adminId: adminName })
+                        });
+                        successMessage = '"' + characterName + '" has been removed from gallery';
+                        break;
+                        
+                    case 'ban':
+                        response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/ban', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Admin-Key': adminKey,
+                                'X-Admin-Id': adminName
+                            },
+                            body: JSON.stringify({ reason, adminId: adminName })
+                        });
+                        successMessage = '"' + characterName + '" has been banned';
+                        break;
+                        
+                    case 'nsfw':
+                        response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/nsfw', {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Admin-Key': adminKey
+                            },
+                            body: JSON.stringify({ isNSFW: true })
+                        });
+                        successMessage = characterName + ' has been marked as NSFW';
+                        break;
+                }
+                
+                if (response.ok) {
+                    closeModal();
+                    showToast('✅ ' + successMessage);
+                    loadProfiles(); // Refresh profiles without page reload
+                    await refreshStats();
+                } else {
+                    showToast('❌ Error performing action', 'error');
+                }
+                
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
         
         // Load saved admin credentials on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -2124,6 +2733,7 @@ app.get("/admin", (req, res) => {
                 \`;
                 
                 card.innerHTML = \`
+                    <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
                     <div class="profile-header">
                         <div class="profile-info">
                             \${characterNameHtml}
@@ -2142,6 +2752,9 @@ app.get("/admin", (req, res) => {
                 \`;
                 grid.appendChild(card);
             });
+            
+            // Update the "Select All on Page" checkbox state after rendering
+            updateSelectAllCheckbox();
         }
         
         async function showTab(tabName) {
@@ -2217,7 +2830,7 @@ app.get("/admin", (req, res) => {
                 
             } catch (error) {
                 console.error('❌ Authentication failed:', error);
-                alert(\`Error: \${error.message}\`);
+                showToast('Error: ' + error.message, 'error');
                 // Don't save credentials if login fails
             }
         }
@@ -2478,10 +3091,10 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(\`✅ Flag \${status}\`);
+                    showToast('✅ Flag ' + status);
                     loadFlaggedProfiles();
                 } else {
-                    alert('❌ Error updating flag status');
+                    showToast('❌ Error updating flag status', 'error');
                 }
             } catch (error) {
                 alert(\`❌ Error: \${error.message}\`);
@@ -2508,86 +3121,21 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(\`✅ Added keyword: "\${keyword}"\`);
+                    showToast('✅ Added keyword: "' + keyword + '"');
                 } else {
-                    alert('❌ Error adding keyword');
+                    showToast('❌ Error adding keyword', 'error');
                 }
             } catch (error) {
                 alert(\`❌ Error: \${error.message}\`);
             }
         }
         
-        async function confirmRemoveProfile(characterId, characterName) {
-            const action = confirm(\`🗑️ REMOVE PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will remove their profile from the gallery.\\nThey can still upload new profiles unless banned separately.\\n\\nClick OK to continue, Cancel to abort.\`);
-            
-            if (!action) return;
-            
-            const reason = prompt(\`📝 REMOVAL REASON\\n\\nWhy are you removing "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
-            if (!reason || reason.trim() === '') {
-                alert('❌ Removal cancelled - reason is required');
-                return;
-            }
-            
-            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nRemove "\${characterName}" from gallery?\\nReason: \${reason}\\n\\nThis action cannot be undone.\\n\\nClick OK to REMOVE PROFILE\`);
-            if (!finalConfirm) return;
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}\`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                });
-                
-                if (response.ok) {
-                    alert(\`✅ "\${characterName}" has been removed from gallery\`);
-                    loadProfiles();
-                    await refreshStats();
-                } else {
-                    alert('❌ Error removing profile');
-                }
-            } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
-            }
+        function confirmRemoveProfile(characterId, characterName) {
+            openModal('remove', characterId, characterName);
         }
         
-        async function confirmBanProfile(characterId, characterName) {
-            const action = confirm(\`🚫 BAN PROFILE\\n\\nCharacter: \${characterName}\\n\\nThis will permanently ban them from uploading any profiles.\\nTheir current profile will remain in the gallery unless removed separately.\\n\\nClick OK to continue, Cancel to abort.\`);
-            
-            if (!action) return;
-            
-            const reason = prompt(\`📝 BAN REASON\\n\\nWhy are you banning "\${characterName}"?\\n\\n(This will be logged for moderation records)\`);
-            if (!reason || reason.trim() === '') {
-                alert('❌ Ban cancelled - reason is required'); 
-                return;
-            }
-            
-            const finalConfirm = confirm(\`⚠️ FINAL CONFIRMATION\\n\\nPermanently ban "\${characterName}"?\\nReason: \${reason}\\n\\nThey will not be able to upload new profiles.\\n\\nClick OK to BAN PROFILE\`);
-            if (!finalConfirm) return;
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/ban\`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason, adminId: adminName })
-                });
-                
-                if (response.ok) {
-                    alert(\`✅ "\${characterName}" has been banned\`);
-                    await refreshStats();
-                } else {
-                    alert('❌ Error banning profile');
-                }
-            } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
-            }
+        function confirmBanProfile(characterId, characterName) {
+            openModal('ban', characterId, characterName);
         }
         
         // Image modal functions
@@ -2625,14 +3173,14 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert(\`\${characterName || characterId} has been unbanned\`);
+                    showToast((characterName || characterId) + ' has been unbanned');
                     await loadBannedProfiles();
                     await refreshStats();
                 } else {
-                    alert('Error unbanning profile');
+                    showToast('Error unbanning profile', 'error');
                 }
             } catch (error) {
-                alert(\`Error: \${error.message}\`);
+                showToast('Error: ' + error.message, 'error');
             }
         }
         
@@ -2959,45 +3507,14 @@ app.get("/admin", (req, res) => {
             }
         }
         
-        async function toggleNSFW(characterId, characterName, currentNSFW) {
+        function toggleNSFW(characterId, characterName, currentNSFW) {
             // Only allow marking as NSFW, not removing NSFW flag
             if (currentNSFW) {
-                alert('NSFW profiles cannot be unmarked. Use Remove button if needed.');
+                showToast('NSFW profiles cannot be unmarked. Use Remove button if needed.', 'warning');
                 return;
             }
             
-            if (!confirm(\`Are you sure you want to mark \${characterName} as NSFW?\`)) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/nsfw\`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
-                    },
-                    body: JSON.stringify({ isNSFW: true })
-                });
-                
-                if (response.ok) {
-                    alert(\`\${characterName} has been marked as NSFW\`);
-                    loadProfiles(); // Refresh the profiles
-                    // Refresh current tab if it's reports
-                    const activeTab = document.querySelector('.tab.active');
-                    if (activeTab && (activeTab.textContent.includes('Reports'))) {
-                        if (activeTab.textContent.includes('Pending')) {
-                            loadReports();
-                        } else if (activeTab.textContent.includes('Archived')) {
-                            loadArchivedReports();
-                        }
-                    }
-                } else {
-                    alert('Error updating NSFW status');
-                }
-            } catch (error) {
-                alert(\`Error: \${error.message}\`);
-            }
+            openModal('nsfw', characterId, characterName);
         }
         
         // Helper function to get CSS class based on report reason
@@ -3030,7 +3547,7 @@ app.get("/admin", (req, res) => {
                     await loadArchivedReports();
                     await refreshStats();
                 } else {
-                    alert('❌ Error updating report');
+                    showToast('❌ Error updating report', 'error');
                 }
             } catch (error) {
                 alert(\`❌ Error: \${error.message}\`);
@@ -3065,7 +3582,7 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('❌ Error creating announcement');
+                    showToast('❌ Error creating announcement', 'error');
                 }
             } catch (error) {
                 alert(\`❌ Error: \${error.message}\`);
@@ -3123,7 +3640,7 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('❌ Error deactivating announcement');
+                    showToast('❌ Error deactivating announcement', 'error');
                 }
             } catch (error) {
                 alert(\`❌ Error: \${error.message}\`);
@@ -3146,7 +3663,7 @@ app.get("/admin", (req, res) => {
                     loadAnnouncements();
                     await refreshStats();
                 } else {
-                    alert('❌ Error deleting announcement');
+                    showToast('❌ Error deleting announcement', 'error');
                 }
             } catch (error) {
                 alert(\`❌ Error: \${error.message}\`);
@@ -3183,6 +3700,36 @@ app.get("/admin", (req, res) => {
             }
         }
     </script>
+    
+    <!-- Moderation Modal -->
+    <div class="modal-overlay" id="moderationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Moderate Profile</h3>
+                <div class="character-name" id="modalCharacterName"></div>
+            </div>
+            <div class="modal-body">
+                <label for="modalReason">Reason (required):</label>
+                <textarea id="modalReason" placeholder="Enter the reason for this action..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="modalConfirmBtn">Confirm</button>
+                <button class="btn btn-secondary" id="modalCancelBtn" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bulk Action Bar -->
+    <div class="bulk-action-bar" id="bulkActionBar">
+        <span class="bulk-count" id="bulkCount">0 selected</span>
+        <button class="btn" onclick="bulkRemoveProfiles()">Remove Selected</button>
+        <button class="btn" onclick="bulkBanProfiles()">Ban Selected</button>
+        <button class="btn" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
+        <button class="btn" onclick="clearBulkSelection()">Clear Selection</button>
+    </div>
+    
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toastContainer"></div>
 </body>
 </html>
     `;
@@ -4119,1250 +4666,4 @@ app.listen(PORT, () => {
     } else {
         console.log(`⚠️  Admin access disabled - set ADMIN_SECRET_KEY environment variable to enable`);
     }
-});
-
-app.get("/admin", (req, res) => {
-    const adminHtml = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Character Select+ Admin Dashboard</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
-            min-height: 100vh;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            backdrop-filter: blur(10px);
-        }
-        
-        .auth-section {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            color: #ccc;
-            transition: all 0.3s;
-        }
-        
-        .tab.active {
-            color: #4CAF50;
-            border-bottom: 2px solid #4CAF50;
-        }
-        
-        .tab-content {
-            display: none;
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        .profile-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        
-        .profile-card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            height: 280px;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-        }
-        
-        .profile-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 10px;
-        }
-        
-        .profile-info {
-            flex: 1;
-        }
-        
-        .profile-image {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            object-fit: cover;
-            margin-left: 15px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .profile-image:hover {
-            border-color: #4CAF50;
-            transform: scale(1.05);
-        }
-        
-        .profile-image-placeholder {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            margin-left: 15px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            color: #666;
-        }
-        
-        .profile-name {
-            font-weight: bold;
-            color: #4CAF50;
-            font-size: 0.95em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        
-        .profile-checkbox {
-            position: absolute;
-            bottom: 15px;
-            right: 15px;
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-        }
-        
-        .nsfw-badge {
-            background: rgba(255, 87, 34, 0.2);
-            color: #ff5722;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 0.7em;
-            border: 1px solid #ff5722;
-            white-space: nowrap;
-        }
-        
-        .profile-id {
-            color: #aaa;
-            font-size: 0.8em;
-            margin-top: 2px;
-            font-family: monospace;
-        }
-        
-        .profile-content {
-            margin: 10px 0;
-            font-size: 0.9em;
-            color: #ddd;
-            flex: 1;
-            overflow-y: auto;
-            max-height: 80px;
-            padding-right: 5px;
-        }
-        
-        .gallery-status {
-            font-style: italic;
-            color: #ddd;
-            margin: 4px 0;
-            font-size: 0.9em;
-        }
-        
-        .gallery-status:before {
-            content: '"';
-            color: #4CAF50;
-        }
-        
-        .gallery-status:after {
-            content: '"';
-            color: #4CAF50;
-        }
-        
-        .profile-actions {
-            display: flex;
-            gap: 6px;
-            margin-top: auto;
-            flex-wrap: wrap;
-            padding-bottom: 30px;
-        }
-        
-        .profile-actions .btn {
-            font-size: 0.75em;
-            padding: 6px 8px;
-            flex: 1;
-            min-width: 60px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        
-        .btn-nsfw {
-            background: #ff5722;
-            color: white;
-            font-size: 0.75em;
-            padding: 6px 8px;
-        }
-        
-        .btn-nsfw:hover {
-            background: #d84315;
-        }
-        
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: all 0.3s;
-        }
-        
-        .btn-danger {
-            background: #f44336;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #d32f2f;
-        }
-        
-        .btn-warning {
-            background: #ff9800;
-            color: white;
-        }
-        
-        .btn-warning:hover {
-            background: #f57c00;
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .btn-secondary:hover {
-            background: #5a6268;
-        }
-        
-        .btn-primary {
-            background: #2196F3;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #1976D2;
-        }
-        
-        /* Toast Notification Styles */
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 10000;
-            pointer-events: none;
-        }
-        
-        .toast {
-            background: rgba(76, 175, 80, 0.9);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            backdrop-filter: blur(10px);
-            border-left: 4px solid #4CAF50;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            transform: translateX(100%);
-            transition: all 0.3s ease-in-out;
-            pointer-events: auto;
-            max-width: 350px;
-            word-wrap: break-word;
-        }
-        
-        .toast.show {
-            transform: translateX(0);
-        }
-        
-        .toast.error {
-            background: rgba(244, 67, 54, 0.9);
-            border-left-color: #f44336;
-        }
-        
-        .toast.warning {
-            background: rgba(255, 152, 0, 0.9);
-            border-left-color: #ff9800;
-        }
-        
-        /* Advanced Filters Styles */
-        .filter-section {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .filter-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .filter-controls {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        /* Bulk Action Bar Styles */
-        .bulk-action-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(76, 175, 80, 0.95);
-            padding: 15px 25px;
-            border-radius: 25px;
-            backdrop-filter: blur(10px);
-            display: none;
-            align-items: center;
-            gap: 15px;
-            z-index: 1000;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-        
-        .bulk-action-bar.show {
-            display: flex;
-        }
-        
-        .bulk-count {
-            font-weight: bold;
-            color: white;
-        }
-        
-        .bulk-action-bar .btn {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 8px 16px;
-            font-size: 0.9em;
-        }
-        
-        .bulk-action-bar .btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        
-        .input-group {
-            margin-bottom: 15px;
-        }
-        
-        .input-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: #ccc;
-        }
-        
-        .input-group input, .input-group textarea, .input-group select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 5px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-        
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #ccc;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🛡️ Character Select+ Admin Dashboard</h1>
-            <p>Manage gallery, announcements, and reports</p>
-        </div>
-        
-        <div class="auth-section">
-            <div class="input-group">
-                <label for="adminKey">Admin Secret Key:</label>
-                <input type="password" id="adminKey" placeholder="Enter your admin secret key">
-            </div>
-            <div class="input-group">
-                <label for="adminName">Your Admin Name:</label>
-                <input type="text" id="adminName" placeholder="Your name (for moderation logs)" value="">
-            </div>
-            <button class="btn btn-primary" onclick="loadDashboard()">Load Dashboard</button>
-        </div>
-        
-        <div id="dashboardContent" style="display: none;">
-            <div class="stats" id="statsSection">
-                <div class="stat-card">
-                    <div class="stat-number" id="totalProfiles">-</div>
-                    <div>Gallery Profiles</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="pendingReports">-</div>
-                    <div>Pending Reports</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalBanned">-</div>
-                    <div>Banned Profiles</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="activeAnnouncements">-</div>
-                    <div>Active Announcements</div>
-                </div>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 20px;">
-                <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
-                    🔄 Refresh All
-                </button>
-            </div>
-            
-            <div class="tabs">
-                <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
-                <button class="tab" onclick="showTab('announcements')">Announcements</button>
-                <button class="tab" onclick="showTab('reports')">Pending Reports</button>
-                <button class="tab" onclick="showTab('archived')">Archived Reports</button>
-                <button class="tab" onclick="showTab('banned')">Banned Profiles</button>
-                <button class="tab" onclick="showTab('moderation')">Moderation Log</button>
-            </div>
-            
-            <div id="profiles" class="tab-content active">
-                <h3>Gallery Profiles</h3>
-                
-                <!-- Advanced Filtering Section -->
-                <div class="filter-section">
-                    <h4>🔍 Advanced Filters</h4>
-                    <div class="filter-grid">
-                        <div class="input-group">
-                            <label for="profileSearch">Search:</label>
-                            <input type="text" id="profileSearch" placeholder="Name, server, bio..." oninput="applyFilters()">
-                        </div>
-                        <div class="input-group">
-                            <label for="serverFilter">Server:</label>
-                            <select id="serverFilter" onchange="applyFilters()">
-                                <option value="">All Servers</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="nsfwFilter">NSFW Status:</label>
-                            <select id="nsfwFilter" onchange="applyFilters()">
-                                <option value="">All Profiles</option>
-                                <option value="false">Safe Only</option>
-                                <option value="true">NSFW Only</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="sortFilter">Sort By:</label>
-                            <select id="sortFilter" onchange="applyFilters()">
-                                <option value="likes">Most Liked</option>
-                                <option value="newest">Newest First</option>
-                                <option value="oldest">Oldest First</option>
-                                <option value="name">Name A-Z</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label>
-                                <input type="checkbox" id="selectAllOnPage" onchange="toggleSelectAllOnPage()">
-                                Select All on Page
-                            </label>
-                        </div>
-                    </div>
-                    <div class="filter-controls">
-                        <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
-                        <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
-                        <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
-                    </div>
-                </div>
-                
-                <div class="loading" id="profilesLoading">Loading profiles...</div>
-                <div class="profile-grid" id="profilesGrid"></div>
-            </div>
-            
-            <div id="announcements" class="tab-content">
-                <h3>Announcements</h3>
-                <div class="input-group">
-                    <label for="announcementTitle">Title:</label>
-                    <input type="text" id="announcementTitle" placeholder="Announcement title">
-                </div>
-                <div class="input-group">
-                    <label for="announcementMessage">Message:</label>
-                    <textarea id="announcementMessage" rows="3" placeholder="Announcement message"></textarea>
-                </div>
-                <div class="input-group">
-                    <label for="announcementType">Type:</label>
-                    <select id="announcementType">
-                        <option value="info">Info</option>
-                        <option value="warning">Warning</option>
-                        <option value="update">Update</option>
-                        <option value="maintenance">Maintenance</option>
-                    </select>
-                </div>
-                <button class="btn btn-primary" onclick="createAnnouncement()">Create Announcement</button>
-                
-                <div class="loading" id="announcementsLoading">Loading announcements...</div>
-                <div id="announcementsContainer"></div>
-            </div>
-            
-            <div id="reports" class="tab-content">
-                <h3>Pending Reports</h3>
-                <div class="loading" id="reportsLoading">Loading reports...</div>
-                <div id="reportsContainer"></div>
-            </div>
-            
-            <div id="archived" class="tab-content">
-                <h3>Archived Reports</h3>
-                <div class="loading" id="archivedLoading">Loading archived reports...</div>
-                <div id="archivedContainer"></div>
-            </div>
-            
-            <div id="banned" class="tab-content">
-                <h3>Banned Profiles</h3>
-                <div class="loading" id="bannedLoading">Loading banned profiles...</div>
-                <div id="bannedContainer"></div>
-            </div>
-            
-            <div id="moderation" class="tab-content">
-                <h3>Moderation Actions</h3>
-                <div class="loading" id="moderationLoading">Loading moderation log...</div>
-                <div id="moderationContainer"></div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Toast Notification Container -->
-    <div class="toast-container" id="toastContainer"></div>
-    
-    <!-- Bulk Action Bar -->
-    <div class="bulk-action-bar" id="bulkActionBar">
-        <span class="bulk-count" id="bulkCount">0 selected</span>
-        <button class="btn" onclick="bulkRemoveProfiles()">Remove Selected</button>
-        <button class="btn" onclick="bulkBanProfiles()">Ban Selected</button>
-        <button class="btn" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
-        <button class="btn" onclick="clearBulkSelection()">Clear Selection</button>
-    </div>
-
-    <script>
-        let adminKey = '';
-        let adminName = '';
-        let allProfiles = [];
-        let filteredProfiles = [];
-        let selectedProfiles = new Set();
-        const serverUrl = window.location.origin;
-        let availableServers = new Set();
-        
-        // Toast notification system
-        function showToast(message, type = 'success') {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = 'toast ' + (type === 'success' ? '' : type);
-            toast.textContent = message;
-            
-            container.appendChild(toast);
-            
-            // Show toast
-            setTimeout(() => toast.classList.add('show'), 100);
-            
-            // Auto-remove after 3 seconds
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => container.removeChild(toast), 300);
-            }, 3000);
-        }
-        
-        // Bulk selection system
-        function updateBulkActionBar() {
-            const bar = document.getElementById('bulkActionBar');
-            const count = document.getElementById('bulkCount');
-            
-            if (selectedProfiles.size > 0) {
-                count.textContent = selectedProfiles.size + ' selected';
-                bar.classList.add('show');
-            } else {
-                bar.classList.remove('show');
-            }
-        }
-        
-        function toggleProfileSelection(profileId, checkbox) {
-            if (checkbox.checked) {
-                selectedProfiles.add(profileId);
-            } else {
-                selectedProfiles.delete(profileId);
-            }
-            updateBulkActionBar();
-        }
-        
-        function toggleSelectAllOnPage() {
-            const checkbox = document.getElementById('selectAllOnPage');
-            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
-            
-            profileCheckboxes.forEach(cb => {
-                cb.checked = checkbox.checked;
-                const profileId = cb.getAttribute('data-profile-id');
-                if (checkbox.checked) {
-                    selectedProfiles.add(profileId);
-                } else {
-                    selectedProfiles.delete(profileId);
-                }
-            });
-            updateBulkActionBar();
-        }
-        
-        function clearBulkSelection() {
-            selectedProfiles.clear();
-            document.querySelectorAll('.profile-checkbox').forEach(cb => cb.checked = false);
-            document.getElementById('selectAllOnPage').checked = false;
-            updateBulkActionBar();
-        }
-        
-        // Load saved admin credentials on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            try {
-                const savedAdminKey = localStorage.getItem('cs_admin_key');
-                const savedAdminName = localStorage.getItem('cs_admin_name');
-                
-                if (savedAdminKey) {
-                    document.getElementById('adminKey').value = savedAdminKey;
-                    adminKey = savedAdminKey;
-                }
-                
-                if (savedAdminName) {
-                    document.getElementById('adminName').value = savedAdminName;
-                    adminName = savedAdminName;
-                }
-                
-                // Auto-load dashboard if both credentials are saved
-                if (savedAdminKey && savedAdminName) {
-                    setTimeout(() => {
-                        autoLoadDashboard();
-                    }, 100);
-                }
-            } catch (e) {
-                console.error('Error loading saved credentials:', e);
-            }
-        });
-        
-        async function autoLoadDashboard() {
-            try {
-                // Test credentials first
-                const testResponse = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
-                
-                if (!testResponse.ok) {
-                    throw new Error('Invalid saved credentials');
-                }
-                
-                await refreshStats();
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
-                loadProfiles();
-                
-            } catch (error) {
-                console.error('Auto-load failed:', error);
-                // Clear invalid credentials
-                localStorage.removeItem('cs_admin_key');
-                localStorage.removeItem('cs_admin_name');
-                adminKey = '';
-                adminName = '';
-                document.getElementById('adminKey').value = '';
-                document.getElementById('adminName').value = '';
-                showToast('Saved credentials expired. Please log in again.', 'error');
-            }
-        }
-        
-        async function loadDashboard() {
-            adminKey = document.getElementById('adminKey').value;
-            adminName = document.getElementById('adminName').value;
-            
-            if (!adminKey) {
-                showToast('Please enter your admin key', 'error');
-                return;
-            }
-            
-            if (!adminName) {
-                showToast('Please enter your admin name', 'error');
-                return;
-            }
-            
-            try {
-                await refreshStats();
-                
-                // Only save credentials AFTER successful authentication
-                localStorage.setItem('cs_admin_key', adminKey);
-                localStorage.setItem('cs_admin_name', adminName);
-                
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
-                loadProfiles();
-                showToast('Dashboard loaded successfully!');
-                
-            } catch (error) {
-                showToast('Error: ' + error.message, 'error');
-            }
-        }
-        
-        async function refreshStats() {
-            if (!adminKey) return;
-            
-            const refreshBtn = document.getElementById('refreshBtn');
-            if (refreshBtn) {
-                refreshBtn.textContent = '🔄 Refreshing...';
-                refreshBtn.disabled = true;
-            }
-            
-            try {
-                const response = await fetch(serverUrl + '/admin/dashboard?adminKey=' + adminKey);
-                if (!response.ok) {
-                    throw new Error('Failed to load stats');
-                }
-                
-                const stats = await response.json();
-                
-                document.getElementById('totalProfiles').textContent = stats.totalProfiles;
-                document.getElementById('pendingReports').textContent = stats.pendingReports;
-                document.getElementById('totalBanned').textContent = stats.totalBanned;
-                document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
-                
-            } catch (error) {
-                console.error('Error refreshing:', error);
-            } finally {
-                if (refreshBtn) {
-                    refreshBtn.textContent = '🔄 Refresh All';
-                    refreshBtn.disabled = false;
-                }
-            }
-        }
-        
-        function applyFilters() {
-            const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
-            const serverFilter = document.getElementById('serverFilter').value;
-            const nsfwFilter = document.getElementById('nsfwFilter').value;
-            const sortFilter = document.getElementById('sortFilter').value;
-            
-            let filtered = [...allProfiles];
-            
-            // Apply search filter
-            if (searchTerm) {
-                filtered = filtered.filter(profile =>
-                    profile.CharacterName.toLowerCase().includes(searchTerm) ||
-                    profile.Server.toLowerCase().includes(searchTerm) ||
-                    profile.CharacterId.toLowerCase().includes(searchTerm) ||
-                    (profile.Bio && profile.Bio.toLowerCase().includes(searchTerm)) ||
-                    (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm))
-                );
-            }
-            
-            // Apply server filter
-            if (serverFilter) {
-                filtered = filtered.filter(profile => profile.Server === serverFilter);
-            }
-            
-            // Apply NSFW filter
-            if (nsfwFilter !== '') {
-                const isNSFW = nsfwFilter === 'true';
-                filtered = filtered.filter(profile => !!profile.IsNSFW === isNSFW);
-            }
-            
-            // Apply sorting
-            switch(sortFilter) {
-                case 'likes':
-                    filtered.sort((a, b) => b.LikeCount - a.LikeCount);
-                    break;
-                case 'newest':
-                    filtered.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
-                    break;
-                case 'oldest':
-                    filtered.sort((a, b) => new Date(a.LastUpdated) - new Date(b.LastUpdated));
-                    break;
-                case 'name':
-                    filtered.sort((a, b) => a.CharacterName.localeCompare(b.CharacterName));
-                    break;
-            }
-            
-            filteredProfiles = filtered;
-            
-            // Update results display
-            document.getElementById('filterResults').textContent = filtered.length + ' profiles found';
-            
-            renderProfileCards(filtered);
-        }
-        
-        function clearFilters() {
-            document.getElementById('profileSearch').value = '';
-            document.getElementById('serverFilter').value = '';
-            document.getElementById('nsfwFilter').value = '';
-            document.getElementById('sortFilter').value = 'likes';
-            
-            applyFilters();
-        }
-        
-        function populateServerDropdown() {
-            const serverSelect = document.getElementById('serverFilter');
-            const currentValue = serverSelect.value;
-            
-            // Clear existing options except "All Servers"
-            serverSelect.innerHTML = '<option value="">All Servers</option>';
-            
-            // Add server options
-            const sortedServers = Array.from(availableServers).sort();
-            sortedServers.forEach(server => {
-                const option = document.createElement('option');
-                option.value = server;
-                option.textContent = server;
-                serverSelect.appendChild(option);
-            });
-            
-            // Restore previous selection if valid
-            if (sortedServers.includes(currentValue)) {
-                serverSelect.value = currentValue;
-            }
-        }
-        
-        function renderProfileCards(profiles) {
-            const grid = document.getElementById('profilesGrid');
-            grid.innerHTML = '';
-            
-            profiles.forEach(profile => {
-                const card = document.createElement('div');
-                card.className = 'profile-card';
-                
-                // Create clickable image element or placeholder
-                const imageHtml = profile.ProfileImageUrl 
-                    ? '<img src="' + profile.ProfileImageUrl + '" alt="' + profile.CharacterName + '" class="profile-image" onclick="openImageModal(\'' + profile.ProfileImageUrl + '\', \'' + profile.CharacterName + '\')" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">' +
-                      '<div class="profile-image-placeholder" style="display: none;">🖼️</div>'
-                    : '<div class="profile-image-placeholder">🖼️</div>';
-                
-                // Format character name with NSFW badge if needed
-                const characterNameHtml = '<div class="profile-name">' + profile.CharacterName +
-                    (profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : '') + '</div>';
-                
-                // Show either Gallery Status OR Bio (Gallery Status takes priority)
-                let contentHtml = '';
-                if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = '<div class="gallery-status">' + profile.GalleryStatus + '</div>';
-                } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = '<div class="profile-content">' + profile.Bio + '</div>';
-                } else {
-                    contentHtml = '<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>';
-                }
-                
-                // NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
-                const actionButtons = profile.IsNSFW ? 
-                    '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
-                    '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>' :
-                    '<button class="btn btn-danger" onclick="confirmRemoveProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Remove</button>' +
-                    '<button class="btn btn-warning" onclick="confirmBanProfile(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Ban</button>' +
-                    '<button class="btn btn-nsfw" onclick="markNSFW(\'' + profile.CharacterId + '\', \'' + profile.CharacterName + '\')">Mark NSFW</button>';
-                
-                card.innerHTML = 
-                    '<div class="profile-header">' +
-                        '<div class="profile-info">' +
-                            characterNameHtml +
-                            '<div class="profile-id">' + profile.CharacterId + '</div>' +
-                            '<div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">' +
-                                '<span style="color: #ccc; font-size: 0.9em;">' + profile.Server + '</span>' +
-                                '<span style="color: #4CAF50;">❤️ ' + profile.LikeCount + '</span>' +
-                            '</div>' +
-                        '</div>' +
-                        imageHtml +
-                    '</div>' +
-                    contentHtml +
-                    '<div class="profile-actions">' + actionButtons + '</div>' +
-                    '<input type="checkbox" class="profile-checkbox" data-profile-id="' + profile.CharacterId + '" onchange="toggleProfileSelection(\'' + profile.CharacterId + '\', this)">';
-                
-                grid.appendChild(card);
-            });
-        }
-        
-        async function loadProfiles() {
-            const loading = document.getElementById('profilesLoading');
-            const grid = document.getElementById('profilesGrid');
-            
-            loading.style.display = 'block';
-            grid.innerHTML = '';
-            
-            try {
-                const response = await fetch(serverUrl + '/gallery?admin=true&key=' + adminKey);
-                const profiles = await response.json();
-                
-                loading.style.display = 'none';
-                allProfiles = profiles;
-                
-                // Populate available servers
-                availableServers.clear();
-                profiles.forEach(profile => {
-                    if (profile.Server) {
-                        availableServers.add(profile.Server);
-                    }
-                });
-                populateServerDropdown();
-                
-                // Apply initial filters
-                applyFilters();
-                
-            } catch (error) {
-                loading.innerHTML = '<div class="error">Error loading profiles: ' + error.message + '</div>';
-            }
-        }
-        
-        function showTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            document.getElementById(tabName).classList.add('active');
-            event.target.classList.add('active');
-            
-            switch(tabName) {
-                case 'profiles':
-                    loadProfiles();
-                    break;
-                case 'announcements':
-                    loadAnnouncements();
-                    break;
-                case 'reports':
-                    loadReports();
-                    break;
-                case 'archived':
-                    loadArchivedReports();
-                    break;
-                case 'banned':
-                    loadBannedProfiles();
-                    break;
-                case 'moderation':
-                    loadModerationLog();
-                    break;
-            }
-        }
-        
-        async function confirmRemoveProfile(characterId, characterName) {
-            const reason = prompt('Why are you removing "' + characterName + '"?\\n\\n(This will be logged for moderation records)');
-            if (!reason || reason.trim() === '') {
-                showToast('Removal cancelled - reason is required', 'error');
-                return;
-            }
-            
-            try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                });
-                
-                if (response.ok) {
-                    showToast('"' + characterName + '" has been removed from gallery');
-                    loadProfiles();
-                    await refreshStats();
-                } else {
-                    showToast('Error removing profile', 'error');
-                }
-            } catch (error) {
-                showToast('Error: ' + error.message, 'error');
-            }
-        }
-        
-        async function confirmBanProfile(characterId, characterName) {
-            const reason = prompt('Why are you banning "' + characterName + '"?\\n\\n(This will be logged for moderation records)');
-            if (!reason || reason.trim() === '') {
-                showToast('Ban cancelled - reason is required', 'error');
-                return;
-            }
-            
-            try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/ban', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason, adminId: adminName })
-                });
-                
-                if (response.ok) {
-                    showToast('"' + characterName + '" has been banned');
-                    await refreshStats();
-                } else {
-                    showToast('Error banning profile', 'error');
-                }
-            } catch (error) {
-                showToast('Error: ' + error.message, 'error');
-            }
-        }
-        
-        async function markNSFW(characterId, characterName) {
-            try {
-                const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/nsfw', {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
-                    },
-                    body: JSON.stringify({ isNSFW: true })
-                });
-                
-                if (response.ok) {
-                    showToast(characterName + ' has been marked as NSFW');
-                    loadProfiles();
-                } else {
-                    showToast('Error updating NSFW status', 'error');
-                }
-            } catch (error) {
-                showToast('Error: ' + error.message, 'error');
-            }
-        }
-        
-        // Bulk actions with toast notifications
-        async function bulkRemoveProfiles() {
-            if (selectedProfiles.size === 0) {
-                showToast('No profiles selected', 'error');
-                return;
-            }
-            
-            const reason = prompt('Reason for bulk removal:\\n\\n(Applied to all ' + selectedProfiles.size + ' selected profiles)');
-            if (!reason || reason.trim() === '') {
-                showToast('Bulk removal cancelled - reason is required', 'error');
-                return;
-            }
-            
-            showToast('Removing ' + selectedProfiles.size + ' profiles...', 'warning');
-            let successCount = 0;
-            let errorCount = 0;
-            
-            for (const characterId of selectedProfiles) {
-                try {
-                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
-                        method: 'DELETE',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            clearBulkSelection();
-            loadProfiles();
-            await refreshStats();
-            showToast('Bulk removal complete: ' + successCount + ' removed, ' + errorCount + ' errors');
-        }
-        
-        async function bulkBanProfiles() {
-            if (selectedProfiles.size === 0) {
-                showToast('No profiles selected', 'error');
-                return;
-            }
-            
-            const reason = prompt('Reason for bulk ban:\\n\\n(Applied to all ' + selectedProfiles.size + ' selected profiles)');
-            if (!reason || reason.trim() === '') {
-                showToast('Bulk ban cancelled - reason is required', 'error');
-                return;
-            }
-            
-            showToast('Banning ' + selectedProfiles.size + ' profiles...', 'warning');
-            let successCount = 0;
-            let errorCount = 0;
-            
-            for (const characterId of selectedProfiles) {
-                try {
-                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/ban', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey,
-                            'X-Admin-Id': adminName
-                        },
-                        body: JSON.stringify({ reason, adminId: adminName })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            clearBulkSelection();
-            await refreshStats();
-            showToast('Bulk ban complete: ' + successCount + ' banned, ' + errorCount + ' errors');
-        }
-        
-        async function bulkMarkNSFW() {
-            if (selectedProfiles.size === 0) {
-                showToast('No profiles selected', 'error');
-                return;
-            }
-            
-            showToast('Marking ' + selectedProfiles.size + ' profiles as NSFW...', 'warning');
-            let successCount = 0;
-            let errorCount = 0;
-            let skippedCount = 0;
-            
-            for (const characterId of selectedProfiles) {
-                try {
-                    // Check if already NSFW
-                    const profile = allProfiles.find(p => p.CharacterId === characterId);
-                    if (profile && profile.IsNSFW) {
-                        skippedCount++;
-                        continue;
-                    }
-                    
-                    const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/nsfw', {
-                        method: 'PATCH',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Admin-Key': adminKey
-                        },
-                        body: JSON.stringify({ isNSFW: true })
-                    });
-                    
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } catch (error) {
-                    errorCount++;
-                }
-            }
-            
-            clearBulkSelection();
-            loadProfiles();
-            showToast('Bulk NSFW marking complete: ' + successCount + ' marked, ' + skippedCount + ' already NSFW, ' + errorCount + ' errors');
-        }
-        
-        // Placeholder functions for other tabs
-        async function loadAnnouncements() {
-            document.getElementById('announcementsLoading').style.display = 'block';
-            // Implementation would go here
-        }
-        
-        async function createAnnouncement() {
-            showToast('Announcement feature coming soon!', 'warning');
-        }
-        
-        async function loadReports() {
-            document.getElementById('reportsLoading').style.display = 'block';
-            // Implementation would go here
-        }
-        
-        async function loadArchivedReports() {
-            document.getElementById('archivedLoading').style.display = 'block';
-            // Implementation would go here
-        }
-        
-        async function loadBannedProfiles() {
-            document.getElementById('bannedLoading').style.display = 'block';
-            // Implementation would go here
-        }
-        
-        async function loadModerationLog() {
-            document.getElementById('moderationLoading').style.display = 'block';
-            // Implementation would go here
-        }
-        
-        // Image modal functions
-        function openImageModal(imageUrl, characterName) {
-            // Simple image modal implementation
-            const modal = document.createElement('div');
-            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 10000; display: flex; align-items: center; justify-content: center; cursor: pointer;';
-            modal.onclick = () => document.body.removeChild(modal);
-            
-            const img = document.createElement('img');
-            img.src = imageUrl;
-            img.alt = characterName;
-            img.style.cssText = 'max-width: 90%; max-height: 90%; border-radius: 10px;';
-            
-            modal.appendChild(img);
-            document.body.appendChild(modal);
-        }
-    </script>
-</body>
-</html>
-    `;
-    
-    res.send(adminHtml);
 });
