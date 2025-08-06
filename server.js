@@ -2223,6 +2223,9 @@ app.get("/admin", (req, res) => {
             
             const reason = prompt('Reason for removing ' + selectedProfiles.size + ' profiles (optional):') || 'Bulk removal';
             
+            // Debug: Log admin credentials being sent
+            console.log('🔑 Bulk remove with adminKey:', adminKey ? 'Set' : 'Empty', 'adminName:', adminName ? adminName : 'Empty');
+            
             try {
                 let successCount = 0;
                 const totalCount = selectedProfiles.size;
@@ -2456,12 +2459,17 @@ app.get("/admin", (req, res) => {
                 return;
             }
             
+            // Debug: Log admin credentials being sent
+            console.log('🔑 Executing action:', action, 'with adminKey:', adminKey ? 'Set' : 'Empty', 'adminName:', adminName ? adminName : 'Empty');
+            
             try {
                 let response;
                 let successMessage;
                 
                 switch(action) {
                     case 'remove':
+                        console.log('📤 Sending DELETE request with headers:', { 'X-Admin-Key': adminKey ? '***SET***' : 'EMPTY', 'X-Admin-Id': adminName || 'EMPTY' });
+                        console.log('📤 Sending body:', { reason, ban: false, adminId: adminName || 'EMPTY' });
                         response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
                             method: 'DELETE',
                             headers: {
