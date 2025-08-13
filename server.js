@@ -2234,7 +2234,7 @@ app.get("/admin", (req, res) => {
             
             showPromptModal(
                 'Bulk Remove Profiles', 
-                \`Removing \${selectedProfiles.size} profiles\`, 
+                'Removing ' + selectedProfiles.size + ' profiles', 
                 'Reason for removal (optional)...', 
                 (reason) => {
                     submitBulkRemove(reason || 'Bulk removal');
@@ -2290,7 +2290,7 @@ app.get("/admin", (req, res) => {
             
             showPromptModal(
                 'Bulk Ban Profiles', 
-                \`Banning \${selectedProfiles.size} profiles\`, 
+                'Banning ' + selectedProfiles.size + ' profiles', 
                 'Reason for banning (optional)...', 
                 (reason) => {
                     submitBulkBan(reason || 'Bulk ban');
@@ -3343,7 +3343,7 @@ app.get("/admin", (req, res) => {
         async function unbanProfile(characterId, characterName) {
             showPromptModal(
                 'Unban Profile', 
-                \`Why are you unbanning \${characterName || characterId}?\`, 
+                'Why are you unbanning ' + (characterName || characterId) + '?', 
                 'Enter reason for unbanning...', 
                 (reason) => {
                     if (reason) {
@@ -3723,7 +3723,7 @@ app.get("/admin", (req, res) => {
         async function updateReport(reportId, status) {
             showPromptModal(
                 'Update Report', 
-                `Updating report status to: ${status}`, 
+                'Updating report status to: ' + status, 
                 'Add admin notes (optional)...', 
                 (adminNotes) => {
                     submitReportUpdate(reportId, status, adminNotes);
