@@ -2232,7 +2232,17 @@ app.get("/admin", (req, res) => {
         async function bulkRemoveProfiles() {
             if (selectedProfiles.size === 0) return;
             
-            const reason = prompt('Reason for removing ' + selectedProfiles.size + ' profiles (optional):') || 'Bulk removal';
+            showPromptModal(
+                'Bulk Remove Profiles', 
+                \`Removing \${selectedProfiles.size} profiles\`, 
+                'Reason for removal (optional)...', 
+                (reason) => {
+                    submitBulkRemove(reason || 'Bulk removal');
+                }
+            );
+        }
+        
+        async function submitBulkRemove(reason) {
             
             // Debug: Log admin credentials being sent
             console.log('🔑 Bulk remove with adminKey:', adminKey ? 'Set' : 'Empty', 'adminName:', adminName ? adminName : 'Empty');
@@ -2278,7 +2288,17 @@ app.get("/admin", (req, res) => {
         async function bulkBanProfiles() {
             if (selectedProfiles.size === 0) return;
             
-            const reason = prompt('Reason for banning ' + selectedProfiles.size + ' profiles (optional):') || 'Bulk ban';
+            showPromptModal(
+                'Bulk Ban Profiles', 
+                \`Banning \${selectedProfiles.size} profiles\`, 
+                'Reason for banning (optional)...', 
+                (reason) => {
+                    submitBulkBan(reason || 'Bulk ban');
+                }
+            );
+        }
+        
+        async function submitBulkBan(reason) {
             
             try {
                 let successCount = 0;
@@ -2339,7 +2359,8 @@ app.get("/admin", (req, res) => {
                             method: 'PATCH',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey
+                                'X-Admin-Key': adminKey,
+                                'X-Admin-Id': adminName
                             },
                             body: JSON.stringify({ isNSFW: true })
                         });
@@ -2462,6 +2483,56 @@ app.get("/admin", (req, res) => {
             modal.classList.remove('show');
         }
         
+        // Generic modal for prompts and confirmations
+        function showPromptModal(title, message, placeholder = '', callback) {
+            const modal = document.getElementById('moderationModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalCharacterName = document.getElementById('modalCharacterName');
+            const modalReason = document.getElementById('modalReason');
+            const confirmBtn = document.getElementById('modalConfirmBtn');
+            
+            modalTitle.textContent = title;
+            modalCharacterName.textContent = message;
+            modalReason.value = '';
+            modalReason.placeholder = placeholder;
+            modalReason.style.display = 'block';
+            confirmBtn.textContent = 'Confirm';
+            confirmBtn.className = 'btn btn-primary';
+            
+            // Set up confirm button click handler
+            confirmBtn.onclick = () => {
+                const value = modalReason.value.trim();
+                closeModal();
+                callback(value);
+            };
+            
+            modal.classList.add('show');
+            modalReason.focus();
+        }
+        
+        function showConfirmModal(title, message, confirmText, confirmClass, callback) {
+            const modal = document.getElementById('moderationModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalCharacterName = document.getElementById('modalCharacterName');
+            const modalReason = document.getElementById('modalReason');
+            const confirmBtn = document.getElementById('modalConfirmBtn');
+            
+            modalTitle.textContent = title;
+            modalCharacterName.textContent = message;
+            modalReason.style.display = 'none';
+            confirmBtn.textContent = confirmText;
+            confirmBtn.className = confirmClass;
+            
+            // Set up confirm button click handler
+            confirmBtn.onclick = () => {
+                closeModal();
+                modalReason.style.display = 'block'; // Reset for next use
+                callback();
+            };
+            
+            modal.classList.add('show');
+        }
+        
         async function executeAction(action, characterId, characterName) {
             const reason = document.getElementById('modalReason').value.trim();
             
@@ -2511,7 +2582,8 @@ app.get("/admin", (req, res) => {
                             method: 'PATCH',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey
+                                'X-Admin-Key': adminKey,
+                                'X-Admin-Id': adminName
                             },
                             body: JSON.stringify({ isNSFW: true })
                         });
@@ -3201,16 +3273,21 @@ app.get("/admin", (req, res) => {
                     showToast('❌ Error updating flag status', 'error');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                showToast(\`❌ Error: \${error.message}\`, 'error');
             }
         }
         
         function showKeywordManager() {
-            // Simple keyword manager for now
-            const newKeyword = prompt('Add new keyword to auto-flag list:\\n(Leave empty to cancel)');
-            if (newKeyword && newKeyword.trim()) {
-                addFlagKeyword(newKeyword.trim());
-            }
+            showPromptModal(
+                'Add Keyword', 
+                'Add new keyword to auto-flag list:', 
+                'Enter keyword...', 
+                (newKeyword) => {
+                    if (newKeyword && newKeyword.trim()) {
+                        addFlagKeyword(newKeyword.trim());
+                    }
+                }
+            );
         }
         
         async function addFlagKeyword(keyword) {
@@ -3219,7 +3296,8 @@ app.get("/admin", (req, res) => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
                     },
                     body: JSON.stringify({ keyword })
                 });
@@ -3230,7 +3308,7 @@ app.get("/admin", (req, res) => {
                     showToast('❌ Error adding keyword', 'error');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                showToast(\`❌ Error: \${error.message}\`, 'error');
             }
         }
         
@@ -3263,15 +3341,26 @@ app.get("/admin", (req, res) => {
         });
         
         async function unbanProfile(characterId, characterName) {
-            const reason = prompt(\`Why are you unbanning \${characterName || characterId}?\`);
-            if (!reason) return;
-            
+            showPromptModal(
+                'Unban Profile', 
+                \`Why are you unbanning \${characterName || characterId}?\`, 
+                'Enter reason for unbanning...', 
+                (reason) => {
+                    if (reason) {
+                        submitUnbanProfile(characterId, characterName, reason);
+                    }
+                }
+            );
+        }
+        
+        async function submitUnbanProfile(characterId, characterName, reason) {
             try {
                 const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/unban\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey
+                        'X-Admin-Key': adminKey,
+                        'X-Admin-Id': adminName
                     },
                     body: JSON.stringify({ reason })
                 });
@@ -3632,8 +3721,17 @@ app.get("/admin", (req, res) => {
         }
         
         async function updateReport(reportId, status) {
-            const adminNotes = prompt('Add admin notes (optional):');
-            
+            showPromptModal(
+                'Update Report', 
+                `Updating report status to: ${status}`, 
+                'Add admin notes (optional)...', 
+                (adminNotes) => {
+                    submitReportUpdate(reportId, status, adminNotes);
+                }
+            );
+        }
+        
+        async function submitReportUpdate(reportId, status, adminNotes) {
             try {
                 const response = await fetch(\`\${serverUrl}/admin/reports/\${reportId}\`, {
                     method: 'PATCH',
@@ -3646,7 +3744,7 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('✅ Report updated');
+                    showToast('✅ Report updated');
                     await loadReports();
                     await loadArchivedReports();
                     await refreshStats();
@@ -3654,7 +3752,7 @@ app.get("/admin", (req, res) => {
                     showToast('❌ Error updating report', 'error');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                showToast(\`❌ Error: \${error.message}\`, 'error');
             }
         }
         
@@ -3664,7 +3762,7 @@ app.get("/admin", (req, res) => {
             const type = document.getElementById('announcementType').value;
             
             if (!title || !message) {
-                alert('Please fill in title and message');
+                showToast('Please fill in title and message', 'error');
                 return;
             }
             
@@ -3680,7 +3778,7 @@ app.get("/admin", (req, res) => {
                 });
                 
                 if (response.ok) {
-                    alert('✅ Announcement created');
+                    showToast('✅ Announcement created');
                     document.getElementById('announcementTitle').value = '';
                     document.getElementById('announcementMessage').value = '';
                     loadAnnouncements();
@@ -3689,7 +3787,7 @@ app.get("/admin", (req, res) => {
                     showToast('❌ Error creating announcement', 'error');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                showToast(\`❌ Error: \${error.message}\`, 'error');
             }
         }
         
@@ -3747,13 +3845,23 @@ app.get("/admin", (req, res) => {
                     showToast('❌ Error deactivating announcement', 'error');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                showToast(\`❌ Error: \${error.message}\`, 'error');
             }
         }
         
         async function deleteAnnouncement(id) {
-            if (!confirm('Are you sure you want to delete this announcement?')) return;
-            
+            showConfirmModal(
+                'Delete Announcement', 
+                'Are you sure you want to delete this announcement?', 
+                'Delete', 
+                'btn btn-danger', 
+                () => {
+                    submitDeleteAnnouncement(id);
+                }
+            );
+        }
+        
+        async function submitDeleteAnnouncement(id) {
             try {
                 const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
                     method: 'DELETE',
@@ -3770,7 +3878,7 @@ app.get("/admin", (req, res) => {
                     showToast('❌ Error deleting announcement', 'error');
                 }
             } catch (error) {
-                alert(\`❌ Error: \${error.message}\`);
+                showToast(\`❌ Error: \${error.message}\`, 'error');
             }
         }
         
