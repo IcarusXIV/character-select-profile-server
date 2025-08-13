@@ -398,6 +398,13 @@ class ModerationDatabase {
     }
 
     logAction(action, characterId, characterName, reason, adminId) {
+        // Count repeated actions on the same profile
+        const previousActions = this.actions.filter(a => 
+            a.characterId === characterId && 
+            a.action === action
+        );
+        const repeatCount = previousActions.length + 1;
+        
         const moderationAction = {
             id: crypto.randomUUID(),
             action,
@@ -405,20 +412,24 @@ class ModerationDatabase {
             characterName,
             reason,
             adminId,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            repeatCount: repeatCount
         };
         
         this.actions.unshift(moderationAction);
         this.save();
-        console.log(`🛡️ Moderation: ${action} on ${characterName} by ${adminId}`);
+        
+        const repeatText = repeatCount > 1 ? ` (${repeatCount}x)` : '';
+        console.log(`🛡️ Moderation: ${action} on ${characterName} by ${adminId}${repeatText}`);
         
         // Log to activity feed
-        activityDB.logActivity('moderation', `${action.toUpperCase()}: ${characterName}`, {
+        activityDB.logActivity('moderation', `${action.toUpperCase()}: ${characterName}${repeatText}`, {
             action,
             characterId,
             characterName,
             adminId,
-            reason
+            reason,
+            repeatCount
         });
         
         return moderationAction;
@@ -2946,8 +2957,12 @@ app.get("/admin", (req, res) => {
                 document.getElementById('totalBanned').textContent = stats.totalBanned;
                 document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
                 
+                // Refresh gallery profiles as well
+                loadProfiles();
+                
             } catch (error) {
                 console.error('Error refreshing:', error);
+                showToast('Error refreshing: ' + error.message, 'error');
             } finally {
                 if (refreshBtn) {
                     refreshBtn.textContent = '🔄 Refresh All';
@@ -3775,8 +3790,13 @@ app.get("/admin", (req, res) => {
                 actions.forEach(action => {
                     const card = document.createElement('div');
                     card.className = 'profile-card';
+                    
+                    const repeatBadge = action.repeatCount && action.repeatCount > 1 
+                        ? \`<span style="background: rgba(255, 152, 0, 0.2); color: #ff9800; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 8px;">REPEAT \${action.repeatCount}x</span>\`
+                        : '';
+                    
                     card.innerHTML = \`
-                        <div><strong>\${action.action.toUpperCase()}</strong> - \${action.characterName}</div>
+                        <div><strong>\${action.action.toUpperCase()}</strong> - \${action.characterName}\${repeatBadge}</div>
                         <p><strong>Reason:</strong> \${action.reason}</p>
                         <p><strong>Admin:</strong> \${action.adminId}</p>
                         <p><strong>Date:</strong> \${new Date(action.timestamp).toLocaleString()}</p>
