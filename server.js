@@ -1179,6 +1179,10 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
 
+        // Set createdAt only on first upload (for tracking new profiles)
+        if (!profile.CreatedAt) {
+            profile.CreatedAt = new Date().toISOString();
+        }
         profile.LastUpdated = new Date().toISOString();
         profile.LastActiveTime = new Date().toISOString();
 
@@ -1249,6 +1253,10 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
 
+        // Set createdAt only on first upload (for tracking new profiles)
+        if (!profile.CreatedAt) {
+            profile.CreatedAt = new Date().toISOString();
+        }
         profile.LastUpdated = new Date().toISOString();
         profile.LastActiveTime = new Date().toISOString();
 
@@ -2212,40 +2220,87 @@ app.post("/user/check-name-change", (req, res) => {
 // Admin dashboard endpoint
 app.get("/admin/dashboard", requireAdmin, async (req, res) => {
     try {
+        // Time thresholds for tracking changes
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
         // Count all profiles
         const allProfiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
-        
+
         // Count only showcase/public profiles (same logic as gallery)
         let showcaseCount = 0;
+        let newProfilesToday = 0;
+        let newProfilesThisWeek = 0;
+
         for (const file of allProfiles) {
             try {
                 const characterId = file.replace('.json', '');
                 if (moderationDB.isProfileBanned(characterId)) continue;
-                
+
                 const filePath = path.join(profilesDir, file);
                 const profileData = await readProfileAsync(filePath);
-                
-                if (isValidProfile(profileData) && 
+
+                if (isValidProfile(profileData) &&
                     (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2)) {
                     showcaseCount++;
+
+                    // Check if profile is new (using CreatedAt or falling back to file stats)
+                    let createdDate = null;
+                    if (profileData.CreatedAt) {
+                        createdDate = new Date(profileData.CreatedAt);
+                    } else {
+                        // Fallback to file creation time for older profiles
+                        const fileStats = fs.statSync(filePath);
+                        createdDate = fileStats.birthtime;
+                    }
+
+                    if (createdDate && createdDate > oneDayAgo) {
+                        newProfilesToday++;
+                    }
+                    if (createdDate && createdDate > oneWeekAgo) {
+                        newProfilesThisWeek++;
+                    }
                 }
             } catch (err) {
                 // Skip invalid profiles
                 continue;
             }
         }
-        
+
+        // Count new reports
+        const allReports = reportsDB.getReports();
+        const pendingReports = reportsDB.getReports('pending');
+        const newReportsToday = allReports.filter(r => new Date(r.createdAt) > oneDayAgo).length;
+        const newReportsThisWeek = allReports.filter(r => new Date(r.createdAt) > oneWeekAgo).length;
+
+        // Count new warnings
+        const allWarnings = moderationDB.getAllNameWarnings();
+        const newWarningsToday = allWarnings.filter(w => new Date(w.createdAt) > oneDayAgo).length;
+
+        // Count new flagged profiles
+        const allFlagged = autoFlagDB.getFlaggedProfiles();
+        const pendingFlags = autoFlagDB.getFlaggedProfiles('pending');
+        const newFlaggedToday = allFlagged.filter(f => new Date(f.flaggedAt) > oneDayAgo).length;
+
         const stats = {
-            totalProfiles: showcaseCount, // Now shows only public profiles
-            totalReports: reportsDB.getReports().length,
-            pendingReports: reportsDB.getReports('pending').length,
+            totalProfiles: showcaseCount,
+            newProfilesToday,
+            newProfilesThisWeek,
+            totalReports: allReports.length,
+            pendingReports: pendingReports.length,
+            newReportsToday,
+            newReportsThisWeek,
             totalBanned: moderationDB.bannedProfiles.size,
             totalAnnouncements: announcementsDB.getAllAnnouncements().length,
             activeAnnouncements: announcementsDB.getActiveAnnouncements().length,
             recentActions: moderationDB.getActions().slice(0, 10),
-            pendingFlags: autoFlagDB.getFlaggedProfiles('pending').length
+            pendingFlags: pendingFlags.length,
+            newFlaggedToday,
+            totalWarnings: allWarnings.length,
+            newWarningsToday
         };
-        
+
         res.json(stats);
     } catch (error) {
         console.error('Dashboard error:', error);
