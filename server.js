@@ -4180,6 +4180,92 @@ app.get("/view/:name", async (req, res) => {
     }
 });
 
+// ===============================
+// 🔍 NAMES LOOKUP ENDPOINT
+// ===============================
+// Batch lookup CS+ names for multiple physical character names
+// Used for shared name replacement feature
+app.post("/names/lookup", async (req, res) => {
+    try {
+        const { characters } = req.body;
+
+        if (!Array.isArray(characters) || characters.length === 0) {
+            return res.status(400).json({ error: "Invalid request: characters array required" });
+        }
+
+        // Limit batch size to prevent abuse
+        const limitedChars = characters.slice(0, 50);
+        const results = {};
+
+        // Get list of all profile files once
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file =>
+                    file.endsWith('.json') &&
+                    !file.endsWith('_follows.json')
+                ));
+            });
+        });
+
+        // Process each requested character
+        for (const physicalName of limitedChars) {
+            if (!physicalName || typeof physicalName !== 'string') continue;
+
+            const expectedSuffix = `_${physicalName}.json`;
+
+            // Find matching profile files
+            const matchingFiles = profileFiles.filter(file => file.endsWith(expectedSuffix));
+
+            if (matchingFiles.length === 0) continue;
+
+            // Get the most recently modified matching profile
+            let bestMatch = null;
+            let bestModTime = 0;
+
+            for (const file of matchingFiles) {
+                const fullPath = path.join(profilesDir, file);
+                try {
+                    const stats = fs.statSync(fullPath);
+                    if (stats.mtime.getTime() > bestModTime) {
+                        const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+
+                        // Check sharing setting - skip if NeverShare
+                        // NeverShare can be string 'NeverShare' or number 0
+                        if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 0) {
+                            continue;
+                        }
+
+                        // Check if user opted out of name visibility
+                        // AllowOthersToSeeMyCSName defaults to true if not present
+                        if (profileData.AllowOthersToSeeMyCSName === false) {
+                            continue;
+                        }
+
+                        bestModTime = stats.mtime.getTime();
+                        bestMatch = profileData;
+                    }
+                } catch (err) {
+                    console.error(`Error reading profile ${file}:`, err.message);
+                }
+            }
+
+            // Add to results if we found a valid profile
+            if (bestMatch && bestMatch.CharacterName) {
+                results[physicalName] = {
+                    csName: bestMatch.CharacterName,
+                    nameplateColor: bestMatch.NameplateColor || [1.0, 1.0, 1.0]
+                };
+            }
+        }
+
+        res.json({ results });
+    } catch (err) {
+        console.error(`Error in names lookup endpoint: ${err}`);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
 // Gallery endpoint
 app.get("/gallery", async (req, res) => {
     try {
