@@ -4252,9 +4252,23 @@ app.post("/names/lookup", async (req, res) => {
 
             // Add to results if we found a valid profile
             if (bestMatch && bestMatch.CharacterName) {
+                // Convert NameplateColor from {X, Y, Z} object to [r, g, b] array
+                let colorArray = [1.0, 1.0, 1.0];
+                if (bestMatch.NameplateColor) {
+                    if (Array.isArray(bestMatch.NameplateColor)) {
+                        colorArray = bestMatch.NameplateColor;
+                    } else if (typeof bestMatch.NameplateColor === 'object') {
+                        colorArray = [
+                            bestMatch.NameplateColor.X ?? 1.0,
+                            bestMatch.NameplateColor.Y ?? 1.0,
+                            bestMatch.NameplateColor.Z ?? 1.0
+                        ];
+                    }
+                }
+
                 results[physicalName] = {
                     csName: bestMatch.CharacterName,
-                    nameplateColor: bestMatch.NameplateColor || [1.0, 1.0, 1.0]
+                    nameplateColor: colorArray
                 };
             }
         }
