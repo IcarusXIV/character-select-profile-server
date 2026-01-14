@@ -2245,21 +2245,15 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
                     (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2)) {
                     showcaseCount++;
 
-                    // Check if profile is new (using CreatedAt or falling back to file stats)
-                    let createdDate = null;
+                    // Check if profile is new (only count profiles with CreatedAt for accuracy)
                     if (profileData.CreatedAt) {
-                        createdDate = new Date(profileData.CreatedAt);
-                    } else {
-                        // Fallback to file creation time for older profiles
-                        const fileStats = fs.statSync(filePath);
-                        createdDate = fileStats.birthtime;
-                    }
-
-                    if (createdDate && createdDate > oneDayAgo) {
-                        newProfilesToday++;
-                    }
-                    if (createdDate && createdDate > oneWeekAgo) {
-                        newProfilesThisWeek++;
+                        const createdDate = new Date(profileData.CreatedAt);
+                        if (createdDate > oneDayAgo) {
+                            newProfilesToday++;
+                        }
+                        if (createdDate > oneWeekAgo) {
+                            newProfilesThisWeek++;
+                        }
                     }
                 }
             } catch (err) {
