@@ -1327,6 +1327,7 @@
         }
 
         function logout() {
+            stopAutoRefresh();
             localStorage.removeItem('cs_admin_server');
             localStorage.removeItem('cs_admin_key');
             localStorage.removeItem('cs_admin_name');
@@ -1377,6 +1378,7 @@
 
                     hideAuthSection();
                     await loadAllData();
+                    startAutoRefresh();
                     showToast(`Connected as ${adminName}`, 'success');
                 } else {
                     throw new Error('Invalid credentials');
@@ -1394,6 +1396,38 @@
             const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
             document.getElementById('adminAvatar').textContent = initials;
             document.getElementById('adminNameDisplay').textContent = displayName;
+        }
+
+        // ============ AUTO-REFRESH ============
+        let autoRefreshInterval = null;
+        const AUTO_REFRESH_SECONDS = 30;
+
+        function startAutoRefresh() {
+            stopAutoRefresh(); // Clear any existing interval
+            autoRefreshInterval = setInterval(async () => {
+                if (!isAuthenticated) return;
+                try {
+                    // Silently refresh key data
+                    await Promise.all([
+                        loadDashboard(),
+                        loadReports(),
+                        loadWarnings(),
+                        loadFlagged(),
+                        loadActivity()
+                    ]);
+                    updateBadges();
+                } catch (error) {
+                    console.error('Auto-refresh failed:', error);
+                }
+            }, AUTO_REFRESH_SECONDS * 1000);
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                console.log('Auto-refresh stopped');
+            }
         }
 
         // ============ API HELPERS ============
@@ -1649,21 +1683,26 @@
 
             // Stats
             const stats = dashboardStats;
+            const newProfiles = stats.newProfilesToday || 0;
+            const newReports = stats.newReportsToday || 0;
+            const newWarnings = stats.newWarningsToday || 0;
+            const newFlagged = stats.newFlaggedToday || 0;
+
             document.getElementById('statsGrid').innerHTML = `
                 <div class="stat-card">
                     <div class="stat-label">📊 Total Profiles</div>
                     <div class="stat-value">${stats.totalProfiles || 0}</div>
-                    <div class="stat-change neutral">Public gallery profiles</div>
+                    <div class="stat-change ${newProfiles > 0 ? 'positive' : 'neutral'}">${newProfiles > 0 ? `+${newProfiles} today` : 'No new today'}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">🚨 Pending Reports</div>
                     <div class="stat-value">${stats.pendingReports || 0}</div>
-                    <div class="stat-change ${stats.pendingReports > 0 ? 'negative' : 'neutral'}">${stats.pendingReports > 0 ? 'Needs attention' : 'All clear'}</div>
+                    <div class="stat-change ${newReports > 0 ? 'negative' : 'neutral'}">${newReports > 0 ? `+${newReports} today` : 'No new today'}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">⚠️ Active Warnings</div>
                     <div class="stat-value">${nameWarnings.length}</div>
-                    <div class="stat-change neutral">${nameWarnings.filter(w => !w.acknowledged).length} unacknowledged</div>
+                    <div class="stat-change ${newWarnings > 0 ? 'negative' : 'neutral'}">${newWarnings > 0 ? `+${newWarnings} today` : nameWarnings.filter(w => !w.acknowledged).length + ' unacknowledged'}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">✏️ Name Reviews</div>
@@ -1673,7 +1712,7 @@
                 <div class="stat-card">
                     <div class="stat-label">🚩 Auto-Flagged</div>
                     <div class="stat-value">${stats.pendingFlags || 0}</div>
-                    <div class="stat-change ${(stats.pendingFlags || 0) > 0 ? 'negative' : 'neutral'}">${(stats.pendingFlags || 0) > 0 ? 'Needs review' : 'Queue empty'}</div>
+                    <div class="stat-change ${newFlagged > 0 ? 'negative' : 'neutral'}">${newFlagged > 0 ? `+${newFlagged} today` : 'Queue empty'}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">🚫 Banned Users</div>
