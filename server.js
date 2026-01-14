@@ -312,11 +312,12 @@ class ReportsDatabase {
         }
     }
 
-    addReport(reportedCharacterId, reportedCharacterName, reporterCharacter, reason, details) {
+    addReport(reportedCharacterId, reportedCharacterName, reporterCharacter, reason, details, offensiveCSName = null) {
         const report = {
             id: crypto.randomUUID(),
             reportedCharacterId,
             reportedCharacterName,
+            offensiveCSName,
             reporterCharacter,
             reason,
             details,
@@ -326,10 +327,10 @@ class ReportsDatabase {
             reviewedBy: null,
             adminNotes: null
         };
-        
+
         this.reports.unshift(report);
         this.save();
-        console.log(`🚨 New report: ${reportedCharacterName} reported for ${reason}`);
+        console.log(`🚨 New report: ${reportedCharacterName} (CS+ name: ${offensiveCSName || 'N/A'}) reported for ${reason}`);
         return report;
     }
 
@@ -4605,25 +4606,27 @@ app.delete("/admin/announcements/:id", requireAdmin, (req, res) => {
 // Submit report (public)
 app.post("/reports", (req, res) => {
     try {
-        const { reportedCharacterId, reportedCharacterName, reporterCharacter, reason, details } = req.body;
-        
+        const { reportedCharacterId, reportedCharacterName, reporterCharacter, reason, details, offensiveCSName } = req.body;
+
         if (!reportedCharacterId || !reporterCharacter || !reason) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
         const report = reportsDB.addReport(
-            reportedCharacterId, 
-            reportedCharacterName || reportedCharacterId, 
-            reporterCharacter, 
-            reason, 
-            details
+            reportedCharacterId,
+            reportedCharacterName || reportedCharacterId,
+            reporterCharacter,
+            reason,
+            details,
+            offensiveCSName
         );
-        
+
         // Log activity
-        activityDB.logActivity('report', `REPORTED: ${reportedCharacterName || reportedCharacterId}`, {
+        activityDB.logActivity('report', `REPORTED: ${reportedCharacterName || reportedCharacterId} (CS+: ${offensiveCSName || 'N/A'})`, {
             reportId: report.id,
             reportedCharacterId,
             reportedCharacterName: reportedCharacterName || reportedCharacterId,
+            offensiveCSName,
             reporterCharacter,
             reason
         });
