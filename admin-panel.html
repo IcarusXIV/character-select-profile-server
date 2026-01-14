@@ -1,0 +1,2865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CS+ Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0d0d12;
+            --bg-secondary: #13131a;
+            --bg-tertiary: #1a1a24;
+            --bg-card: #16161f;
+            --bg-hover: #1e1e2a;
+            --border: #2a2a3a;
+            --border-light: #3a3a4a;
+            --text-primary: #f0f0f5;
+            --text-secondary: #9090a0;
+            --text-muted: #606070;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --pink: #ec4899;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 240px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1.1em;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent), var(--pink));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-nav { flex: 1; padding: 12px; overflow-y: auto; }
+        .nav-section { margin-bottom: 24px; }
+        .nav-section-title {
+            font-size: 0.7em;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            padding: 8px 12px;
+            font-weight: 600;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            font-size: 0.9em;
+        }
+
+        .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .nav-item.active { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+        .nav-item .icon { width: 20px; text-align: center; font-size: 1.1em; }
+
+        .nav-badge {
+            margin-left: auto;
+            background: var(--danger);
+            color: white;
+            font-size: 0.7em;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .nav-badge:empty { display: none; }
+        .nav-badge.info { background: var(--info); }
+
+        .sidebar-footer { padding: 16px; border-top: 1px solid var(--border); }
+        .admin-profile {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: 8px;
+        }
+        .admin-avatar {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--success), var(--info));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.85em;
+        }
+        .admin-name { font-weight: 500; font-size: 0.85em; }
+        .admin-role { font-size: 0.75em; color: var(--text-muted); }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: 240px;
+            min-height: 100vh;
+        }
+
+        .topbar {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+
+        .search-box {
+            display: flex;
+            align-items: center;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            width: 300px;
+        }
+
+        .search-box input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            width: 100%;
+            margin-left: 8px;
+        }
+
+        .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 500;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-warning { background: var(--warning); color: white; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .btn-sm { padding: 6px 12px; font-size: 0.8em; }
+
+        .tabs { display: flex; gap: 8px; }
+        .tab {
+            padding: 10px 20px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.15s;
+        }
+        .tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        .page-content { padding: 24px; }
+
+        /* Auth Section */
+        .auth-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 500px;
+            margin: 100px auto;
+            text-align: center;
+        }
+
+        .auth-section h2 { margin-bottom: 8px; }
+        .auth-section p { color: var(--text-secondary); margin-bottom: 24px; }
+
+        .auth-input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .auth-input {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.95em;
+        }
+
+        .auth-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.connected { background: var(--success); }
+        .status-dot.error { background: var(--danger); }
+
+        /* Pages */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+        }
+
+        .stat-change {
+            font-size: 0.75em;
+            margin-top: 4px;
+        }
+
+        .stat-change.positive { color: var(--success); }
+        .stat-change.negative { color: var(--danger); }
+        .stat-change.neutral { color: var(--text-muted); }
+
+        /* Split View */
+        .split-view {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 24px;
+            height: calc(100vh - 180px);
+        }
+
+        .list-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .list-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .list-title { font-weight: 600; }
+        .list-count { font-size: 0.85em; color: var(--text-secondary); }
+
+        .list-filters {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .filter-chip {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-chip:hover { background: var(--bg-hover); }
+        .filter-chip.active { background: var(--accent); color: white; }
+
+        .list-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .list-item {
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-bottom: 4px;
+        }
+
+        .list-item:hover { background: var(--bg-hover); }
+        .list-item.selected { background: rgba(99, 102, 241, 0.15); border: 1px solid var(--accent); }
+
+        .list-item-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 6px;
+        }
+
+        .list-item-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+        }
+
+        .list-item-info { flex: 1; min-width: 0; }
+        .list-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .list-item-meta { font-size: 0.8em; color: var(--text-secondary); }
+
+        .list-item-badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.7em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+        .badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+        .badge-success { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+        .badge-info { background: rgba(59, 130, 246, 0.15); color: var(--info); }
+
+        .list-item-preview {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Detail Panel */
+        .detail-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .detail-header-top {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .detail-avatar {
+            width: 64px;
+            height: 64px;
+            border-radius: 12px;
+            background: var(--bg-tertiary);
+        }
+
+        .detail-info { flex: 1; }
+        .detail-name { font-size: 1.3em; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .detail-server { color: var(--text-secondary); margin-top: 4px; }
+
+        .detail-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .detail-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .detail-section {
+            margin-bottom: 20px;
+        }
+
+        .detail-section-title {
+            font-size: 0.85em;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .detail-bio {
+            background: var(--bg-tertiary);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .empty-state-icon { font-size: 3em; margin-bottom: 16px; opacity: 0.5; }
+        .empty-state-title { font-size: 1.1em; font-weight: 600; margin-bottom: 8px; }
+        .empty-state p { color: var(--text-secondary); }
+
+        /* Priority Queue */
+        .priority-queue {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .priority-queue.empty { opacity: 0.6; }
+        .priority-title { font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .priority-items { display: flex; flex-direction: column; gap: 12px; }
+
+        .priority-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .priority-item:hover { background: var(--bg-hover); }
+
+        .priority-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+        }
+
+        .priority-icon.danger { background: rgba(239, 68, 68, 0.15); }
+        .priority-icon.warning { background: rgba(245, 158, 11, 0.15); }
+        .priority-icon.review { background: rgba(59, 130, 246, 0.15); }
+
+        .priority-content { flex: 1; }
+        .priority-label { font-size: 0.8em; color: var(--text-secondary); }
+        .priority-value { font-weight: 500; }
+        .priority-meta { font-size: 0.8em; color: var(--text-muted); }
+
+        /* Activity */
+        .activity-list { max-height: 400px; overflow-y: auto; }
+
+        .activity-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .activity-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-top: 6px;
+        }
+
+        .activity-dot.remove { background: var(--danger); }
+        .activity-dot.ban { background: var(--danger); }
+        .activity-dot.warning, .activity-dot.strike { background: var(--warning); }
+        .activity-dot.nsfw { background: var(--pink); }
+        .activity-dot.approve { background: var(--success); }
+        .activity-dot.dismiss { background: var(--text-muted); }
+
+        .activity-info { flex: 1; }
+        .activity-message { font-size: 0.9em; }
+        .activity-meta { font-size: 0.8em; color: var(--text-secondary); margin-top: 2px; }
+        .activity-time { font-size: 0.8em; color: var(--text-muted); }
+
+        /* Gallery */
+        .gallery-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .gallery-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .gallery-card:hover { border-color: var(--border-light); transform: translateY(-2px); }
+        .gallery-card.selected { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+
+        .gallery-card-checkbox {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            width: 18px;
+            height: 18px;
+            z-index: 10;
+        }
+
+        .gallery-card-actions {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .gallery-card:hover .gallery-card-actions { opacity: 1; }
+
+        .gallery-card-actions button {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85em;
+            background: var(--bg-primary);
+            opacity: 0.9;
+        }
+
+        .gallery-card-image {
+            height: 120px;
+            background: var(--bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            color: var(--text-muted);
+        }
+
+        .gallery-card-content { padding: 12px; }
+        .gallery-card-name { font-weight: 500; font-size: 0.9em; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .gallery-card-server { font-size: 0.8em; color: var(--text-secondary); }
+        .gallery-card-stats { font-size: 0.8em; color: var(--text-muted); margin-top: 8px; }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pagination-info { color: var(--text-secondary); font-size: 0.9em; }
+
+        /* Quick Bar */
+        .quick-bar {
+            position: fixed;
+            bottom: -80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: bottom 0.3s;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .quick-bar.show { bottom: 24px; }
+
+        /* Warning Timeline */
+        .warning-timeline { display: flex; flex-direction: column; gap: 12px; }
+
+        .warning-entry {
+            padding: 12px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--border);
+        }
+
+        .warning-entry.strike1 { border-left-color: var(--warning); }
+        .warning-entry.strike2 { border-left-color: var(--danger); }
+        .warning-entry.strike3 { border-left-color: #7c2d12; }
+
+        .warning-entry-date { font-size: 0.75em; color: var(--text-muted); margin-bottom: 4px; }
+        .warning-entry-content { font-size: 0.9em; }
+        .warning-entry-name { color: var(--danger); font-style: italic; margin-top: 4px; }
+
+        /* Name Change Box */
+        .name-change-box {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .name-change-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .name-old { color: var(--danger); font-size: 1.1em; }
+        .name-new { color: var(--success); font-size: 1.1em; }
+        .name-arrow { color: var(--text-muted); }
+
+        .name-change-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        /* Form */
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; margin-bottom: 6px; font-size: 0.85em; color: var(--text-secondary); }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.9em;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-textarea { min-height: 100px; resize: vertical; }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-overlay.show { display: flex; }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 450px;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-title { font-size: 1.1em; font-weight: 600; }
+        .modal-subtitle { color: var(--text-secondary); font-size: 0.9em; margin-top: 4px; }
+
+        .modal-body { padding: 20px; }
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: slideIn 0.3s ease;
+            min-width: 250px;
+        }
+
+        .toast.success { border-left: 3px solid var(--success); }
+        .toast.error { border-left: 3px solid var(--danger); }
+        .toast.warning { border-left: 3px solid var(--warning); }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* Context Menu */
+        .context-menu {
+            position: fixed;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 160px;
+            z-index: 2000;
+            display: none;
+        }
+
+        .context-menu.show { display: block; }
+
+        .context-menu-item {
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .context-menu-item:hover { background: var(--bg-hover); }
+        .context-menu-item.danger { color: var(--danger); }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                <span>CS+ Admin</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Overview</div>
+                <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard', this)">
+                    <span class="icon">📊</span>
+                    Dashboard
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Moderation</div>
+                <div class="nav-item" data-page="reports" onclick="showPage('reports', this)">
+                    <span class="icon">🚨</span>
+                    Reports
+                    <span class="nav-badge" id="reportsBadge"></span>
+                </div>
+                <div class="nav-item" data-page="warnings" onclick="showPage('warnings', this)">
+                    <span class="icon">⚠️</span>
+                    Warnings
+                    <span class="nav-badge" id="warningsBadge"></span>
+                </div>
+                <div class="nav-item" data-page="namereviews" onclick="showPage('namereviews', this)">
+                    <span class="icon">✏️</span>
+                    Name Reviews
+                    <span class="nav-badge" id="reviewsBadge"></span>
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Content</div>
+                <div class="nav-item" data-page="gallery" onclick="showPage('gallery', this)">
+                    <span class="icon">🖼️</span>
+                    Gallery
+                </div>
+                <div class="nav-item" data-page="flagged" onclick="showPage('flagged', this)">
+                    <span class="icon">🚩</span>
+                    Auto-Flagged
+                    <span class="nav-badge" id="flaggedBadge"></span>
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">System</div>
+                <div class="nav-item" data-page="banned" onclick="showPage('banned', this)">
+                    <span class="icon">🚫</span>
+                    Banned
+                    <span class="nav-badge" id="bannedBadge"></span>
+                </div>
+                <div class="nav-item" data-page="activity" onclick="showPage('activity', this)">
+                    <span class="icon">📜</span>
+                    Activity Log
+                </div>
+                <div class="nav-item" data-page="announcements" onclick="showPage('announcements', this)">
+                    <span class="icon">📢</span>
+                    Announcements
+                    <span class="nav-badge info" id="announcementsBadge"></span>
+                </div>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="admin-profile">
+                <div class="admin-avatar" id="adminAvatar">AD</div>
+                <div>
+                    <div class="admin-name" id="adminNameDisplay">Admin</div>
+                    <div class="admin-role">Moderator</div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="search-box">
+                    <span>🔍</span>
+                    <input type="text" placeholder="Search profiles, reports..." id="globalSearch" onkeyup="handleSearch()">
+                </div>
+            </div>
+            <div class="topbar-right">
+                <span class="server-status">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Connecting...</span>
+                </span>
+                <button class="btn btn-ghost" onclick="refreshAll()">↻ Refresh</button>
+                <button class="btn btn-ghost" onclick="logout()">Log Out</button>
+            </div>
+        </div>
+
+        <div class="page-content">
+            <!-- Auth Section (shown when not authenticated) -->
+            <div id="authSection" class="auth-section">
+                <h2>Admin Authentication</h2>
+                <p>Enter your details to continue</p>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label class="form-label">Server URL</label>
+                    <input type="text" class="form-input" id="serverUrlInput" placeholder="https://your-server.railway.app" value="">
+                </div>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label class="form-label">Your Name</label>
+                    <input type="text" class="form-input" id="adminNameInput" placeholder="e.g. AdminJohn">
+                </div>
+                <div class="auth-input-group">
+                    <input type="password" class="auth-input" id="adminKeyInput" placeholder="Admin Key">
+                    <button class="btn btn-primary" onclick="authenticate()">Connect</button>
+                </div>
+                <div class="server-status" id="authStatus"></div>
+            </div>
+
+            <!-- Dashboard Page -->
+            <div class="page" id="page-dashboard">
+                <h2 style="margin-bottom: 20px;">Dashboard</h2>
+
+                <div class="priority-queue" id="priorityQueue">
+                    <div class="priority-title">🔥 <span id="priorityTitle">Needs Your Attention</span></div>
+                    <div class="priority-items" id="priorityItems"></div>
+                </div>
+
+                <div class="stats-grid" id="statsGrid"></div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Recent Activity</div>
+                        <div class="activity-list" id="recentActivity" style="max-height: 300px;"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Quick Actions</div>
+                        <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 12px;">
+                            <button class="btn btn-ghost" onclick="showPage('reports')">📝 Review Pending Reports</button>
+                            <button class="btn btn-ghost" onclick="showPage('namereviews')">✏️ Review Name Changes</button>
+                            <button class="btn btn-ghost" onclick="showPage('flagged')">🚩 Check Auto-Flagged</button>
+                            <button class="btn btn-ghost" onclick="showPage('gallery')">🖼️ Browse Gallery</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reports Page -->
+            <div class="page" id="page-reports">
+                <h2 style="margin-bottom: 20px;">Reports</h2>
+
+                <!-- Report Status Tabs -->
+                <div class="tabs" style="margin-bottom: 20px;">
+                    <button class="tab active" id="tabPending" onclick="switchReportTab('pending')">📥 Pending</button>
+                    <button class="tab" id="tabArchived" onclick="switchReportTab('archived')">📦 Archived</button>
+                </div>
+
+                <div class="split-view">
+                    <div class="list-panel">
+                        <div class="list-header">
+                            <div class="list-title" id="reportsTitle">Pending Reports</div>
+                            <div class="list-count" id="reportsCount">0 pending</div>
+                        </div>
+                        <div class="list-filters">
+                            <div class="filter-chip active" onclick="filterReports('all', this)">All</div>
+                            <div class="filter-chip" onclick="filterReports('name', this)">Name</div>
+                            <div class="filter-chip" onclick="filterReports('profile', this)">Profile</div>
+                        </div>
+                        <div class="list-content" id="reportsList"></div>
+                    </div>
+                    <div class="detail-panel" id="reportDetail">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">👈</div>
+                            <div class="empty-state-title">Select a report</div>
+                            <p>Click on a report to view details and take action</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Warnings Page -->
+            <div class="page" id="page-warnings">
+                <h2 style="margin-bottom: 20px;">Name Warnings</h2>
+                <div class="split-view">
+                    <div class="list-panel">
+                        <div class="list-header">
+                            <div class="list-title">User Warnings</div>
+                            <div class="list-count" id="warningsCount">0 total</div>
+                        </div>
+                        <div class="list-filters">
+                            <div class="filter-chip active" onclick="filterWarnings('all', this)">All</div>
+                            <div class="filter-chip" onclick="filterWarnings('warning1', this)">Strike 1</div>
+                            <div class="filter-chip" onclick="filterWarnings('warning2', this)">Strike 2</div>
+                            <div class="filter-chip" onclick="filterWarnings('permaban', this)">Permaban</div>
+                        </div>
+                        <div class="list-content" id="warningsList"></div>
+                    </div>
+                    <div class="detail-panel" id="warningDetail">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">👈</div>
+                            <div class="empty-state-title">Select a warning</div>
+                            <p>Click on a warning to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Name Reviews Page -->
+            <div class="page" id="page-namereviews">
+                <h2 style="margin-bottom: 8px;">Name Change Reviews</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 24px;">Strike 2 users must have their new names approved before they become visible.</p>
+
+                <div class="split-view">
+                    <div class="list-panel">
+                        <div class="list-header">
+                            <div class="list-title">Pending Reviews</div>
+                            <div class="list-count" id="reviewsCount">0 waiting</div>
+                        </div>
+                        <div class="list-content" id="reviewsList"></div>
+                    </div>
+                    <div class="detail-panel" id="reviewDetail">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">👈</div>
+                            <div class="empty-state-title">Select a review</div>
+                            <p>Click on a pending review to approve or reject</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Auto-Flagged Page -->
+            <div class="page" id="page-flagged">
+                <h2 style="margin-bottom: 8px;">Auto-Flagged Content</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 24px;">Content automatically flagged by keyword filters. Review and take action.</p>
+
+                <div class="split-view">
+                    <div class="list-panel">
+                        <div class="list-header">
+                            <div class="list-title">Flagged Items</div>
+                            <div class="list-count" id="flaggedCount">0 pending</div>
+                        </div>
+                        <div class="list-content" id="flaggedList"></div>
+                    </div>
+                    <div class="detail-panel" id="flaggedDetail">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">👈</div>
+                            <div class="empty-state-title">Select a flagged item</div>
+                            <p>Click on an item to review and take action</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gallery Page -->
+            <div class="page" id="page-gallery">
+                <div class="gallery-controls">
+                    <h2>Gallery Profiles</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <select class="form-select" style="width: auto;" id="serverFilter" onchange="filterGallery()">
+                            <option value="">All Servers</option>
+                        </select>
+                        <select class="form-select" style="width: auto;" id="nsfwFilter" onchange="filterGallery()">
+                            <option value="">All Content</option>
+                            <option value="sfw">SFW Only</option>
+                            <option value="nsfw">NSFW Only</option>
+                        </select>
+                        <select class="form-select" style="width: auto;" id="sortFilter" onchange="filterGallery()">
+                            <option value="recent">Most Recent</option>
+                            <option value="likes">Most Liked</option>
+                            <option value="name">Name A-Z</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="gallery-grid" id="galleryGrid"></div>
+                <div class="pagination" id="galleryPagination"></div>
+            </div>
+
+            <!-- Banned Users Page -->
+            <div class="page" id="page-banned">
+                <h2 style="margin-bottom: 20px;">Banned Users</h2>
+                <div class="split-view">
+                    <div class="list-panel">
+                        <div class="list-header">
+                            <div class="list-title">Banned Profiles</div>
+                            <div class="list-count" id="bannedCount">0 total</div>
+                        </div>
+                        <div class="list-content" id="bannedList"></div>
+                    </div>
+                    <div class="detail-panel" id="bannedDetail">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">👈</div>
+                            <div class="empty-state-title">Select a banned user</div>
+                            <p>Click on a user to view details or unban</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity Page -->
+            <div class="page" id="page-activity">
+                <h2 style="margin-bottom: 20px;">Activity Log</h2>
+                <div class="activity-list" id="activityList"></div>
+            </div>
+
+            <!-- Announcements Page -->
+            <div class="page" id="page-announcements">
+                <h2 style="margin-bottom: 20px;">Announcements</h2>
+
+                <!-- Create Announcement Form -->
+                <div class="card" style="margin-bottom: 24px;">
+                    <div class="card-header">
+                        <h3>Create New Announcement</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Title</label>
+                            <input type="text" class="form-input" id="announcementTitle" placeholder="Announcement title...">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Message</label>
+                            <textarea class="form-textarea" id="announcementMessage" rows="3" placeholder="Announcement message..."></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Type</label>
+                            <select class="form-select" id="announcementType">
+                                <option value="info">ℹ️ Info</option>
+                                <option value="warning">⚠️ Warning</option>
+                                <option value="success">✅ Success</option>
+                                <option value="error">❌ Error</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="createAnnouncement()">📢 Create Announcement</button>
+                    </div>
+                </div>
+
+                <!-- Active Announcements -->
+                <div class="card" style="margin-bottom: 24px;">
+                    <div class="card-header">
+                        <h3>Active Announcements</h3>
+                    </div>
+                    <div class="card-body" id="activeAnnouncementsList">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📢</div>
+                            <div class="empty-state-title">No active announcements</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- All Announcements -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>All Announcements</h3>
+                    </div>
+                    <div class="card-body" id="allAnnouncementsList">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📋</div>
+                            <div class="empty-state-title">No announcements yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Quick Action Bar -->
+    <div class="quick-bar" id="quickBar">
+        <span id="quickBarCount">0 selected</span>
+        <button class="btn btn-ghost" onclick="clearSelection()">Clear</button>
+        <button class="btn btn-primary" onclick="bulkAction('nsfw')">Mark NSFW</button>
+        <button class="btn btn-danger" onclick="bulkAction('remove')">Remove</button>
+        <button class="btn btn-danger" style="background: #7c2d12;" onclick="bulkAction('ban')">Ban</button>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" onclick="contextAction('view')">👁️ View Details</div>
+        <div class="context-menu-item" onclick="contextAction('nsfw')">🔞 Mark NSFW</div>
+        <div class="context-menu-item danger" onclick="contextAction('remove')">🗑️ Remove</div>
+        <div class="context-menu-item danger" onclick="contextAction('ban')">🚫 Ban User</div>
+    </div>
+
+    <!-- Action Modal -->
+    <div class="modal-overlay" id="actionModal" onclick="if(event.target===this)closeModal()">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Confirm Action</div>
+                <div class="modal-subtitle" id="modalSubtitle"></div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Reason / Notes</label>
+                    <textarea class="form-textarea" id="modalReason" placeholder="Enter reason..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-danger" id="modalConfirm" onclick="confirmModalAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // ============ CONFIG ============
+        let serverUrl = localStorage.getItem('cs_admin_server') || window.location.origin;
+        let adminKey = localStorage.getItem('cs_admin_key') || '';
+        let adminName = localStorage.getItem('cs_admin_name') || 'Admin';
+        let isAuthenticated = false;
+
+        // ============ DATA ============
+        let reports = [];
+        let profiles = [];
+        let nameWarnings = [];
+        let pendingReviews = [];
+        let flaggedContent = [];
+        let bannedProfiles = [];
+        let activityLog = [];
+        let dashboardStats = {};
+
+        // ============ STATE ============
+        let selectedReportId = null;
+        let selectedWarningId = null;
+        let selectedReviewId = null;
+        let selectedFlaggedId = null;
+        let selectedBannedId = null;
+        let selectedProfiles = new Set();
+        let currentGalleryPage = 1;
+        const profilesPerPage = 50;
+        let currentReportFilter = 'all';
+        let currentWarningFilter = 'all';
+        let modalCallback = null;
+        let contextMenuProfileId = null;
+
+        // ============ INIT ============
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check for saved credentials
+            if (serverUrl && adminKey) {
+                document.getElementById('serverUrlInput').value = serverUrl;
+                document.getElementById('adminKeyInput').value = adminKey;
+                document.getElementById('adminNameInput').value = adminName;
+                authenticate();
+            } else {
+                showAuthSection();
+            }
+        });
+
+        function showAuthSection() {
+            document.getElementById('authSection').style.display = 'block';
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('statusDot').className = 'status-dot';
+            document.getElementById('statusText').textContent = 'Not connected';
+        }
+
+        function hideAuthSection() {
+            document.getElementById('authSection').style.display = 'none';
+            document.getElementById('page-dashboard').classList.add('active');
+        }
+
+        function logout() {
+            localStorage.removeItem('cs_admin_server');
+            localStorage.removeItem('cs_admin_key');
+            localStorage.removeItem('cs_admin_name');
+            serverUrl = window.location.origin;
+            adminKey = '';
+            adminName = 'Admin';
+            isAuthenticated = false;
+            document.getElementById('serverUrlInput').value = window.location.origin;
+            document.getElementById('adminKeyInput').value = '';
+            document.getElementById('adminNameInput').value = '';
+            document.getElementById('adminAvatar').textContent = 'AD';
+            document.getElementById('adminNameDisplay').textContent = 'Admin';
+            showAuthSection();
+            showToast('Logged out', 'info');
+        }
+
+        async function authenticate() {
+            serverUrl = document.getElementById('serverUrlInput').value.trim().replace(/\/$/, '');
+            adminKey = document.getElementById('adminKeyInput').value.trim();
+            adminName = document.getElementById('adminNameInput').value.trim() || 'Admin';
+
+            if (!serverUrl || !adminKey) {
+                showToast('Please enter server URL and admin key', 'error');
+                return;
+            }
+
+            if (!adminName || adminName === 'Admin') {
+                showToast('Please enter your name to identify your actions', 'warning');
+            }
+
+            document.getElementById('authStatus').innerHTML = '<div class="spinner"></div> Connecting...';
+
+            try {
+                const response = await fetch(`${serverUrl}/admin/dashboard?adminKey=${adminKey}`);
+
+                if (response.ok) {
+                    localStorage.setItem('cs_admin_server', serverUrl);
+                    localStorage.setItem('cs_admin_key', adminKey);
+                    localStorage.setItem('cs_admin_name', adminName);
+                    isAuthenticated = true;
+
+                    document.getElementById('statusDot').className = 'status-dot connected';
+                    document.getElementById('statusText').textContent = 'Connected';
+                    document.getElementById('authStatus').innerHTML = '<span class="status-dot connected"></span> Connected!';
+
+                    // Update sidebar admin profile
+                    updateAdminProfile();
+
+                    hideAuthSection();
+                    await loadAllData();
+                    showToast(`Connected as ${adminName}`, 'success');
+                } else {
+                    throw new Error('Invalid credentials');
+                }
+            } catch (error) {
+                document.getElementById('statusDot').className = 'status-dot error';
+                document.getElementById('statusText').textContent = 'Connection failed';
+                document.getElementById('authStatus').innerHTML = '<span class="status-dot error"></span> Connection failed - check URL and key';
+                showToast('Failed to connect: ' + error.message, 'error');
+            }
+        }
+
+        function updateAdminProfile() {
+            const displayName = adminName || 'Admin';
+            const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+            document.getElementById('adminAvatar').textContent = initials;
+            document.getElementById('adminNameDisplay').textContent = displayName;
+        }
+
+        // ============ API HELPERS ============
+        async function apiGet(endpoint) {
+            const response = await fetch(`${serverUrl}${endpoint}${endpoint.includes('?') ? '&' : '?'}adminKey=${adminKey}`, {
+                headers: { 'X-Admin-Id': adminName }
+            });
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            return response.json();
+        }
+
+        async function apiPost(endpoint, data = {}) {
+            const response = await fetch(`${serverUrl}${endpoint}?adminKey=${adminKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Admin-Id': adminName },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            return response.json();
+        }
+
+        async function apiPatch(endpoint, data = {}) {
+            const response = await fetch(`${serverUrl}${endpoint}?adminKey=${adminKey}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-Admin-Id': adminName },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            return response.json();
+        }
+
+        async function apiDelete(endpoint, data = {}) {
+            const response = await fetch(`${serverUrl}${endpoint}?adminKey=${adminKey}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json', 'X-Admin-Id': adminName },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            return response.json();
+        }
+
+        // ============ DATA LOADING ============
+        async function loadAllData() {
+            try {
+                await Promise.all([
+                    loadDashboard(),
+                    loadReports(),
+                    loadWarnings(),
+                    loadPendingReviews(),
+                    loadFlagged(),
+                    loadBanned(),
+                    loadGallery(),
+                    loadActivity(),
+                    loadAnnouncements()
+                ]);
+                updateBadges();
+            } catch (error) {
+                console.error('Error loading data:', error);
+                showToast('Error loading some data', 'error');
+            }
+        }
+
+        async function loadDashboard() {
+            try {
+                dashboardStats = await apiGet('/admin/dashboard');
+                updateDashboard();
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+            }
+        }
+
+        let currentReportTab = 'pending';
+        let archivedReports = [];
+
+        async function loadReports(status = 'pending') {
+            try {
+                if (status === 'pending') {
+                    reports = await apiGet('/admin/reports?status=pending');
+                } else {
+                    archivedReports = await apiGet('/admin/reports?status=archived');
+                }
+                updateReportsList();
+            } catch (error) {
+                console.error('Error loading reports:', error);
+            }
+        }
+
+        async function switchReportTab(tab) {
+            currentReportTab = tab;
+            document.getElementById('tabPending').classList.toggle('active', tab === 'pending');
+            document.getElementById('tabArchived').classList.toggle('active', tab === 'archived');
+            document.getElementById('reportsTitle').textContent = tab === 'pending' ? 'Pending Reports' : 'Archived Reports';
+
+            if (tab === 'archived' && archivedReports.length === 0) {
+                await loadReports('archived');
+            } else {
+                updateReportsList();
+            }
+            showReportEmptyState();
+        }
+
+        async function loadWarnings() {
+            try {
+                nameWarnings = await apiGet('/admin/names/warnings');
+                updateWarningsList();
+            } catch (error) {
+                console.error('Error loading warnings:', error);
+            }
+        }
+
+        async function loadPendingReviews() {
+            try {
+                pendingReviews = await apiGet('/admin/names/pending-review');
+                updateReviewsList();
+            } catch (error) {
+                console.error('Error loading pending reviews:', error);
+            }
+        }
+
+        async function loadFlagged() {
+            try {
+                flaggedContent = await apiGet('/admin/flagged?status=pending');
+                updateFlaggedList();
+            } catch (error) {
+                console.error('Error loading flagged:', error);
+            }
+        }
+
+        async function loadBanned() {
+            try {
+                bannedProfiles = await apiGet('/admin/moderation/banned');
+                updateBannedList();
+            } catch (error) {
+                console.error('Error loading banned:', error);
+            }
+        }
+
+        async function loadGallery() {
+            try {
+                const response = await fetch(`${serverUrl}/gallery?admin=true&key=${adminKey}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    // Server returns array directly when admin auth is provided
+                    profiles = Array.isArray(data) ? data : (data.profiles || []);
+                    console.log('Gallery loaded:', profiles.length, 'profiles');
+                    updateGallery();
+                }
+            } catch (error) {
+                console.error('Error loading gallery:', error);
+            }
+        }
+
+        async function loadActivity() {
+            try {
+                activityLog = await apiGet('/admin/activity?limit=100');
+                updateActivityLog();
+            } catch (error) {
+                console.error('Error loading activity:', error);
+            }
+        }
+
+        async function refreshAll() {
+            showToast('Refreshing...', 'success');
+            await loadAllData();
+        }
+
+        // ============ BADGES ============
+        function updateBadges() {
+            document.getElementById('reportsBadge').textContent = reports.length || '';
+            const pendingWarnings = nameWarnings.filter(w => !w.acknowledged && w.status !== 'permaban').length;
+            document.getElementById('warningsBadge').textContent = pendingWarnings || '';
+            document.getElementById('reviewsBadge').textContent = pendingReviews.length || '';
+            document.getElementById('flaggedBadge').textContent = flaggedContent.length || '';
+            document.getElementById('bannedBadge').textContent = bannedProfiles.length || '';
+        }
+
+        // ============ DASHBOARD ============
+        function updateDashboard() {
+            // Priority Queue
+            const priorityQueue = document.getElementById('priorityQueue');
+            const priorityTitle = document.getElementById('priorityTitle');
+            const priorityItems = document.getElementById('priorityItems');
+
+            const items = [];
+
+            if (reports.length > 0) {
+                const latest = reports[0];
+                const isNameReport = !!latest.offensiveCSName;
+                items.push(`
+                    <div class="priority-item" onclick="showPage('reports'); setTimeout(() => selectReport('${latest.id}'), 100)">
+                        <div class="priority-icon danger">🚨</div>
+                        <div class="priority-content">
+                            <div class="priority-label">${isNameReport ? 'Name Report' : 'Profile Report'}</div>
+                            <div class="priority-value">${latest.reportedCharacterName || 'Unknown'}</div>
+                            <div class="priority-meta">${formatTime(latest.createdAt)}</div>
+                        </div>
+                    </div>
+                `);
+            }
+
+            const pendingWarningsList = nameWarnings.filter(w => !w.acknowledged);
+            if (pendingWarningsList.length > 0) {
+                const latest = pendingWarningsList[0];
+                items.push(`
+                    <div class="priority-item" onclick="showPage('warnings'); setTimeout(() => selectWarning('${latest.id}'), 100)">
+                        <div class="priority-icon warning">⚠️</div>
+                        <div class="priority-content">
+                            <div class="priority-label">Pending Warning</div>
+                            <div class="priority-value">${latest.physicalName.split('@')[0]}</div>
+                            <div class="priority-meta">Strike ${latest.strikeNumber} - Awaiting acknowledgement</div>
+                        </div>
+                    </div>
+                `);
+            }
+
+            if (pendingReviews.length > 0) {
+                const latest = pendingReviews[0];
+                items.push(`
+                    <div class="priority-item" onclick="showPage('namereviews'); setTimeout(() => selectReview('${latest.id}'), 100)">
+                        <div class="priority-icon review">✏️</div>
+                        <div class="priority-content">
+                            <div class="priority-label">Name Review</div>
+                            <div class="priority-value">${latest.physicalName.split('@')[0]}</div>
+                            <div class="priority-meta">${formatTime(latest.createdAt)}</div>
+                        </div>
+                    </div>
+                `);
+            }
+
+            if (flaggedContent.length > 0) {
+                const latest = flaggedContent[0];
+                items.push(`
+                    <div class="priority-item" onclick="showPage('flagged'); setTimeout(() => selectFlagged('${latest.id}'), 100)">
+                        <div class="priority-icon" style="background: rgba(245, 158, 11, 0.15);">🚩</div>
+                        <div class="priority-content">
+                            <div class="priority-label">Auto-Flagged</div>
+                            <div class="priority-value">${latest.characterName || latest.characterId}</div>
+                            <div class="priority-meta">${latest.reason}</div>
+                        </div>
+                    </div>
+                `);
+            }
+
+            if (items.length === 0) {
+                priorityQueue.classList.add('empty');
+                priorityTitle.textContent = 'All caught up!';
+                priorityItems.innerHTML = '<p style="color: var(--text-secondary);">No pending items require your attention.</p>';
+            } else {
+                priorityQueue.classList.remove('empty');
+                priorityTitle.textContent = 'Needs Your Attention';
+                priorityItems.innerHTML = items.join('');
+            }
+
+            // Stats
+            const stats = dashboardStats;
+            document.getElementById('statsGrid').innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-label">📊 Total Profiles</div>
+                    <div class="stat-value">${stats.totalProfiles || 0}</div>
+                    <div class="stat-change neutral">Public gallery profiles</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">🚨 Pending Reports</div>
+                    <div class="stat-value">${stats.pendingReports || 0}</div>
+                    <div class="stat-change ${stats.pendingReports > 0 ? 'negative' : 'neutral'}">${stats.pendingReports > 0 ? 'Needs attention' : 'All clear'}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">⚠️ Active Warnings</div>
+                    <div class="stat-value">${nameWarnings.length}</div>
+                    <div class="stat-change neutral">${nameWarnings.filter(w => !w.acknowledged).length} unacknowledged</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">✏️ Name Reviews</div>
+                    <div class="stat-value">${pendingReviews.length}</div>
+                    <div class="stat-change ${pendingReviews.length > 0 ? 'negative' : 'neutral'}">${pendingReviews.length > 0 ? 'Strike 2 users waiting' : 'No pending reviews'}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">🚩 Auto-Flagged</div>
+                    <div class="stat-value">${stats.pendingFlags || 0}</div>
+                    <div class="stat-change ${(stats.pendingFlags || 0) > 0 ? 'negative' : 'neutral'}">${(stats.pendingFlags || 0) > 0 ? 'Needs review' : 'Queue empty'}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">🚫 Banned Users</div>
+                    <div class="stat-value">${stats.totalBanned || 0}</div>
+                    <div class="stat-change neutral">Profile bans</div>
+                </div>
+            `;
+
+            // Recent Activity
+            const recentActivity = document.getElementById('recentActivity');
+            const recent = activityLog.slice(0, 5);
+            if (recent.length === 0) {
+                recentActivity.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No recent activity</p>';
+            } else {
+                recentActivity.innerHTML = recent.map(a => `
+                    <div class="activity-item">
+                        <div class="activity-dot ${a.type || 'dismiss'}"></div>
+                        <div class="activity-info">
+                            <div class="activity-message">${a.message || a.action || 'Action'}</div>
+                            <div class="activity-meta">${a.details?.characterName || a.characterName || ''}</div>
+                        </div>
+                        <div class="activity-time">${formatTime(a.timestamp || a.createdAt)}</div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // ============ REPORTS ============
+        function updateReportsList() {
+            const list = document.getElementById('reportsList');
+            const count = document.getElementById('reportsCount');
+
+            const isArchived = currentReportTab === 'archived';
+            let sourceReports = isArchived ? archivedReports : reports;
+
+            let filtered = sourceReports;
+            if (currentReportFilter === 'name') {
+                filtered = sourceReports.filter(r => r.offensiveCSName);
+            } else if (currentReportFilter === 'profile') {
+                filtered = sourceReports.filter(r => !r.offensiveCSName);
+            }
+
+            count.textContent = isArchived ? `${filtered.length} archived` : `${filtered.length} pending`;
+
+            if (filtered.length === 0) {
+                const emptyIcon = isArchived ? '📦' : '🎉';
+                const emptyText = isArchived ? 'No archived reports' : 'No pending reports';
+                list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${emptyIcon}</div><div class="empty-state-title">${emptyText}</div></div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.map(report => {
+                const isNameReport = !!report.offensiveCSName;
+                const badgeClass = isNameReport ? 'badge-warning' : 'badge-danger';
+                const typeLabel = isNameReport ? 'Name' : (report.reason || 'Profile');
+                const statusBadge = isArchived ? `<span class="list-item-badge" style="background: ${report.status === 'resolved' ? 'var(--success)' : 'var(--text-muted)'}">${report.status}</span>` : '';
+                return `
+                    <div class="list-item ${selectedReportId === report.id ? 'selected' : ''}" onclick="selectReport('${report.id}')">
+                        <div class="list-item-header">
+                            <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">${isNameReport ? '✏️' : '🚨'}</div>
+                            <div class="list-item-info">
+                                <div class="list-item-name">${report.reportedCharacterName || 'Unknown'}</div>
+                                <div class="list-item-meta">${formatTime(report.createdAt)}</div>
+                            </div>
+                            <span class="list-item-badge ${badgeClass}">${typeLabel}</span>
+                            ${statusBadge}
+                        </div>
+                        <div class="list-item-preview">${isNameReport ? `"${report.offensiveCSName}"` : report.details || report.reason || 'No details'}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function filterReports(filter, el) {
+            currentReportFilter = filter;
+            document.querySelectorAll('#page-reports .filter-chip').forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+            updateReportsList();
+        }
+
+        function selectReport(id) {
+            selectedReportId = id;
+            updateReportsList();
+
+            const isArchived = currentReportTab === 'archived';
+            const sourceReports = isArchived ? archivedReports : reports;
+            const report = sourceReports.find(r => r.id === id);
+            if (!report) return;
+
+            const detail = document.getElementById('reportDetail');
+            const isNameReport = !!report.offensiveCSName;
+
+            // For archived reports, show read-only view
+            if (isArchived) {
+                detail.innerHTML = `
+                    <div class="detail-header">
+                        <div class="detail-header-top">
+                            <div class="detail-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 2em;">${isNameReport ? '✏️' : '👤'}</div>
+                            <div class="detail-info">
+                                <div class="detail-name">
+                                    ${report.reportedCharacterName || 'Unknown'}
+                                    <span class="list-item-badge" style="background: ${report.status === 'resolved' ? 'var(--success)' : 'var(--text-muted)'}">${report.status}</span>
+                                </div>
+                                <div class="detail-server">${report.reportedCharacterId?.split('@')[1] || ''}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-content">
+                        <div class="detail-section">
+                            <div class="detail-section-title">${isNameReport ? 'Reported CS+ Name' : 'Report Type'}</div>
+                            <div class="detail-bio">
+                                ${isNameReport ? `<p style="font-size: 1.2em; color: var(--danger);">"${report.offensiveCSName}"</p>` : `<p><strong>Reason:</strong> ${report.reason || 'Not specified'}</p>`}
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-section-title">Report Details</div>
+                            <div class="detail-bio">
+                                <p><strong>Reporter:</strong> ${report.reporterCharacter || 'Anonymous'}</p>
+                                <p style="margin-top: 8px;"><strong>Message:</strong> "${report.details || 'No details provided'}"</p>
+                                <p style="margin-top: 8px; color: var(--text-muted);"><strong>Submitted:</strong> ${formatTime(report.createdAt)}</p>
+                                ${report.adminNotes ? `<p style="margin-top: 8px;"><strong>Admin Notes:</strong> ${report.adminNotes}</p>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            if (isNameReport) {
+                // Name report - show warning/strike options
+                detail.innerHTML = `
+                    <div class="detail-header">
+                        <div class="detail-header-top">
+                            <div class="detail-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 2em;">✏️</div>
+                            <div class="detail-info">
+                                <div class="detail-name">
+                                    ${report.reportedCharacterName || 'Unknown'}
+                                    <span class="list-item-badge badge-warning">Name Report</span>
+                                </div>
+                                <div class="detail-server">${report.reportedCharacterId?.split('@')[1] || ''}</div>
+                            </div>
+                        </div>
+                        <div class="detail-actions">
+                            <button class="btn btn-warning" onclick="reportAction('${report.id}', 'warning')">Issue Warning (Strike)</button>
+                            <button class="btn btn-ghost" onclick="reportAction('${report.id}', 'dismiss')">Dismiss Report</button>
+                        </div>
+                    </div>
+                    <div class="detail-content">
+                        <div class="detail-section">
+                            <div class="detail-section-title">Reported CS+ Name</div>
+                            <div class="name-change-box">
+                                <div style="text-align: center; padding: 16px;">
+                                    <div style="font-size: 1.4em; font-weight: 600; color: var(--danger);">"${report.offensiveCSName}"</div>
+                                    <div style="color: var(--text-muted); margin-top: 8px; font-size: 0.9em;">In-game: ${report.reportedCharacterName || 'Unknown'}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-section-title">Report Details</div>
+                            <div class="detail-bio">
+                                <p><strong>Reporter:</strong> ${report.reporterCharacter || 'Anonymous'}</p>
+                                <p style="margin-top: 8px;"><strong>Message:</strong> "${report.details || 'No details provided'}"</p>
+                                <p style="margin-top: 8px; color: var(--text-muted);"><strong>Submitted:</strong> ${formatTime(report.createdAt)}</p>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-section-title" style="color: var(--warning);">⚠️ Warning Info</div>
+                            <div class="detail-bio" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);">
+                                <p>Issuing a warning will:</p>
+                                <ul style="margin: 8px 0 0 20px; color: var(--text-secondary);">
+                                    <li>Add a strike to the user's account</li>
+                                    <li>Hide their CS+ name from other players</li>
+                                    <li>Require them to change their name</li>
+                                    <li>Show them a warning modal on next login</li>
+                                </ul>
+                                <p style="margin-top: 12px; color: var(--text-muted); font-size: 0.9em;">Strike 3 = permanent name feature ban</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Profile report - show remove/nsfw/ban options
+                detail.innerHTML = `
+                    <div class="detail-header">
+                        <div class="detail-header-top">
+                            <div class="detail-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 2em;">👤</div>
+                            <div class="detail-info">
+                                <div class="detail-name">
+                                    ${report.reportedCharacterName || 'Unknown'}
+                                    <span class="list-item-badge badge-danger">${report.reason || 'Report'}</span>
+                                </div>
+                                <div class="detail-server">${report.reportedCharacterId?.split('@')[1] || ''}</div>
+                            </div>
+                        </div>
+                        <div class="detail-actions">
+                            <button class="btn btn-danger" onclick="reportAction('${report.id}', 'remove')">Remove Profile</button>
+                            <button class="btn btn-primary" onclick="reportAction('${report.id}', 'nsfw')">Mark NSFW</button>
+                            <button class="btn btn-danger" style="background: #7c2d12;" onclick="reportAction('${report.id}', 'ban')">Ban User</button>
+                            <button class="btn btn-ghost" onclick="reportAction('${report.id}', 'dismiss')">Dismiss</button>
+                        </div>
+                    </div>
+                    <div class="detail-content">
+                        <div class="detail-section">
+                            <div class="detail-section-title">Report Details</div>
+                            <div class="detail-bio">
+                                <p><strong>Reporter:</strong> ${report.reporterCharacter || 'Anonymous'}</p>
+                                <p style="margin-top: 8px;"><strong>Reason:</strong> ${report.reason || 'Not specified'}</p>
+                                <p style="margin-top: 8px;"><strong>Details:</strong> "${report.details || 'No details provided'}"</p>
+                                <p style="margin-top: 8px; color: var(--text-muted);"><strong>Submitted:</strong> ${formatTime(report.createdAt)}</p>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-section-title" style="color: var(--text-muted);">ℹ️ Profile Report Actions</div>
+                            <div class="detail-bio" style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.2);">
+                                <p><strong>Remove:</strong> Removes the profile from the gallery</p>
+                                <p style="margin-top: 8px;"><strong>Mark NSFW:</strong> Flags profile as adult content</p>
+                                <p style="margin-top: 8px;"><strong>Ban:</strong> Removes profile and bans user from CS+</p>
+                                <p style="margin-top: 8px;"><strong>Dismiss:</strong> No action needed, close report</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        async function reportAction(reportId, action) {
+            const report = reports.find(r => r.id === reportId);
+            const characterId = report.reportedCharacterId;
+            const isNameReport = !!report.offensiveCSName;
+
+            try {
+                if (action === 'remove') {
+                    openModal('Remove Profile', report.reportedCharacterName, 'Reason for removal', 'btn-danger', 'Remove', async (reason) => {
+                        await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason });
+                        await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: reason });
+                        showToast(`Profile removed`, 'success');
+                        await loadAllData();
+                        showReportEmptyState();
+                    });
+                } else if (action === 'warning') {
+                    openModal('Issue Name Warning', report.offensiveCSName, 'This name was reported. Add a note:', 'btn-warning', 'Issue Strike', async (reason) => {
+                        const physicalName = report.reportedCharacterId;
+                        await apiPost('/admin/names/ban', {
+                            physicalName,
+                            offensiveCSName: report.offensiveCSName,
+                            reason: reason || 'Name violates community guidelines'
+                        });
+                        await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: 'Warning issued' });
+                        showToast(`Strike issued for "${report.offensiveCSName}"`, 'warning');
+                        await loadAllData();
+                        showReportEmptyState();
+                    });
+                } else if (action === 'nsfw') {
+                    await apiPatch(`/admin/profiles/${encodeURIComponent(characterId)}/nsfw`, { isNSFW: true });
+                    await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: 'Marked as NSFW' });
+                    showToast('Profile marked as NSFW', 'success');
+                    await loadAllData();
+                    showReportEmptyState();
+                } else if (action === 'ban') {
+                    openModal('Ban User', report.reportedCharacterName, 'Reason for ban', 'btn-danger', 'Ban User', async (reason) => {
+                        await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason, ban: true });
+                        await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: 'User banned' });
+                        showToast('User banned', 'success');
+                        await loadAllData();
+                        showReportEmptyState();
+                    });
+                } else if (action === 'dismiss') {
+                    await apiPatch(`/admin/reports/${reportId}`, { status: 'dismissed', adminNotes: 'Dismissed by admin' });
+                    showToast('Report dismissed', 'success');
+                    await loadAllData();
+                    showReportEmptyState();
+                }
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        function showReportEmptyState() {
+            selectedReportId = null;
+            document.getElementById('reportDetail').innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">✅</div>
+                    <div class="empty-state-title">Report handled</div>
+                    <p>Select another report or you're all caught up!</p>
+                </div>
+            `;
+        }
+
+        // ============ WARNINGS ============
+        function updateWarningsList() {
+            const list = document.getElementById('warningsList');
+            const count = document.getElementById('warningsCount');
+
+            let filtered = nameWarnings;
+            if (currentWarningFilter !== 'all') {
+                filtered = nameWarnings.filter(w => w.status === currentWarningFilter);
+            }
+
+            count.textContent = `${filtered.length} total`;
+
+            if (filtered.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-title">No warnings</div></div>';
+                return;
+            }
+
+            list.innerHTML = filtered.map(warning => {
+                const statusBadge = warning.status === 'permaban' ? 'badge-danger' :
+                                   warning.status === 'warning2' ? 'badge-warning' : 'badge-info';
+                const statusText = warning.status === 'permaban' ? 'Permaban' : `Strike ${warning.strikeNumber}`;
+                return `
+                    <div class="list-item ${selectedWarningId === warning.id ? 'selected' : ''}" onclick="selectWarning('${warning.id}')">
+                        <div class="list-item-header">
+                            <div class="list-item-info">
+                                <div class="list-item-name">${warning.physicalName.split('@')[0]}</div>
+                                <div class="list-item-meta">${warning.physicalName.split('@')[1]} • ${formatTime(warning.createdAt)}</div>
+                            </div>
+                            <span class="list-item-badge ${statusBadge}">${statusText}</span>
+                        </div>
+                        <div class="list-item-preview">Name: "${warning.offensiveCSName}"</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function filterWarnings(filter, el) {
+            currentWarningFilter = filter;
+            document.querySelectorAll('#page-warnings .filter-chip').forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+            updateWarningsList();
+        }
+
+        function selectWarning(id) {
+            selectedWarningId = id;
+            updateWarningsList();
+
+            const warning = nameWarnings.find(w => w.id === id);
+            const detail = document.getElementById('warningDetail');
+
+            const strikeBadge = warning.status === 'permaban' ? 'badge-danger' :
+                               warning.strikeNumber >= 2 ? 'badge-warning' : 'badge-info';
+            const strikeText = warning.status === 'permaban' ? 'Permaban' : `Strike ${warning.strikeNumber}`;
+
+            detail.innerHTML = `
+                <div class="detail-header">
+                    <div class="detail-header-top">
+                        <div class="detail-info" style="flex: 1;">
+                            <div class="detail-name">
+                                ${warning.physicalName.split('@')[0]}
+                                <span class="list-item-badge ${strikeBadge}">${strikeText}</span>
+                            </div>
+                            <div class="detail-server">${warning.physicalName.split('@')[1]}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-content">
+                    <div class="detail-section">
+                        <div class="detail-section-title">Warning Details</div>
+                        <div class="detail-bio">
+                            <p><strong>Status:</strong> ${warning.status}</p>
+                            <p style="margin-top: 8px;"><strong>Offensive Name:</strong> <span style="color: var(--danger);">"${warning.offensiveCSName}"</span></p>
+                            <p style="margin-top: 8px;"><strong>Acknowledged:</strong> ${warning.acknowledged ? 'Yes' : 'No'}</p>
+                            <p style="margin-top: 8px;"><strong>Resolved:</strong> ${warning.resolved ? 'Yes' : 'No'}</p>
+                            ${warning.newCSName ? `<p style="margin-top: 8px;"><strong>New Name:</strong> "${warning.newCSName}"</p>` : ''}
+                            <p style="margin-top: 8px; color: var(--text-muted);"><strong>Issued:</strong> ${formatTime(warning.createdAt)}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ============ NAME REVIEWS ============
+        function updateReviewsList() {
+            const list = document.getElementById('reviewsList');
+            const count = document.getElementById('reviewsCount');
+
+            count.textContent = `${pendingReviews.length} waiting`;
+
+            if (pendingReviews.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-title">No pending reviews</div></div>';
+                return;
+            }
+
+            list.innerHTML = pendingReviews.map(review => `
+                <div class="list-item ${selectedReviewId === review.id ? 'selected' : ''}" onclick="selectReview('${review.id}')">
+                    <div class="list-item-header">
+                        <div class="list-item-info">
+                            <div class="list-item-name">${review.physicalName.split('@')[0]}</div>
+                            <div class="list-item-meta">${review.physicalName.split('@')[1]} • ${formatTime(review.createdAt)}</div>
+                        </div>
+                        <span class="list-item-badge badge-info">Strike 2</span>
+                    </div>
+                    <div class="list-item-preview">"${review.offensiveCSName}" → "${review.newCSName}"</div>
+                </div>
+            `).join('');
+        }
+
+        function selectReview(id) {
+            selectedReviewId = id;
+            updateReviewsList();
+
+            const review = pendingReviews.find(r => r.id === id);
+            const detail = document.getElementById('reviewDetail');
+
+            detail.innerHTML = `
+                <div class="detail-header">
+                    <div class="detail-header-top">
+                        <div class="detail-info" style="flex: 1;">
+                            <div class="detail-name">${review.physicalName.split('@')[0]}</div>
+                            <div class="detail-server">${review.physicalName.split('@')[1]} • Strike 2 User</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-content">
+                    <div class="detail-section">
+                        <div class="detail-section-title">Name Change Request</div>
+                        <div class="name-change-box">
+                            <div class="name-change-row">
+                                <div class="name-old">"${review.offensiveCSName}"</div>
+                                <span class="name-arrow">→</span>
+                                <div class="name-new">"${review.newCSName}"</div>
+                            </div>
+                            <div class="name-change-actions">
+                                <button class="btn btn-success" onclick="reviewAction('${review.id}', 'approve')">✓ Approve</button>
+                                <button class="btn btn-danger" onclick="reviewAction('${review.id}', 'reject')">✗ Reject</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function reviewAction(reviewId, action) {
+            try {
+                if (action === 'approve') {
+                    await apiPost(`/admin/names/approve/${reviewId}`);
+                    showToast('Name change approved', 'success');
+                } else if (action === 'reject') {
+                    await apiPost(`/admin/names/reject/${reviewId}`);
+                    showToast('Name change rejected', 'warning');
+                }
+                await loadAllData();
+                selectedReviewId = null;
+                document.getElementById('reviewDetail').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <div class="empty-state-title">Review complete</div>
+                        <p>Select another review or you're all caught up!</p>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============ AUTO-FLAGGED ============
+        function updateFlaggedList() {
+            const list = document.getElementById('flaggedList');
+            const count = document.getElementById('flaggedCount');
+
+            count.textContent = `${flaggedContent.length} pending`;
+
+            if (flaggedContent.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎉</div><div class="empty-state-title">No flagged content</div></div>';
+                return;
+            }
+
+            list.innerHTML = flaggedContent.map(flagged => `
+                <div class="list-item ${selectedFlaggedId === flagged.id ? 'selected' : ''}" onclick="selectFlagged('${flagged.id}')">
+                    <div class="list-item-header">
+                        <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">🚩</div>
+                        <div class="list-item-info">
+                            <div class="list-item-name">${flagged.characterName || flagged.characterId}</div>
+                            <div class="list-item-meta">${formatTime(flagged.flaggedAt || flagged.createdAt)}</div>
+                        </div>
+                    </div>
+                    <div class="list-item-preview">${flagged.reason}</div>
+                </div>
+            `).join('');
+        }
+
+        function selectFlagged(id) {
+            selectedFlaggedId = id;
+            updateFlaggedList();
+
+            const flagged = flaggedContent.find(f => f.id === id);
+            const detail = document.getElementById('flaggedDetail');
+
+            detail.innerHTML = `
+                <div class="detail-header">
+                    <div class="detail-header-top">
+                        <div class="detail-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 2em;">🚩</div>
+                        <div class="detail-info">
+                            <div class="detail-name">${flagged.characterName || flagged.characterId}</div>
+                            <div class="detail-server">Auto-flagged content</div>
+                        </div>
+                    </div>
+                    <div class="detail-actions">
+                        <button class="btn btn-danger" onclick="flaggedAction('${flagged.id}', 'remove')">Remove Profile</button>
+                        <button class="btn btn-primary" onclick="flaggedAction('${flagged.id}', 'nsfw')">Mark NSFW</button>
+                        <button class="btn btn-ghost" onclick="flaggedAction('${flagged.id}', 'dismiss')">Dismiss Flag</button>
+                    </div>
+                </div>
+                <div class="detail-content">
+                    <div class="detail-section">
+                        <div class="detail-section-title">Flag Details</div>
+                        <div class="detail-bio">
+                            <p><strong>Reason:</strong> ${flagged.reason}</p>
+                            ${flagged.matchedKeywords ? `<p style="margin-top: 8px;"><strong>Keywords:</strong> ${flagged.matchedKeywords.join(', ')}</p>` : ''}
+                            <p style="margin-top: 8px; color: var(--text-muted);"><strong>Flagged:</strong> ${formatTime(flagged.flaggedAt || flagged.createdAt)}</p>
+                        </div>
+                    </div>
+                    ${flagged.flaggedContent ? `
+                    <div class="detail-section">
+                        <div class="detail-section-title">Flagged Content</div>
+                        <div class="detail-bio" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
+                            <p style="font-style: italic;">"${flagged.flaggedContent}"</p>
+                        </div>
+                    </div>` : ''}
+                </div>
+            `;
+        }
+
+        async function flaggedAction(flaggedId, action) {
+            const flagged = flaggedContent.find(f => f.id === flaggedId);
+
+            try {
+                if (action === 'remove') {
+                    openModal('Remove Profile', flagged.characterName || flagged.characterId, 'Reason for removal', 'btn-danger', 'Remove', async (reason) => {
+                        await apiDelete(`/admin/profiles/${encodeURIComponent(flagged.characterId)}`, { reason });
+                        await apiPatch(`/admin/flagged/${flaggedId}`, { status: 'removed' });
+                        showToast('Profile removed', 'success');
+                        await loadAllData();
+                        showFlaggedEmptyState();
+                    });
+                } else if (action === 'nsfw') {
+                    await apiPatch(`/admin/profiles/${encodeURIComponent(flagged.characterId)}/nsfw`, { isNSFW: true });
+                    await apiPatch(`/admin/flagged/${flaggedId}`, { status: 'resolved' });
+                    showToast('Marked as NSFW', 'success');
+                    await loadAllData();
+                    showFlaggedEmptyState();
+                } else if (action === 'dismiss') {
+                    await apiPatch(`/admin/flagged/${flaggedId}`, { status: 'dismissed' });
+                    showToast('Flag dismissed', 'success');
+                    await loadAllData();
+                    showFlaggedEmptyState();
+                }
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        function showFlaggedEmptyState() {
+            selectedFlaggedId = null;
+            document.getElementById('flaggedDetail').innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">✅</div>
+                    <div class="empty-state-title">Flag handled</div>
+                    <p>Select another flagged item or you're all caught up!</p>
+                </div>
+            `;
+        }
+
+        // ============ GALLERY ============
+        function updateGallery() {
+            const serverFilter = document.getElementById('serverFilter');
+            const servers = [...new Set(profiles.map(p => {
+                const parts = p.CharacterId?.split('@') || [];
+                return parts[1] || 'Unknown';
+            }))].sort();
+            serverFilter.innerHTML = '<option value="">All Servers</option>' + servers.map(s => `<option value="${s}">${s}</option>`).join('');
+
+            filterGallery();
+        }
+
+        function filterGallery() {
+            const server = document.getElementById('serverFilter').value;
+            const nsfw = document.getElementById('nsfwFilter').value;
+            const sort = document.getElementById('sortFilter').value;
+
+            let filtered = profiles.filter(p => !p.removed);
+
+            if (server) {
+                filtered = filtered.filter(p => p.CharacterId?.includes(`@${server}`));
+            }
+
+            if (nsfw === 'nsfw') {
+                filtered = filtered.filter(p => p.IsNSFW === true);
+            } else if (nsfw === 'sfw') {
+                filtered = filtered.filter(p => !p.IsNSFW);
+            }
+
+            if (sort === 'likes') {
+                filtered.sort((a, b) => (b.LikeCount || 0) - (a.LikeCount || 0));
+            } else if (sort === 'recent') {
+                filtered.sort((a, b) => new Date(b.LastUpdated || 0) - new Date(a.LastUpdated || 0));
+            } else if (sort === 'name') {
+                filtered.sort((a, b) => (a.CharacterName || '').localeCompare(b.CharacterName || ''));
+            }
+
+            renderGalleryPage(filtered);
+        }
+
+        function renderGalleryPage(filtered) {
+            const totalPages = Math.ceil(filtered.length / profilesPerPage);
+            if (currentGalleryPage > totalPages) currentGalleryPage = 1;
+
+            const start = (currentGalleryPage - 1) * profilesPerPage;
+            const pageProfiles = filtered.slice(start, start + profilesPerPage);
+
+            const grid = document.getElementById('galleryGrid');
+            grid.innerHTML = pageProfiles.map(p => {
+                const characterId = p.CharacterId || '';
+                const name = p.CharacterName || characterId.split('@')[0] || 'Unknown';
+                const server = characterId.split('@')[1] || 'Unknown';
+                return `
+                    <div class="gallery-card ${selectedProfiles.has(characterId) ? 'selected' : ''}"
+                         onclick="toggleProfileSelection('${characterId}', event)"
+                         oncontextmenu="showContextMenu(event, '${characterId}')">
+                        <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
+                        <div class="gallery-card-actions">
+                            <button onclick="event.stopPropagation(); singleAction('${characterId}', 'view')" title="View">👁️</button>
+                            <button onclick="event.stopPropagation(); singleAction('${characterId}', 'nsfw')" title="Mark NSFW">🔞</button>
+                            <button onclick="event.stopPropagation(); singleAction('${characterId}', 'remove')" title="Remove">🗑️</button>
+                        </div>
+                        <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
+                        <div class="gallery-card-content">
+                            <div class="gallery-card-name">
+                                ${name}
+                                ${p.IsNSFW ? '<span class="list-item-badge badge-danger" style="font-size: 0.65em;">NSFW</span>' : ''}
+                            </div>
+                            <div class="gallery-card-server">${server}</div>
+                            <div class="gallery-card-stats">
+                                <span>❤️ ${p.LikeCount || 0}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Pagination
+            const pagination = document.getElementById('galleryPagination');
+            if (totalPages <= 1) {
+                pagination.innerHTML = '';
+                return;
+            }
+
+            pagination.innerHTML = `
+                <button ${currentGalleryPage === 1 ? 'disabled' : ''} onclick="changePage(${currentGalleryPage - 1})">← Prev</button>
+                <span class="pagination-info">Page ${currentGalleryPage} of ${totalPages} (${filtered.length} profiles)</span>
+                <button ${currentGalleryPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentGalleryPage + 1})">Next →</button>
+            `;
+        }
+
+        function changePage(page) {
+            currentGalleryPage = page;
+            filterGallery();
+        }
+
+        function toggleProfileSelection(characterId, event) {
+            if (event) event.stopPropagation();
+
+            const isSelected = selectedProfiles.has(characterId);
+            if (isSelected) {
+                selectedProfiles.delete(characterId);
+            } else {
+                selectedProfiles.add(characterId);
+            }
+
+            // Update just this card's visual state instead of re-rendering all
+            const card = document.querySelector(`.gallery-card[onclick*="'${characterId}'"]`);
+            if (card) {
+                card.classList.toggle('selected', !isSelected);
+                const checkbox = card.querySelector('.gallery-card-checkbox');
+                if (checkbox) checkbox.checked = !isSelected;
+            }
+
+            updateQuickBar();
+        }
+
+        function updateQuickBar() {
+            const bar = document.getElementById('quickBar');
+            const count = document.getElementById('quickBarCount');
+
+            if (selectedProfiles.size > 0) {
+                bar.classList.add('show');
+                count.textContent = `${selectedProfiles.size} selected`;
+            } else {
+                bar.classList.remove('show');
+            }
+        }
+
+        function clearSelection() {
+            // Remove visual selection from all cards
+            document.querySelectorAll('.gallery-card.selected').forEach(card => {
+                card.classList.remove('selected');
+                const checkbox = card.querySelector('.gallery-card-checkbox');
+                if (checkbox) checkbox.checked = false;
+            });
+            selectedProfiles.clear();
+            updateQuickBar();
+        }
+
+        async function bulkAction(action) {
+            const count = selectedProfiles.size;
+            const ids = [...selectedProfiles];
+
+            if (action === 'remove') {
+                openModal('Bulk Remove', `${count} profiles`, 'Reason for removal', 'btn-danger', 'Remove All', async (reason) => {
+                    for (const id of ids) {
+                        try {
+                            await apiDelete(`/admin/profiles/${encodeURIComponent(id)}`, { reason });
+                        } catch (e) { console.error(e); }
+                    }
+                    showToast(`${count} profiles removed`, 'success');
+                    clearSelection();
+                    await loadAllData();
+                });
+            } else if (action === 'ban') {
+                openModal('Bulk Ban', `${count} profiles`, 'Reason for ban', 'btn-danger', 'Ban All', async (reason) => {
+                    for (const id of ids) {
+                        try {
+                            await apiDelete(`/admin/profiles/${encodeURIComponent(id)}`, { reason, ban: true });
+                        } catch (e) { console.error(e); }
+                    }
+                    showToast(`${count} profiles banned`, 'success');
+                    clearSelection();
+                    await loadAllData();
+                });
+            } else if (action === 'nsfw') {
+                for (const id of ids) {
+                    try {
+                        await apiPatch(`/admin/profiles/${encodeURIComponent(id)}/nsfw`, { isNSFW: true });
+                    } catch (e) { console.error(e); }
+                }
+                showToast(`${count} profiles marked as NSFW`, 'success');
+                clearSelection();
+                await loadAllData();
+            }
+        }
+
+        // ============ CONTEXT MENU & SINGLE ACTIONS ============
+        function showContextMenu(event, characterId) {
+            event.preventDefault();
+            event.stopPropagation();
+            contextMenuProfileId = characterId;
+
+            const menu = document.getElementById('contextMenu');
+            menu.style.left = event.clientX + 'px';
+            menu.style.top = event.clientY + 'px';
+            menu.classList.add('show');
+        }
+
+        function hideContextMenu() {
+            document.getElementById('contextMenu').classList.remove('show');
+            contextMenuProfileId = null;
+        }
+
+        document.addEventListener('click', hideContextMenu);
+
+        function contextAction(action) {
+            if (contextMenuProfileId) {
+                singleAction(contextMenuProfileId, action);
+            }
+            hideContextMenu();
+        }
+
+        async function singleAction(characterId, action) {
+            const profile = profiles.find(p => p.CharacterId === characterId);
+            const name = profile?.CharacterName || characterId.split('@')[0];
+            const server = characterId.split('@')[1] || 'Unknown';
+
+            try {
+                if (action === 'view') {
+                    // Show profile details in a nice popup
+                    const popup = document.createElement('div');
+                    popup.className = 'modal-overlay';
+                    popup.style.display = 'flex';
+                    popup.onclick = (e) => { if (e.target === popup) popup.remove(); };
+                    popup.innerHTML = `
+                        <div class="modal" style="max-width: 500px;">
+                            <div class="modal-header">
+                                <div class="modal-title">${name}</div>
+                                <div class="modal-subtitle">${server} • ❤️ ${profile?.LikeCount || 0} likes</div>
+                            </div>
+                            <div class="modal-body">
+                                ${profile?.ProfileImageUrl ? `<img src="${profile.ProfileImageUrl}" style="width:100%;max-height:300px;object-fit:contain;border-radius:8px;margin-bottom:16px;">` : ''}
+                                <div style="display:grid;gap:8px;">
+                                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">Character ID</span><span>${characterId}</span></div>
+                                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">NSFW</span><span>${profile?.IsNSFW ? '🔞 Yes' : 'No'}</span></div>
+                                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">Likes</span><span>❤️ ${profile?.LikeCount || 0}</span></div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                                <button class="btn btn-warning" onclick="this.closest('.modal-overlay').remove(); singleAction('${characterId}', 'nsfw')">Mark NSFW</button>
+                                <button class="btn btn-danger" onclick="this.closest('.modal-overlay').remove(); singleAction('${characterId}', 'remove')">Remove</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(popup);
+                } else if (action === 'nsfw') {
+                    await apiPatch(`/admin/profiles/${encodeURIComponent(characterId)}/nsfw`, { isNSFW: true });
+                    showToast(`"${name}" marked as NSFW`, 'success');
+                    await loadAllData();
+                } else if (action === 'remove') {
+                    openModal('Remove Profile', name, 'Reason for removal', 'btn-danger', 'Remove', async (reason) => {
+                        await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason });
+                        showToast(`"${name}" removed`, 'success');
+                        await loadAllData();
+                    });
+                } else if (action === 'ban') {
+                    openModal('Ban User', name, 'Reason for ban', 'btn-danger', 'Ban', async (reason) => {
+                        await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason, ban: true });
+                        showToast(`"${name}" banned`, 'success');
+                        await loadAllData();
+                    });
+                }
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============ BANNED ============
+        function updateBannedList() {
+            const list = document.getElementById('bannedList');
+            const count = document.getElementById('bannedCount');
+
+            count.textContent = `${bannedProfiles.length} total`;
+
+            if (bannedProfiles.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No banned users</div></div>';
+                return;
+            }
+
+            list.innerHTML = bannedProfiles.map(banned => {
+                const id = typeof banned === 'string' ? banned : banned.characterId;
+                const name = id.split('@')[0] || 'Unknown';
+                const server = id.split('@')[1] || 'Unknown';
+                return `
+                    <div class="list-item ${selectedBannedId === id ? 'selected' : ''}" onclick="selectBanned('${id}')">
+                        <div class="list-item-header">
+                            <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">🚫</div>
+                            <div class="list-item-info">
+                                <div class="list-item-name">${name}</div>
+                                <div class="list-item-meta">${server}</div>
+                            </div>
+                            <span class="list-item-badge badge-danger">Banned</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function selectBanned(id) {
+            selectedBannedId = id;
+            updateBannedList();
+
+            const name = id.split('@')[0];
+            const server = id.split('@')[1];
+            const detail = document.getElementById('bannedDetail');
+
+            detail.innerHTML = `
+                <div class="detail-header">
+                    <div class="detail-header-top">
+                        <div class="detail-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 2em; background: rgba(239, 68, 68, 0.15);">🚫</div>
+                        <div class="detail-info">
+                            <div class="detail-name">
+                                ${name}
+                                <span class="list-item-badge badge-danger">Banned</span>
+                            </div>
+                            <div class="detail-server">${server}</div>
+                        </div>
+                    </div>
+                    <div class="detail-actions">
+                        <button class="btn btn-success" onclick="unbanUser('${id}')">Unban User</button>
+                    </div>
+                </div>
+                <div class="detail-content">
+                    <div class="detail-section">
+                        <div class="detail-section-title" style="color: var(--danger);">⚠️ Unban Warning</div>
+                        <div class="detail-bio" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
+                            <p>Unbanning this user will allow them to use CS+ features again.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function unbanUser(characterId) {
+            try {
+                await apiPost(`/admin/profiles/${encodeURIComponent(characterId)}/unban`);
+                showToast('User unbanned', 'success');
+                await loadAllData();
+                selectedBannedId = null;
+                document.getElementById('bannedDetail').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <div class="empty-state-title">User unbanned</div>
+                        <p>Select another user or you're done!</p>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============ ACTIVITY LOG ============
+        function updateActivityLog() {
+            const list = document.getElementById('activityList');
+
+            if (activityLog.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📜</div><div class="empty-state-title">No activity yet</div></div>';
+                return;
+            }
+
+            list.innerHTML = activityLog.map(a => `
+                <div class="activity-item">
+                    <div class="activity-dot ${a.type || 'dismiss'}"></div>
+                    <div class="activity-info">
+                        <div class="activity-message">${a.message || a.action || 'Action'}</div>
+                        <div class="activity-meta">${a.details?.characterName || a.characterName || ''}</div>
+                    </div>
+                    <div class="activity-time">${formatTime(a.timestamp || a.createdAt)}</div>
+                </div>
+            `).join('');
+        }
+
+        // ============ ANNOUNCEMENTS ============
+        let announcements = [];
+
+        async function loadAnnouncements() {
+            try {
+                announcements = await apiGet('/admin/announcements');
+                updateAnnouncementsList();
+            } catch (error) {
+                console.error('Error loading announcements:', error);
+            }
+        }
+
+        function updateAnnouncementsList() {
+            const activeList = document.getElementById('activeAnnouncementsList');
+            const allList = document.getElementById('allAnnouncementsList');
+
+            const active = announcements.filter(a => a.active);
+            const badge = document.getElementById('announcementsBadge');
+            if (badge) badge.textContent = active.length || '';
+
+            if (active.length === 0) {
+                activeList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📢</div><div class="empty-state-title">No active announcements</div></div>';
+            } else {
+                activeList.innerHTML = active.map(a => renderAnnouncementCard(a, true)).join('');
+            }
+
+            if (announcements.length === 0) {
+                allList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No announcements yet</div></div>';
+            } else {
+                allList.innerHTML = announcements.map(a => renderAnnouncementCard(a, false)).join('');
+            }
+        }
+
+        function renderAnnouncementCard(a, showDeactivate) {
+            const typeColors = {
+                info: 'var(--info)',
+                warning: 'var(--warning)',
+                success: 'var(--success)',
+                error: 'var(--danger)'
+            };
+            const typeIcons = {
+                info: 'ℹ️',
+                warning: '⚠️',
+                success: '✅',
+                error: '❌'
+            };
+            const borderColor = typeColors[a.type] || typeColors.info;
+            const icon = typeIcons[a.type] || typeIcons.info;
+
+            return `
+                <div class="list-item" style="border-left: 3px solid ${borderColor}; margin-bottom: 12px;">
+                    <div class="list-item-info" style="flex:1;">
+                        <div class="list-item-title">
+                            ${icon} ${a.title}
+                            ${!a.active ? '<span class="list-item-badge" style="background: var(--text-muted);">Inactive</span>' : ''}
+                        </div>
+                        <div class="list-item-subtitle">${a.message}</div>
+                        <div class="list-item-meta">${formatTime(a.createdAt)}</div>
+                    </div>
+                    <div class="list-item-actions">
+                        ${a.active ? `<button class="btn btn-ghost btn-sm" onclick="deactivateAnnouncement('${a.id}')">Deactivate</button>` : ''}
+                        <button class="btn btn-ghost btn-sm" style="color: var(--danger);" onclick="deleteAnnouncement('${a.id}')">Delete</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function createAnnouncement() {
+            const title = document.getElementById('announcementTitle').value.trim();
+            const message = document.getElementById('announcementMessage').value.trim();
+            const type = document.getElementById('announcementType').value;
+
+            if (!title || !message) {
+                showToast('Please enter title and message', 'error');
+                return;
+            }
+
+            try {
+                await apiPost('/admin/announcements', { title, message, type });
+                showToast('Announcement created', 'success');
+                document.getElementById('announcementTitle').value = '';
+                document.getElementById('announcementMessage').value = '';
+                await loadAnnouncements();
+            } catch (error) {
+                showToast('Error creating announcement: ' + error.message, 'error');
+            }
+        }
+
+        async function deactivateAnnouncement(id) {
+            try {
+                await apiPatch(`/admin/announcements/${id}`, { active: false });
+                showToast('Announcement deactivated', 'success');
+                await loadAnnouncements();
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteAnnouncement(id) {
+            if (!confirm('Delete this announcement permanently?')) return;
+
+            try {
+                await apiDelete(`/admin/announcements/${id}`);
+                showToast('Announcement deleted', 'success');
+                await loadAnnouncements();
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============ UTILITIES ============
+        function showPage(pageName, navItem) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('page-' + pageName).classList.add('active');
+
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            if (navItem) {
+                navItem.classList.add('active');
+            } else {
+                document.querySelector(`.nav-item[data-page="${pageName}"]`)?.classList.add('active');
+            }
+        }
+
+        function formatTime(dateStr) {
+            if (!dateStr) return 'Unknown';
+            const date = new Date(dateStr);
+            const now = new Date();
+            const diff = now - date;
+            const mins = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return `${mins}m ago`;
+            if (hours < 24) return `${hours}h ago`;
+            if (days < 7) return `${days}d ago`;
+            return date.toLocaleDateString();
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : '⚠';
+            toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        function openModal(title, subtitle, placeholder, btnClass, btnText, callback) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalSubtitle').textContent = subtitle;
+            document.getElementById('modalReason').placeholder = placeholder;
+            document.getElementById('modalReason').value = '';
+            const confirmBtn = document.getElementById('modalConfirm');
+            confirmBtn.className = `btn ${btnClass}`;
+            confirmBtn.textContent = btnText;
+            modalCallback = callback;
+            document.getElementById('actionModal').classList.add('show');
+            document.getElementById('modalReason').focus();
+        }
+
+        function closeModal() {
+            document.getElementById('actionModal').classList.remove('show');
+            modalCallback = null;
+        }
+
+        function confirmModalAction() {
+            const reason = document.getElementById('modalReason').value.trim();
+            if (modalCallback) {
+                modalCallback(reason);
+            }
+            closeModal();
+        }
+
+        function handleSearch() {
+            const query = document.getElementById('globalSearch').value.toLowerCase().trim();
+            const activePage = document.querySelector('.page.active')?.id;
+
+            if (!query) {
+                // If empty, refresh current view to show all items
+                if (activePage === 'page-gallery') filterGallery();
+                else if (activePage === 'page-reports') updateReportsList();
+                else if (activePage === 'page-warnings') updateWarningsList();
+                else if (activePage === 'page-banned') updateBannedList();
+                return;
+            }
+
+            // Search based on current page
+
+            if (activePage === 'page-gallery') {
+                // Search gallery
+                const filtered = profiles.filter(p =>
+                    (p.CharacterName || '').toLowerCase().includes(query) ||
+                    (p.CharacterId || '').toLowerCase().includes(query)
+                );
+                renderGalleryPage(filtered);
+            } else if (activePage === 'page-reports') {
+                // Search reports
+                const sourceReports = currentReportTab === 'archived' ? archivedReports : reports;
+                const filtered = sourceReports.filter(r =>
+                    (r.reportedCharacterName || '').toLowerCase().includes(query) ||
+                    (r.offensiveCSName || '').toLowerCase().includes(query) ||
+                    (r.details || '').toLowerCase().includes(query)
+                );
+                const list = document.getElementById('reportsList');
+                if (filtered.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results found</div></div>';
+                } else {
+                    // Re-render with filtered results (simplified)
+                    list.innerHTML = filtered.map(report => {
+                        const isNameReport = !!report.offensiveCSName;
+                        return `
+                            <div class="list-item" onclick="selectReport('${report.id}')">
+                                <div class="list-item-header">
+                                    <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">${isNameReport ? '✏️' : '🚨'}</div>
+                                    <div class="list-item-info">
+                                        <div class="list-item-name">${report.reportedCharacterName || 'Unknown'}</div>
+                                        <div class="list-item-meta">${formatTime(report.createdAt)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } else if (activePage === 'page-warnings') {
+                // Search warnings
+                const filtered = nameWarnings.filter(w =>
+                    (w.physicalName || '').toLowerCase().includes(query) ||
+                    (w.offensiveCSName || '').toLowerCase().includes(query)
+                );
+                const list = document.getElementById('warningsList');
+                if (filtered.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results found</div></div>';
+                } else {
+                    updateWarningsList(filtered);
+                }
+            } else if (activePage === 'page-banned') {
+                // Search banned
+                const filtered = bannedProfiles.filter(b =>
+                    (b.characterId || b.CharacterId || '').toLowerCase().includes(query) ||
+                    (b.reason || '').toLowerCase().includes(query)
+                );
+                const list = document.getElementById('bannedList');
+                if (filtered.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results found</div></div>';
+                } else {
+                    list.innerHTML = filtered.map(b => `
+                        <div class="list-item">
+                            <div class="list-item-info">
+                                <div class="list-item-name">${b.characterId || b.CharacterId || 'Unknown'}</div>
+                                <div class="list-item-meta">${b.reason || 'No reason'}</div>
+                            </div>
+                            <button class="btn btn-ghost btn-sm" onclick="unbanProfile('${b.characterId || b.CharacterId}')">Unban</button>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
