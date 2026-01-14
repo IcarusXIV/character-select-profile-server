@@ -1277,6 +1277,27 @@
         let adminName = localStorage.getItem('cs_admin_name') || 'Admin';
         let isAuthenticated = false;
 
+        // ============ HELPERS ============
+        // Escape strings for use in HTML onclick attributes
+        function escapeForHtml(str) {
+            if (!str) return '';
+            return str.replace(/\\/g, '\\\\')
+                      .replace(/'/g, "\\'")
+                      .replace(/"/g, '&quot;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;');
+        }
+
+        // Unescape strings that were escaped for HTML onclick attributes
+        function unescapeFromHtml(str) {
+            if (!str) return '';
+            return str.replace(/&gt;/g, '>')
+                      .replace(/&lt;/g, '<')
+                      .replace(/&quot;/g, '"')
+                      .replace(/\\'/g, "'")
+                      .replace(/\\\\/g, '\\');
+        }
+
         // ============ DATA ============
         let reports = [];
         let profiles = [];
@@ -2325,17 +2346,18 @@
             const grid = document.getElementById('galleryGrid');
             grid.innerHTML = pageProfiles.map(p => {
                 const characterId = p.CharacterId || '';
+                const safeId = escapeForHtml(characterId);
                 const name = p.CharacterName || characterId.split('@')[0] || 'Unknown';
                 const server = characterId.split('@')[1] || 'Unknown';
                 return `
                     <div class="gallery-card ${selectedProfiles.has(characterId) ? 'selected' : ''}"
-                         onclick="toggleProfileSelection('${characterId}', event)"
-                         oncontextmenu="showContextMenu(event, '${characterId}')">
+                         onclick="toggleProfileSelection('${safeId}', event)"
+                         oncontextmenu="showContextMenu(event, '${safeId}')" data-id="${safeId}">
                         <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
-                            <button onclick="event.stopPropagation(); singleAction('${characterId}', 'view')" title="View">👁️</button>
-                            <button onclick="event.stopPropagation(); singleAction('${characterId}', 'nsfw')" title="Mark NSFW">🔞</button>
-                            <button onclick="event.stopPropagation(); singleAction('${characterId}', 'remove')" title="Remove">🗑️</button>
+                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'view')" title="View">👁️</button>
+                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'nsfw')" title="Mark NSFW">🔞</button>
+                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'remove')" title="Remove">🗑️</button>
                         </div>
                         <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
@@ -2374,6 +2396,9 @@
         function toggleProfileSelection(characterId, event) {
             if (event) event.stopPropagation();
 
+            // Unescape the ID since it comes from an HTML onclick attribute
+            characterId = unescapeFromHtml(characterId);
+
             const isSelected = selectedProfiles.has(characterId);
             if (isSelected) {
                 selectedProfiles.delete(characterId);
@@ -2382,7 +2407,7 @@
             }
 
             // Update just this card's visual state instead of re-rendering all
-            const card = document.querySelector(`.gallery-card[onclick*="'${characterId}'"]`);
+            const card = document.querySelector(`.gallery-card[data-id="${escapeForHtml(characterId)}"]`);
             if (card) {
                 card.classList.toggle('selected', !isSelected);
                 const checkbox = card.querySelector('.gallery-card-checkbox');
@@ -2457,7 +2482,8 @@
         function showContextMenu(event, characterId) {
             event.preventDefault();
             event.stopPropagation();
-            contextMenuProfileId = characterId;
+            // Unescape the ID since it comes from an HTML onclick attribute
+            contextMenuProfileId = unescapeFromHtml(characterId);
 
             const menu = document.getElementById('contextMenu');
             menu.style.left = event.clientX + 'px';
@@ -2480,9 +2506,13 @@
         }
 
         async function singleAction(characterId, action) {
+            // Unescape the ID since it comes from an HTML onclick attribute
+            characterId = unescapeFromHtml(characterId);
             const profile = profiles.find(p => p.CharacterId === characterId);
             const name = profile?.CharacterName || characterId.split('@')[0];
             const server = characterId.split('@')[1] || 'Unknown';
+            const safeId = escapeForHtml(characterId);
+            const safeName = escapeForHtml(name);
 
             try {
                 if (action === 'view') {
@@ -2494,21 +2524,21 @@
                     popup.innerHTML = `
                         <div class="modal" style="max-width: 500px;">
                             <div class="modal-header">
-                                <div class="modal-title">${name}</div>
+                                <div class="modal-title">${safeName}</div>
                                 <div class="modal-subtitle">${server} • ❤️ ${profile?.LikeCount || 0} likes</div>
                             </div>
                             <div class="modal-body">
                                 ${profile?.ProfileImageUrl ? `<img src="${profile.ProfileImageUrl}" style="width:100%;max-height:300px;object-fit:contain;border-radius:8px;margin-bottom:16px;">` : ''}
                                 <div style="display:grid;gap:8px;">
-                                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">Character ID</span><span>${characterId}</span></div>
+                                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">Character ID</span><span>${safeId}</span></div>
                                     <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">NSFW</span><span>${profile?.IsNSFW ? '🔞 Yes' : 'No'}</span></div>
                                     <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted)">Likes</span><span>❤️ ${profile?.LikeCount || 0}</span></div>
                                 </div>
                             </div>
                             <div class="modal-footer">
                                 <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Close</button>
-                                <button class="btn btn-warning" onclick="this.closest('.modal-overlay').remove(); singleAction('${characterId}', 'nsfw')">Mark NSFW</button>
-                                <button class="btn btn-danger" onclick="this.closest('.modal-overlay').remove(); singleAction('${characterId}', 'remove')">Remove</button>
+                                <button class="btn btn-warning" onclick="this.closest('.modal-overlay').remove(); singleAction('${safeId}', 'nsfw')">Mark NSFW</button>
+                                <button class="btn btn-danger" onclick="this.closest('.modal-overlay').remove(); singleAction('${safeId}', 'remove')">Remove</button>
                             </div>
                         </div>
                     `;
@@ -2549,10 +2579,11 @@
 
             list.innerHTML = bannedProfiles.map(banned => {
                 const id = typeof banned === 'string' ? banned : banned.characterId;
+                const safeId = escapeForHtml(id);
                 const name = id.split('@')[0] || 'Unknown';
                 const server = id.split('@')[1] || 'Unknown';
                 return `
-                    <div class="list-item ${selectedBannedId === id ? 'selected' : ''}" onclick="selectBanned('${id}')">
+                    <div class="list-item ${selectedBannedId === id ? 'selected' : ''}" onclick="selectBanned('${safeId}')">
                         <div class="list-item-header">
                             <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">🚫</div>
                             <div class="list-item-info">
@@ -2567,9 +2598,12 @@
         }
 
         function selectBanned(id) {
+            // Unescape the ID since it comes from an HTML onclick attribute
+            id = unescapeFromHtml(id);
             selectedBannedId = id;
             updateBannedList();
 
+            const safeId = escapeForHtml(id);
             const name = id.split('@')[0];
             const server = id.split('@')[1];
             const detail = document.getElementById('bannedDetail');
@@ -2587,7 +2621,7 @@
                         </div>
                     </div>
                     <div class="detail-actions">
-                        <button class="btn btn-success" onclick="unbanUser('${id}')">Unban User</button>
+                        <button class="btn btn-success" onclick="unbanUser('${safeId}')">Unban User</button>
                     </div>
                 </div>
                 <div class="detail-content">
@@ -2602,6 +2636,8 @@
         }
 
         async function unbanUser(characterId) {
+            // Unescape the ID since it comes from an HTML onclick attribute
+            characterId = unescapeFromHtml(characterId);
             try {
                 await apiPost(`/admin/profiles/${encodeURIComponent(characterId)}/unban`);
                 showToast('User unbanned', 'success');
@@ -2887,15 +2923,19 @@
                 if (filtered.length === 0) {
                     list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results found</div></div>';
                 } else {
-                    list.innerHTML = filtered.map(b => `
-                        <div class="list-item">
-                            <div class="list-item-info">
-                                <div class="list-item-name">${b.characterId || b.CharacterId || 'Unknown'}</div>
-                                <div class="list-item-meta">${b.reason || 'No reason'}</div>
+                    list.innerHTML = filtered.map(b => {
+                        const bannedId = b.characterId || b.CharacterId || 'Unknown';
+                        const safeBannedId = escapeForHtml(bannedId);
+                        return `
+                            <div class="list-item">
+                                <div class="list-item-info">
+                                    <div class="list-item-name">${safeBannedId}</div>
+                                    <div class="list-item-meta">${escapeForHtml(b.reason) || 'No reason'}</div>
+                                </div>
+                                <button class="btn btn-ghost btn-sm" onclick="unbanUser('${safeBannedId}')">Unban</button>
                             </div>
-                            <button class="btn btn-ghost btn-sm" onclick="unbanProfile('${b.characterId || b.CharacterId}')">Unban</button>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
                 }
             }
         }
