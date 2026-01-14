@@ -1169,18 +1169,21 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         delete profile.LikeCount;
         profile.LikeCount = likesDB.getLikeCount(characterId);
 
+        // Check if this is a truly new profile (file doesn't exist on server)
+        const isNewProfile = !fs.existsSync(filePath);
+
         if (req.file) {
             const ext = path.extname(req.file.originalname) || ".png";
             const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
             const finalImagePath = path.join(imagesDir, safeFileName);
-            
+
             await safeFileMove(req.file.path, finalImagePath);
 
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
 
-        // Set createdAt only on first upload (for tracking new profiles)
-        if (!profile.CreatedAt) {
+        // Set CreatedAt only for truly new profiles (not updates to existing ones)
+        if (isNewProfile) {
             profile.CreatedAt = new Date().toISOString();
         }
         profile.LastUpdated = new Date().toISOString();
@@ -1243,18 +1246,21 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         delete profile.LikeCount;
         profile.LikeCount = likesDB.getLikeCount(characterId);
 
+        // Check if this is a truly new profile (file doesn't exist on server)
+        const isNewProfile = !fs.existsSync(filePath);
+
         if (req.file) {
             const ext = path.extname(req.file.originalname) || ".png";
             const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
             const finalImagePath = path.join(imagesDir, safeFileName);
-            
+
             await safeFileMove(req.file.path, finalImagePath);
-            
+
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
 
-        // Set createdAt only on first upload (for tracking new profiles)
-        if (!profile.CreatedAt) {
+        // Set CreatedAt only for truly new profiles (not updates to existing ones)
+        if (isNewProfile) {
             profile.CreatedAt = new Date().toISOString();
         }
         profile.LastUpdated = new Date().toISOString();
@@ -1267,7 +1273,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
 
         // Log activity
-        activityDB.logActivity('upload', `UPDATED PROFILE: ${csCharacterName}`, {
+        activityDB.logActivity('upload', isNewProfile ? `NEW PROFILE: ${csCharacterName}` : `UPDATED PROFILE: ${csCharacterName}`, {
             characterId,
             characterName: csCharacterName,
             server: extractServerFromName(physicalCharacterName),
