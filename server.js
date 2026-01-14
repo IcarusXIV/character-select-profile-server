@@ -4236,9 +4236,9 @@ app.post("/names/lookup", async (req, res) => {
                             continue;
                         }
 
-                        // Check if user opted out of name visibility
-                        // AllowOthersToSeeMyCSName defaults to true if not present
-                        if (profileData.AllowOthersToSeeMyCSName === false) {
+                        // Check if user opted in to name visibility
+                        // Only show if explicitly set to true (old profiles without this field are NOT shown)
+                        if (profileData.AllowOthersToSeeMyCSName !== true) {
                             continue;
                         }
 
