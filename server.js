@@ -359,6 +359,9 @@ class ModerationDatabase {
     constructor() {
         this.actions = [];
         this.bannedProfiles = new Set();
+        this.nameBannedUsers = new Set(); // Physical names banned from CS+ Names feature
+        this.nameWarnings = []; // Warning records for the 3-strike system
+        this.userStrikeCounts = new Map(); // physicalName -> strike count
         this.load();
     }
 
@@ -368,12 +371,18 @@ class ModerationDatabase {
                 const data = JSON.parse(fs.readFileSync(moderationDbFile, 'utf-8'));
                 this.actions = data.actions || [];
                 this.bannedProfiles = new Set(data.bannedProfiles || []);
-                console.log(`🛡️ Loaded ${this.actions.length} moderation actions, ${this.bannedProfiles.size} banned profiles`);
+                this.nameBannedUsers = new Set(data.nameBannedUsers || []);
+                this.nameWarnings = data.nameWarnings || [];
+                this.userStrikeCounts = new Map(data.userStrikeCounts || []);
+                console.log(`🛡️ Loaded ${this.actions.length} moderation actions, ${this.bannedProfiles.size} banned profiles, ${this.nameBannedUsers.size} name-banned users, ${this.nameWarnings.length} name warnings`);
             }
         } catch (err) {
             console.error('Error loading moderation database:', err);
             this.actions = [];
             this.bannedProfiles = new Set();
+            this.nameBannedUsers = new Set();
+            this.nameWarnings = [];
+            this.userStrikeCounts = new Map();
         }
     }
 
@@ -382,16 +391,19 @@ class ModerationDatabase {
             const data = {
                 actions: this.actions,
                 bannedProfiles: Array.from(this.bannedProfiles),
+                nameBannedUsers: Array.from(this.nameBannedUsers),
+                nameWarnings: this.nameWarnings,
+                userStrikeCounts: Array.from(this.userStrikeCounts.entries()),
                 lastSaved: new Date().toISOString()
             };
-            
+
             const tempFile = moderationDbFile + '.tmp';
             fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
-            
+
             if (fs.existsSync(moderationDbFile)) {
                 fs.copyFileSync(moderationDbFile, moderationDbFile + '.backup');
             }
-            
+
             fs.renameSync(tempFile, moderationDbFile);
         } catch (err) {
             console.error('Error saving moderation database:', err);
@@ -450,8 +462,184 @@ class ModerationDatabase {
         return this.bannedProfiles.has(characterId);
     }
 
+    // Name bans - prevents CS+ name from showing to others
+    banFromNames(physicalName) {
+        this.nameBannedUsers.add(physicalName);
+        this.save();
+    }
+
+    unbanFromNames(physicalName) {
+        this.nameBannedUsers.delete(physicalName);
+        this.save();
+    }
+
+    isNameBanned(physicalName) {
+        return this.nameBannedUsers.has(physicalName);
+    }
+
+    getNameBannedUsers() {
+        return Array.from(this.nameBannedUsers);
+    }
+
     getActions() {
         return this.actions;
+    }
+
+    // ===== 3-STRIKE WARNING SYSTEM =====
+
+    // Get current strike count for a user
+    getUserStrikeCount(physicalName) {
+        return this.userStrikeCounts.get(physicalName) || 0;
+    }
+
+    // Add a name warning (called when admin bans from names)
+    // Returns the warning object with strike info
+    addNameWarning(physicalName, offensiveCSName, adminId) {
+        // Increment strike count
+        const currentStrikes = this.getUserStrikeCount(physicalName);
+        const newStrikeCount = currentStrikes + 1;
+        this.userStrikeCounts.set(physicalName, newStrikeCount);
+
+        // Determine status based on strike count
+        let status;
+        if (newStrikeCount >= 3) {
+            status = 'permaban';
+        } else if (newStrikeCount === 2) {
+            status = 'warning2';
+        } else {
+            status = 'warning1';
+        }
+
+        const warning = {
+            id: crypto.randomUUID(),
+            physicalName,
+            offensiveCSName,
+            strikeNumber: newStrikeCount,
+            status, // 'warning1', 'warning2', 'permaban'
+            acknowledged: false,
+            resolved: false, // true when they change name and it's approved
+            adminId,
+            createdAt: new Date().toISOString(),
+            acknowledgedAt: null,
+            resolvedAt: null,
+            newCSName: null // set when they change their name
+        };
+
+        this.nameWarnings.unshift(warning);
+        this.save();
+
+        console.log(`⚠️ NAME WARNING #${newStrikeCount}: ${physicalName} (${offensiveCSName}) - Status: ${status}`);
+        return warning;
+    }
+
+    // Get unacknowledged warnings for a user
+    getUnacknowledgedWarnings(physicalName) {
+        return this.nameWarnings.filter(w =>
+            w.physicalName === physicalName &&
+            !w.acknowledged
+        );
+    }
+
+    // Get active (unresolved) warning for a user
+    getActiveWarning(physicalName) {
+        return this.nameWarnings.find(w =>
+            w.physicalName === physicalName &&
+            !w.resolved
+        );
+    }
+
+    // Acknowledge a warning (user clicked the checkbox + accept)
+    acknowledgeWarning(warningId) {
+        const warning = this.nameWarnings.find(w => w.id === warningId);
+        if (warning) {
+            warning.acknowledged = true;
+            warning.acknowledgedAt = new Date().toISOString();
+            this.save();
+            console.log(`✓ Warning acknowledged: ${warning.physicalName}`);
+            return true;
+        }
+        return false;
+    }
+
+    // Called when user changes their CS+ name - check if it resolves a warning
+    // Returns: { resolved: bool, needsReview: bool, warning: object }
+    checkNameChange(physicalName, newCSName) {
+        const activeWarning = this.getActiveWarning(physicalName);
+        if (!activeWarning) {
+            return { resolved: false, needsReview: false, warning: null };
+        }
+
+        // Name hasn't actually changed
+        if (newCSName === activeWarning.offensiveCSName) {
+            return { resolved: false, needsReview: false, warning: activeWarning };
+        }
+
+        // Record the new name
+        activeWarning.newCSName = newCSName;
+
+        if (activeWarning.status === 'warning1') {
+            // First strike: auto-resolve
+            activeWarning.resolved = true;
+            activeWarning.resolvedAt = new Date().toISOString();
+            this.unbanFromNames(physicalName);
+            this.save();
+            console.log(`✅ Warning auto-resolved: ${physicalName} changed name to ${newCSName}`);
+            return { resolved: true, needsReview: false, warning: activeWarning };
+        } else if (activeWarning.status === 'warning2') {
+            // Second strike: needs review
+            activeWarning.pendingReview = true;
+            this.save();
+            console.log(`🔍 Name change pending review: ${physicalName} -> ${newCSName}`);
+            return { resolved: false, needsReview: true, warning: activeWarning };
+        } else {
+            // Permaban: no resolution possible
+            return { resolved: false, needsReview: false, warning: activeWarning };
+        }
+    }
+
+    // Admin approves a name change (for strike 2)
+    approveNameChange(warningId) {
+        const warning = this.nameWarnings.find(w => w.id === warningId);
+        if (warning && warning.pendingReview) {
+            warning.resolved = true;
+            warning.resolvedAt = new Date().toISOString();
+            warning.pendingReview = false;
+            this.unbanFromNames(warning.physicalName);
+            this.save();
+            console.log(`✅ Name change approved: ${warning.physicalName}`);
+            return true;
+        }
+        return false;
+    }
+
+    // Admin rejects a name change (for strike 2)
+    rejectNameChange(warningId, reason) {
+        const warning = this.nameWarnings.find(w => w.id === warningId);
+        if (warning && warning.pendingReview) {
+            warning.pendingReview = false;
+            warning.newCSName = null; // Clear the rejected name
+            warning.rejectionReason = reason;
+            this.save();
+            console.log(`❌ Name change rejected: ${warning.physicalName} - ${reason}`);
+            return true;
+        }
+        return false;
+    }
+
+    // Get warnings pending review (strike 2 users who changed names)
+    getPendingReviewWarnings() {
+        return this.nameWarnings.filter(w => w.pendingReview === true);
+    }
+
+    // Get all warnings (for admin view)
+    getAllNameWarnings() {
+        return this.nameWarnings;
+    }
+
+    // Check if user is permanently banned from names
+    isPermabanned(physicalName) {
+        const warning = this.getActiveWarning(physicalName);
+        return warning && warning.status === 'permaban';
     }
 }
 
@@ -904,3057 +1092,34 @@ function extractServerFromName(characterName) {
 }
 
 // =============================================================================
-// 🖥️ ADMIN DASHBOARD - IMPROVED VERSION WITH PHASE 1 FIXES
+// 🖥️ ADMIN DASHBOARD - Served from admin-panel.html
 // =============================================================================
 
+// Cache the admin panel HTML at startup for performance
+let adminPanelHtml = null;
+try {
+    adminPanelHtml = fs.readFileSync(path.join(__dirname, 'admin-panel.html'), 'utf8');
+    console.log('✅ Admin panel loaded from admin-panel.html');
+} catch (err) {
+    console.error('⚠️ Could not load admin-panel.html:', err.message);
+}
+
 app.get("/admin", (req, res) => {
-    const adminHtml = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Character Select+ Admin Dashboard</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
-            min-height: 100vh;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            backdrop-filter: blur(10px);
-        }
-        
-        .auth-section {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            color: #ccc;
-            transition: all 0.3s;
-        }
-        
-        .tab.active {
-            color: #4CAF50;
-            border-bottom: 2px solid #4CAF50;
-        }
-        
-        .tab-content {
-            display: none;
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        .profile-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        
-        .profile-card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            height: 240px;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .profile-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 10px;
-        }
-        
-        .profile-info {
-            flex: 1;
-        }
-        
-        .profile-image {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            object-fit: cover;
-            margin-left: 15px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .profile-image:hover {
-            border-color: #4CAF50;
-            transform: scale(1.05);
-        }
-        
-        .profile-image-placeholder {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            margin-left: 15px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            color: #666;
-        }
-        
-        .profile-name {
-            font-weight: bold;
-            color: #4CAF50;
-            font-size: 0.95em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        
-        .nsfw-badge {
-            background: rgba(255, 87, 34, 0.2);
-            color: #ff5722;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 0.7em;
-            border: 1px solid #ff5722;
-            white-space: nowrap;
-        }
-        
-        .profile-id {
-            color: #aaa;
-            font-size: 0.8em;
-            margin-top: 2px;
-            font-family: monospace;
-        }
-        
-        .profile-content {
-            margin: 10px 0;
-            font-size: 0.9em;
-            color: #ddd;
-            flex: 1;
-            overflow-y: auto;
-            max-height: 80px;
-            padding-right: 5px;
-        }
-        
-        .profile-content::-webkit-scrollbar {
-            width: 4px;
-        }
-        
-        .profile-content::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 2px;
-        }
-        
-        .profile-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 2px;
-        }
-        
-        .profile-content::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.5);
-        }
-        
-        .gallery-status {
-            font-style: italic;
-            color: #ddd;
-            margin: 4px 0;
-            font-size: 0.9em;
-        }
-        
-        .gallery-status:before {
-            content: '"';
-            color: #4CAF50;
-        }
-        
-        .gallery-status:after {
-            content: '"';
-            color: #4CAF50;
-        }
-        
-        .profile-actions {
-            display: flex;
-            gap: 6px;
-            margin-top: auto;
-            flex-wrap: wrap;
-        }
-        
-        .profile-actions .btn {
-            font-size: 0.75em;
-            padding: 6px 8px;
-            flex: 1;
-            min-width: 60px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        
-        .btn-nsfw {
-            background: #ff5722;
-            color: white;
-            font-size: 0.75em;
-            padding: 6px 8px;
-        }
-        
-        .btn-nsfw:hover {
-            background: #d84315;
-        }
-        
-        .btn-nsfw.active {
-            background: #d84315;
-            box-shadow: 0 0 0 2px rgba(255, 87, 34, 0.3);
-        }
-        
-        /* Image Modal Styles */
-        .image-modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.9);
-            cursor: pointer;
-        }
-        
-        .image-modal-content {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            max-width: 90%;
-            max-height: 90%;
-            border-radius: 10px;
-        }
-        
-        .image-modal-close {
-            position: absolute;
-            top: 15px;
-            right: 35px;
-            color: #f1f1f1;
-            font-size: 40px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        
-        .image-modal-close:hover {
-            color: #4CAF50;
-        }
-        
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: all 0.3s;
-        }
-        
-        .btn-danger {
-            background: #f44336;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #d32f2f;
-        }
-        
-        .btn-warning {
-            background: #ff9800;
-            color: white;
-        }
-        
-        .btn-warning:hover {
-            background: #f57c00;
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .btn-secondary:hover {
-            background: #5a6268;
-        }
-        
-        .btn-primary {
-            background: #2196F3;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #1976D2;
-        }
-        
-        .input-group {
-            margin-bottom: 15px;
-        }
-        
-        .input-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: #ccc;
-        }
-        
-        .input-group input, .input-group textarea, .input-group select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 5px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-        }
-        
-        .input-group select {
-            background: rgba(255, 255, 255, 0.15);
-            color: #fff;
-        }
-        
-        .input-group select option {
-            background: #2c2c54;
-            color: #fff;
-            padding: 8px;
-        }
-        
-        .input-group select option:hover {
-            background: #4CAF50;
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-        
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #ccc;
-        }
-        
-        .error {
-            background: rgba(244, 67, 54, 0.2);
-            border: 1px solid #f44336;
-            color: #f44336;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-        }
-        
-        .success {
-            background: rgba(76, 175, 80, 0.2);
-            border: 1px solid #4CAF50;
-            color: #4CAF50;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-        }
-        
-        .report-card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-left: 4px solid #ff9800;
-            display: flex;
-            gap: 15px;
-        }
-        
-        .report-card.reason-spam {
-            border-left-color: #ff5722;
-        }
-        
-        .report-card.reason-inappropriate {
-            border-left-color: #f44336;
-        }
-        
-        .report-card.reason-malicious {
-            border-left-color: #e91e63;
-        }
-        
-        .report-card.reason-harassment {
-            border-left-color: #9c27b0;
-        }
-        
-        .report-card.reason-other {
-            border-left-color: #ff9800;
-        }
-        
-        .report-info {
-            flex: 1;
-        }
-        
-        .reported-profile {
-            width: 140px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 10px;
-            text-align: center;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .reported-profile-image {
-            width: 80px;
-            height: 80px;
-            border-radius: 8px;
-            object-fit: cover;
-            margin: 0 auto 8px auto;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            cursor: pointer;
-            transition: all 0.3s;
-            display: block;
-        }
-        
-        .reported-profile-image:hover {
-            border-color: #4CAF50;
-            transform: scale(1.05);
-        }
-        
-        .reported-profile-placeholder {
-            width: 80px;
-            height: 80px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            margin: 0 auto 8px auto;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            color: #666;
-        }
-        
-        .reported-profile-name {
-            font-size: 0.9em;
-            color: #4CAF50;
-            font-weight: bold;
-            margin-bottom: 4px;
-            word-break: break-word;
-        }
-        
-        .reported-profile-server {
-            font-size: 0.8em;
-            color: #aaa;
-            margin-bottom: 8px;
-        }
-        
-        .reported-profile-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-top: auto;
-        }
-        
-        .reported-profile-actions .btn {
-            font-size: 0.7em;
-            padding: 4px 6px;
-        }
-        
-        .reason-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.85em;
-            font-weight: bold;
-            margin-bottom: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #ddd;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .report-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .announcement-card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-left: 4px solid #2196F3;
-        }
-        
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
-            margin: 20px 0;
-            padding: 20px;
-        }
-        
-        .pagination button {
-            padding: 8px 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .pagination button:hover:not(:disabled) {
-            background: rgba(76, 175, 80, 0.3);
-            border-color: #4CAF50;
-        }
-        
-        .pagination button.active {
-            background: #4CAF50;
-            border-color: #4CAF50;
-        }
-        
-        .pagination button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .pagination-info {
-            color: #ccc;
-            font-size: 0.9em;
-        }
-        
-        /* Activity Feed Styles */
-        .activity-item {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            border-left: 4px solid #4CAF50;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .activity-item.upload {
-            border-left-color: #2196F3;
-        }
-        
-        .activity-item.like {
-            border-left-color: #ff5722;
-        }
-        
-        .activity-item.report {
-            border-left-color: #ff9800;
-        }
-        
-        .activity-item.moderation {
-            border-left-color: #9c27b0;
-        }
-        
-        .activity-item.flag {
-            border-left-color: #f44336;
-        }
-        
-        .activity-content {
-            flex: 1;
-        }
-        
-        .activity-message {
-            font-weight: bold;
-            margin-bottom: 4px;
-        }
-        
-        .activity-metadata {
-            font-size: 0.85em;
-            color: #aaa;
-        }
-        
-        .activity-time {
-            font-size: 0.8em;
-            color: #666;
-            white-space: nowrap;
-            margin-left: 15px;
-        }
-        
-        /* Advanced Filtering Styles */
-        .filter-section {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .filter-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .filter-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .filter-controls {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
-        
-        .filter-active {
-            background: rgba(76, 175, 80, 0.2);
-            border-color: #4CAF50;
-        }
-        
-        /* Flagged Content Styles */
-        .flagged-card {
-            background: rgba(244, 67, 54, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-left: 4px solid #f44336;
-        }
-        
-        .flagged-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .flagged-keywords {
-            background: rgba(244, 67, 54, 0.2);
-            color: #f44336;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-family: monospace;
-            margin: 5px 5px 5px 0;
-            display: inline-block;
-        }
-        
-        .flagged-content {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
-            font-family: monospace;
-            font-size: 0.9em;
-            max-height: 100px;
-            overflow-y: auto;
-        }
-        
-        /* Toast Notification Styles */
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 10000;
-            pointer-events: none;
-        }
-        
-        .toast {
-            background: rgba(76, 175, 80, 0.9);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            backdrop-filter: blur(10px);
-            border-left: 4px solid #4CAF50;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            transform: translateX(100%);
-            transition: all 0.3s ease-in-out;
-            pointer-events: auto;
-            max-width: 350px;
-            word-wrap: break-word;
-        }
-        
-        .toast.show {
-            transform: translateX(0);
-        }
-        
-        .toast.error {
-            background: rgba(244, 67, 54, 0.9);
-            border-left-color: #f44336;
-        }
-        
-        .toast.warning {
-            background: rgba(255, 152, 0, 0.9);
-            border-left-color: #ff9800;
-        }
-        
-        /* Bulk Action Bar Styles */
-        .bulk-action-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(42, 42, 62, 0.95);
-            border: 1px solid rgba(76, 175, 80, 0.3);
-            padding: 15px 25px;
-            border-radius: 25px;
-            backdrop-filter: blur(10px);
-            display: none;
-            align-items: center;
-            gap: 15px;
-            z-index: 1000;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        }
-        
-        .bulk-action-bar.show {
-            display: flex;
-        }
-        
-        .bulk-count {
-            font-weight: bold;
-            color: white;
-        }
-        
-        .bulk-action-bar .btn {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 8px 16px;
-            font-size: 0.9em;
-        }
-        
-        .bulk-action-bar .btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        
-        /* Profile Checkbox Styles */
-        .profile-checkbox {
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
-            accent-color: #4CAF50;
-            margin-right: 8px;
-            flex-shrink: 0;
-        }
-        
-        /* Profile Name Row Styles */
-        .profile-name-row {
-            display: flex;
-            align-items: center;
-            gap: 0;
-        }
-        
-        /* Advanced Filters Styles */
-        .filter-section {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .filter-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .filter-controls {
-            display: flex;
-            gap: 20px;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        /* Modal Styles */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-            backdrop-filter: blur(5px);
-        }
-        
-        .modal-overlay.show {
-            display: flex;
-        }
-        
-        .modal-content {
-            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
-            border-radius: 15px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-        }
-        
-        .modal-header {
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        
-        .modal-header h3 {
-            color: #4CAF50;
-            margin-bottom: 10px;
-        }
-        
-        .modal-header .character-name {
-            color: #fff;
-            font-size: 1.1em;
-            font-weight: bold;
-        }
-        
-        .modal-body {
-            margin-bottom: 25px;
-        }
-        
-        .modal-body label {
-            display: block;
-            margin-bottom: 8px;
-            color: #ccc;
-            font-weight: 500;
-        }
-        
-        .modal-body textarea {
-            width: 100%;
-            min-height: 100px;
-            padding: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            resize: vertical;
-            font-family: inherit;
-        }
-        
-        .modal-body textarea:focus {
-            outline: none;
-            border-color: #4CAF50;
-            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
-        }
-        
-        .modal-footer {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-        }
-        
-        .modal-footer .btn {
-            padding: 12px 25px;
-            font-size: 1em;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .modal-footer .btn-primary {
-            background: #4CAF50;
-            color: white;
-        }
-        
-        .modal-footer .btn-primary:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-        }
-        
-        .modal-footer .btn-danger {
-            background: #f44336;
-            color: white;
-        }
-        
-        .modal-footer .btn-danger:hover {
-            background: #d32f2f;
-            transform: translateY(-2px);
-        }
-        
-        .modal-footer .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .modal-footer .btn-secondary:hover {
-            background: #5a6268;
-            transform: translateY(-2px);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🛡️ Character Select+ Admin Dashboard</h1>
-            <p>Manage gallery, announcements, and reports</p>
-        </div>
-        
-        <div class="auth-section">
-            <div class="input-group">
-                <label for="adminKey">Admin Secret Key:</label>
-                <input type="password" id="adminKey" placeholder="Enter your admin secret key">
-            </div>
-            <div class="input-group">
-                <label for="adminName">Your Admin Name:</label>
-                <input type="text" id="adminName" placeholder="Your name (for moderation logs)" value="">
-            </div>
-            <button class="btn btn-primary" onclick="loadDashboard()">Load Dashboard</button>
-        </div>
-        
-        <div id="dashboardContent" style="display: none;">
-            <div class="stats" id="statsSection">
-                <div class="stat-card">
-                    <div class="stat-number" id="totalProfiles">-</div>
-                    <div>Gallery Profiles</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="pendingReports">-</div>
-                    <div>Pending Reports</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalBanned">-</div>
-                    <div>Banned Profiles</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="activeAnnouncements">-</div>
-                    <div>Active Announcements</div>
-                </div>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 20px;">
-                <button class="btn btn-primary" onclick="refreshStats()" id="refreshBtn">
-                    🔄 Refresh All
-                </button>
-            </div>
-            
-            <div class="tabs">
-                <button class="tab active" onclick="showTab('profiles')">Gallery Profiles</button>
-                <button class="tab" onclick="showTab('activity')">Activity Feed</button>
-                <button class="tab" onclick="showTab('flagged')">Auto-Flagged</button>
-                <button class="tab" onclick="showTab('announcements')">Announcements</button>
-                <button class="tab" onclick="showTab('reports')">Pending Reports</button>
-                <button class="tab" onclick="showTab('archived')">Archived Reports</button>
-                <button class="tab" onclick="showTab('banned')">Banned Profiles</button>
-                <button class="tab" onclick="showTab('moderation')">Moderation Log</button>
-            </div>
-            
-            <div id="profiles" class="tab-content active">
-                <h3>Gallery Profiles</h3>
-                
-                <!-- Advanced Filtering Section -->
-                <div class="filter-section">
-                    <h4>🔍 Advanced Filters</h4>
-                    <div class="filter-grid">
-                        <div class="input-group">
-                            <label for="profileSearch">Search:</label>
-                            <input type="text" id="profileSearch" placeholder="Name, server, bio..." oninput="applyFilters()">
-                        </div>
-                        <div class="input-group">
-                            <label for="serverFilter">Server:</label>
-                            <select id="serverFilter" onchange="applyFilters()">
-                                <option value="">All Servers</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="nsfwFilter">NSFW Status:</label>
-                            <select id="nsfwFilter" onchange="applyFilters()">
-                                <option value="">All Profiles</option>
-                                <option value="false">Safe Only</option>
-                                <option value="true">NSFW Only</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="imageFilter">Has Image:</label>
-                            <select id="imageFilter" onchange="applyFilters()">
-                                <option value="">All</option>
-                                <option value="true">With Image</option>
-                                <option value="false">No Image</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="likesFilter">Like Count:</label>
-                            <select id="likesFilter" onchange="applyFilters()">
-                                <option value="">Any</option>
-                                <option value="0">No Likes</option>
-                                <option value="1-5">1-5 Likes</option>
-                                <option value="6-20">6-20 Likes</option>
-                                <option value="21+">21+ Likes</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="sortFilter">Sort By:</label>
-                            <select id="sortFilter" onchange="applyFilters()">
-                                <option value="likes">Most Liked</option>
-                                <option value="newest">Newest First</option>
-                                <option value="oldest">Oldest First</option>
-                                <option value="name">Name A-Z</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="filter-controls">
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
-                            <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
-                            <span id="filterResults" style="color: #4CAF50; margin-left: 15px;"></span>
-                        </div>
-                        <div style="display: flex; gap: 15px; align-items: center; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 15px;">
-                            <label style="color: #ccc; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                <input type="checkbox" id="selectAllOnPage" onchange="toggleSelectAllOnPage()" style="margin: 0;"> Select All on Page
-                            </label>
-                            <span id="selectedCount" style="color: #4CAF50; font-weight: bold;">0 selected</span>
-                            <button class="btn btn-secondary" onclick="clearBulkSelection()" style="display: none; font-size: 0.8em; padding: 4px 8px;" id="clearSelectionBtn">Clear Selection</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="pagination" id="profilesPagination" style="display: none;">
-                    <button id="prevPageBtn" onclick="changePage(-1)">Previous</button>
-                    <div class="pagination-info">
-                        <span id="pageInfo">Page 1 of 1</span>
-                        <span id="totalInfo">(0 profiles)</span>
-                    </div>
-                    <button id="nextPageBtn" onclick="changePage(1)">Next</button>
-                </div>
-                <div class="loading" id="profilesLoading">Loading profiles...</div>
-                <div class="profile-grid" id="profilesGrid"></div>
-                
-                <!-- Bulk Action Bar (appears when profiles are selected) -->
-                <div class="bulk-action-bar" id="bulkActionBar">
-                    <span class="bulk-count" id="bulkCount">0 profiles selected</span>
-                    <button class="btn btn-danger" onclick="bulkRemoveProfiles()">Remove Selected</button>
-                    <button class="btn btn-warning" onclick="bulkBanProfiles()">Ban Selected</button>
-                    <button class="btn btn-nsfw" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
-                    <button class="btn" onclick="clearBulkSelection()" style="background-color: #666;">Clear Selection</button>
-                </div>
-                
-                <div class="pagination" id="profilesPaginationBottom" style="display: none;">
-                    <button onclick="changePage(-1)">Previous</button>
-                    <div class="pagination-info">
-                        <span id="pageInfoBottom">Page 1 of 1</span>
-                    </div>
-                    <button onclick="changePage(1)">Next</button>
-                </div>
-            </div>
-            
-            <div id="activity" class="tab-content">
-                <h3>📊 Activity Feed</h3>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
-                    <select id="activityTypeFilter" onchange="loadActivityFeed()">
-                        <option value="">All Activity</option>
-                        <option value="upload">Profile Uploads</option>
-                        <option value="like">Profile Likes</option>
-                        <option value="report">Reports</option>
-                        <option value="moderation">Moderation Actions</option>
-                        <option value="flag">Auto-Flagged Content</option>
-                    </select>
-                    <button class="btn btn-primary" onclick="loadActivityFeed()" id="refreshActivityBtn">
-                        🔄 Refresh
-                    </button>
-                    <label style="color: #ccc; margin-left: auto;">
-                        <input type="checkbox" id="autoRefreshActivity" onchange="toggleAutoRefresh()"> Auto-refresh (30s)
-                    </label>
-                </div>
-                <div class="loading" id="activityLoading">Loading activity...</div>
-                <div id="activityContainer"></div>
-            </div>
-            
-            <div id="flagged" class="tab-content">
-                <h3>🚩 Auto-Flagged Content</h3>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
-                    <select id="flagStatusFilter" onchange="loadFlaggedProfiles()">
-                        <option value="pending">Pending Review</option>
-                        <option value="">All Flagged</option>
-                        <option value="approved">Approved</option>
-                        <option value="removed">Removed</option>
-                    </select>
-                    <button class="btn btn-primary" onclick="loadFlaggedProfiles()">🔄 Refresh</button>
-                    <button class="btn btn-secondary" onclick="showKeywordManager()">Manage Keywords</button>
-                </div>
-                <div class="loading" id="flaggedLoading">Loading flagged content...</div>
-                <div id="flaggedContainer"></div>
-            </div>
-            
-            <div id="announcements" class="tab-content">
-                <h3>Announcements</h3>
-                <div class="input-group">
-                    <label for="announcementTitle">Title:</label>
-                    <input type="text" id="announcementTitle" placeholder="Announcement title">
-                </div>
-                <div class="input-group">
-                    <label for="announcementMessage">Message:</label>
-                    <textarea id="announcementMessage" rows="3" placeholder="Announcement message"></textarea>
-                </div>
-                <div class="input-group">
-                    <label for="announcementType">Type:</label>
-                    <select id="announcementType">
-                        <option value="info">Info</option>
-                        <option value="warning">Warning</option>
-                        <option value="update">Update</option>
-                        <option value="maintenance">Maintenance</option>
-                    </select>
-                </div>
-                <button class="btn btn-primary" onclick="createAnnouncement()">Create Announcement</button>
-                
-                <div class="loading" id="announcementsLoading">Loading announcements...</div>
-                <div id="announcementsContainer"></div>
-            </div>
-            
-            <div id="reports" class="tab-content">
-                <h3>Pending Reports</h3>
-                <div class="loading" id="reportsLoading">Loading reports...</div>
-                <div id="reportsContainer"></div>
-            </div>
-            
-            <div id="archived" class="tab-content">
-                <h3>Archived Reports</h3>
-                <div class="input-group" style="max-width: 400px; margin-bottom: 20px;">
-                    <label for="reportSearch">Search by Character Name:</label>
-                    <input type="text" id="reportSearch" placeholder="Type character name..." oninput="filterArchivedReports()">
-                </div>
-                <div class="loading" id="archivedLoading">Loading archived reports...</div>
-                <div id="archivedContainer"></div>
-            </div>
-            
-            <div id="banned" class="tab-content">
-                <h3>Banned Profiles</h3>
-                <div class="loading" id="bannedLoading">Loading banned profiles...</div>
-                <div id="bannedContainer"></div>
-            </div>
-            
-            <div id="moderation" class="tab-content">
-                <h3>Moderation Actions</h3>
-                <div class="loading" id="moderationLoading">Loading moderation log...</div>
-                <div id="moderationContainer"></div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Image Modal for viewing full-size images -->
-    <div id="imageModal" class="image-modal" onclick="closeImageModal()">
-        <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
-        <img class="image-modal-content" id="modalImage">
-    </div>
-
-    <script>
-        let adminKey = '';
-        let adminName = '';
-        let allProfiles = []; // Store all profiles for search filtering
-        let filteredProfiles = []; // Store filtered profiles for pagination
-        let currentPage = 1;
-        const profilesPerPage = 24; // 4x6 grid looks good
-        const serverUrl = window.location.origin;
-        let activityRefreshInterval = null;
-        let availableServers = new Set();
-        let selectedProfiles = new Set(); // Store selected profile IDs across pages
-        
-        // Toast notification system
-        function showToast(message, type = 'success') {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = 'toast ' + (type === 'success' ? '' : type);
-            toast.textContent = message;
-            
-            container.appendChild(toast);
-            
-            // Show toast
-            setTimeout(() => toast.classList.add('show'), 100);
-            
-            // Auto-remove after 3 seconds
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => container.removeChild(toast), 300);
-            }, 3000);
-        }
-        
-        // Bulk selection system
-        function updateBulkActionBar() {
-            const bar = document.getElementById('bulkActionBar');
-            const count = document.getElementById('bulkCount');
-            
-            if (selectedProfiles.size > 0) {
-                count.textContent = selectedProfiles.size + ' selected';
-                bar.classList.add('show');
-            } else {
-                bar.classList.remove('show');
-            }
-        }
-        
-        function updateBulkSelection() {
-            const checkbox = event.target;
-            const profileId = checkbox.value;
-            
-            if (checkbox.checked) {
-                selectedProfiles.add(profileId);
-            } else {
-                selectedProfiles.delete(profileId);
-            }
-            
-            // Update UI
-            const selectedCount = document.getElementById('selectedCount');
-            const clearBtn = document.getElementById('clearSelectionBtn');
-            const bulkBar = document.getElementById('bulkActionBar');
-            const bulkCount = document.getElementById('bulkCount');
-            
-            selectedCount.textContent = selectedProfiles.size + ' selected';
-            bulkCount.textContent = selectedProfiles.size + ' profiles selected';
-            
-            if (selectedProfiles.size > 0) {
-                clearBtn.style.display = 'inline-block';
-                bulkBar.classList.add('show');
-            } else {
-                clearBtn.style.display = 'none';
-                bulkBar.classList.remove('show');
-            }
-            
-            // Update "Select All on Page" checkbox state
-            updateSelectAllCheckbox();
-        }
-        
-        function toggleSelectAllOnPage() {
-            const checkbox = document.getElementById('selectAllOnPage');
-            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
-            
-            profileCheckboxes.forEach(cb => {
-                cb.checked = checkbox.checked;
-                const profileId = cb.value;
-                if (checkbox.checked) {
-                    selectedProfiles.add(profileId);
-                } else {
-                    selectedProfiles.delete(profileId);
-                }
-            });
-            
-            // Update UI
-            const selectedCount = document.getElementById('selectedCount');
-            const clearBtn = document.getElementById('clearSelectionBtn');
-            const bulkBar = document.getElementById('bulkActionBar');
-            const bulkCount = document.getElementById('bulkCount');
-            
-            selectedCount.textContent = selectedProfiles.size + ' selected';
-            bulkCount.textContent = selectedProfiles.size + ' profiles selected';
-            
-            if (selectedProfiles.size > 0) {
-                clearBtn.style.display = 'inline-block';
-                bulkBar.classList.add('show');
-            } else {
-                clearBtn.style.display = 'none';
-                bulkBar.classList.remove('show');
-            }
-        }
-        
-        function clearBulkSelection() {
-            selectedProfiles.clear();
-            document.querySelectorAll('.profile-checkbox').forEach(cb => cb.checked = false);
-            document.getElementById('selectAllOnPage').checked = false;
-            
-            // Update UI
-            const selectedCount = document.getElementById('selectedCount');
-            const clearBtn = document.getElementById('clearSelectionBtn');
-            const bulkBar = document.getElementById('bulkActionBar');
-            
-            selectedCount.textContent = '0 selected';
-            clearBtn.style.display = 'none';
-            bulkBar.classList.remove('show');
-        }
-        
-        function updateSelectAllCheckbox() {
-            const selectAllCheckbox = document.getElementById('selectAllOnPage');
-            const profileCheckboxes = document.querySelectorAll('.profile-checkbox');
-            const checkedBoxes = document.querySelectorAll('.profile-checkbox:checked');
-            
-            if (profileCheckboxes.length === 0) {
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = false;
-            } else if (checkedBoxes.length === profileCheckboxes.length) {
-                selectAllCheckbox.checked = true;
-                selectAllCheckbox.indeterminate = false;
-            } else if (checkedBoxes.length > 0) {
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = true;
-            } else {
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = false;
-            }
-        }
-        
-        async function bulkRemoveProfiles() {
-            if (selectedProfiles.size === 0) return;
-            
-            showPromptModal(
-                'Bulk Remove Profiles', 
-                'Removing ' + selectedProfiles.size + ' profiles', 
-                'Reason for removal (optional)...', 
-                (reason) => {
-                    submitBulkRemove(reason || 'Bulk removal');
-                }
-            );
-        }
-        
-        async function submitBulkRemove(reason) {
-            
-            // Debug: Log admin credentials being sent
-            console.log('🔑 Bulk remove with adminKey:', adminKey ? 'Set' : 'Empty', 'adminName:', adminName ? adminName : 'Empty');
-            
-            try {
-                let successCount = 0;
-                const totalCount = selectedProfiles.size;
-                
-                for (const profileId of selectedProfiles) {
-                    try {
-                        const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId), {
-                            method: 'DELETE',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey,
-                                'X-Admin-Id': adminName
-                            },
-                            body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                        });
-                        
-                        if (response.ok) {
-                            successCount++;
-                        }
-                    } catch (error) {
-                        console.error('Error removing profile ' + profileId + ':', error);
-                    }
-                }
-                
-                showToast('✅ Removed ' + successCount + ' of ' + totalCount + ' profiles');
-                
-                // Update profiles in memory and re-render
-                updateMultipleProfilesInMemory(Array.from(selectedProfiles), 'remove');
-                clearBulkSelection();
-                renderProfilesPage();
-                
-                await refreshStats();
-                
-            } catch (error) {
-                showToast('❌ Error performing bulk removal: ' + error.message, 'error');
-            }
-        }
-        
-        async function bulkBanProfiles() {
-            if (selectedProfiles.size === 0) return;
-            
-            showPromptModal(
-                'Bulk Ban Profiles', 
-                'Banning ' + selectedProfiles.size + ' profiles', 
-                'Reason for banning (optional)...', 
-                (reason) => {
-                    submitBulkBan(reason || 'Bulk ban');
-                }
-            );
-        }
-        
-        async function submitBulkBan(reason) {
-            
-            try {
-                let successCount = 0;
-                const totalCount = selectedProfiles.size;
-                
-                for (const profileId of selectedProfiles) {
-                    try {
-                        const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/ban', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey,
-                                'X-Admin-Id': adminName
-                            },
-                            body: JSON.stringify({ reason, adminId: adminName })
-                        });
-                        
-                        if (response.ok) {
-                            successCount++;
-                        }
-                    } catch (error) {
-                        console.error('Error banning profile ' + profileId + ':', error);
-                    }
-                }
-                
-                showToast('✅ Banned ' + successCount + ' of ' + totalCount + ' profiles');
-                
-                // Update profiles in memory and re-render
-                updateMultipleProfilesInMemory(Array.from(selectedProfiles), 'ban');
-                clearBulkSelection();
-                renderProfilesPage();
-                
-                await refreshStats();
-                
-            } catch (error) {
-                showToast('❌ Error performing bulk ban: ' + error.message, 'error');
-            }
-        }
-        
-        async function bulkMarkNSFW() {
-            if (selectedProfiles.size === 0) return;
-            
-            try {
-                let successCount = 0;
-                let skippedCount = 0;
-                const totalCount = selectedProfiles.size;
-                
-                for (const profileId of selectedProfiles) {
-                    try {
-                        // Check if profile is already NSFW by looking at current profile data
-                        const currentProfile = allProfiles.find(p => p.CharacterId === profileId);
-                        if (currentProfile && currentProfile.IsNSFW) {
-                            skippedCount++;
-                            continue;
-                        }
-                        
-                        const response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(profileId) + '/nsfw', {
-                            method: 'PATCH',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey,
-                                'X-Admin-Id': adminName
-                            },
-                            body: JSON.stringify({ isNSFW: true })
-                        });
-                        
-                        if (response.ok) {
-                            successCount++;
-                        }
-                    } catch (error) {
-                        console.error('Error marking profile ' + profileId + ' as NSFW:', error);
-                    }
-                }
-                
-                const message = '✅ Marked ' + successCount + ' profiles as NSFW' + 
-                               (skippedCount > 0 ? ' (skipped ' + skippedCount + ' already NSFW)' : '');
-                showToast(message);
-                
-                // Update profiles in memory and re-render
-                updateMultipleProfilesInMemory(Array.from(selectedProfiles), 'nsfw');
-                clearBulkSelection();
-                renderProfilesPage();
-                
-                await refreshStats();
-                
-            } catch (error) {
-                showToast('❌ Error performing bulk NSFW marking: ' + error.message, 'error');
-            }
-        }
-        
-        function updateProfileInMemory(characterId, action) {
-            // Update the profile in both allProfiles and filteredProfiles arrays
-            const updateProfile = (profile) => {
-                if (profile.CharacterId === characterId) {
-                    switch(action) {
-                        case 'remove':
-                        case 'ban':
-                            // For remove/ban, we'll mark it as removed rather than actually removing
-                            // This prevents issues with array indexing during bulk operations
-                            profile.IsRemoved = true;
-                            break;
-                        case 'nsfw':
-                            profile.IsNSFW = true;
-                            break;
-                    }
-                }
-                return profile;
-            };
-            
-            allProfiles = allProfiles.map(updateProfile);
-            filteredProfiles = filteredProfiles.map(updateProfile);
-            
-            // If profile was removed/banned, filter it out from the display
-            if (action === 'remove' || action === 'ban') {
-                filteredProfiles = filteredProfiles.filter(profile => !profile.IsRemoved);
-            }
-        }
-        
-        function updateMultipleProfilesInMemory(characterIds, action) {
-            // Update multiple profiles for bulk operations
-            const updateProfile = (profile) => {
-                if (characterIds.includes(profile.CharacterId)) {
-                    switch(action) {
-                        case 'remove':
-                        case 'ban':
-                            profile.IsRemoved = true;
-                            break;
-                        case 'nsfw':
-                            profile.IsNSFW = true;
-                            break;
-                    }
-                }
-                return profile;
-            };
-            
-            allProfiles = allProfiles.map(updateProfile);
-            filteredProfiles = filteredProfiles.map(updateProfile);
-            
-            // If profiles were removed/banned, filter them out from the display
-            if (action === 'remove' || action === 'ban') {
-                filteredProfiles = filteredProfiles.filter(profile => !profile.IsRemoved);
-            }
-        }
-        
-        // Modal system for smooth in-panel moderation
-        function openModal(action, characterId, characterName) {
-            const modal = document.getElementById('moderationModal');
-            const title = document.getElementById('modalTitle');
-            const charName = document.getElementById('modalCharacterName');
-            const confirmBtn = document.getElementById('modalConfirmBtn');
-            
-            // Set modal content based on action
-            switch(action) {
-                case 'remove':
-                    title.textContent = '🗑️ Remove Profile';
-                    confirmBtn.textContent = 'Remove Profile';
-                    confirmBtn.className = 'btn btn-danger';
-                    break;
-                case 'ban':
-                    title.textContent = '🚫 Ban Profile';
-                    confirmBtn.textContent = 'Ban Profile';
-                    confirmBtn.className = 'btn btn-danger';
-                    break;
-                case 'nsfw':
-                    title.textContent = '🔞 Mark as NSFW';
-                    confirmBtn.textContent = 'Mark NSFW';
-                    confirmBtn.className = 'btn btn-primary';
-                    break;
-            }
-            
-            charName.textContent = characterName;
-            document.getElementById('modalReason').value = '';
-            
-            // Set up confirm button click handler
-            confirmBtn.onclick = () => executeAction(action, characterId, characterName);
-            
-            modal.classList.add('show');
-        }
-        
-        function closeModal() {
-            const modal = document.getElementById('moderationModal');
-            modal.classList.remove('show');
-        }
-        
-        // Generic modal for prompts and confirmations
-        function showPromptModal(title, message, placeholder = '', callback) {
-            const modal = document.getElementById('moderationModal');
-            const modalTitle = document.getElementById('modalTitle');
-            const modalCharacterName = document.getElementById('modalCharacterName');
-            const modalReason = document.getElementById('modalReason');
-            const confirmBtn = document.getElementById('modalConfirmBtn');
-            
-            modalTitle.textContent = title;
-            modalCharacterName.textContent = message;
-            modalReason.value = '';
-            modalReason.placeholder = placeholder;
-            modalReason.style.display = 'block';
-            confirmBtn.textContent = 'Confirm';
-            confirmBtn.className = 'btn btn-primary';
-            
-            // Set up confirm button click handler
-            confirmBtn.onclick = () => {
-                const value = modalReason.value.trim();
-                closeModal();
-                callback(value);
-            };
-            
-            modal.classList.add('show');
-            modalReason.focus();
-        }
-        
-        function showConfirmModal(title, message, confirmText, confirmClass, callback) {
-            const modal = document.getElementById('moderationModal');
-            const modalTitle = document.getElementById('modalTitle');
-            const modalCharacterName = document.getElementById('modalCharacterName');
-            const modalReason = document.getElementById('modalReason');
-            const confirmBtn = document.getElementById('modalConfirmBtn');
-            
-            modalTitle.textContent = title;
-            modalCharacterName.textContent = message;
-            modalReason.style.display = 'none';
-            confirmBtn.textContent = confirmText;
-            confirmBtn.className = confirmClass;
-            
-            // Set up confirm button click handler
-            confirmBtn.onclick = () => {
-                closeModal();
-                modalReason.style.display = 'block'; // Reset for next use
-                callback();
-            };
-            
-            modal.classList.add('show');
-        }
-        
-        async function executeAction(action, characterId, characterName) {
-            const reason = document.getElementById('modalReason').value.trim();
-            
-            if (!reason) {
-                showToast('Please enter a reason for this action', 'error');
-                return;
-            }
-            
-            // Debug: Log admin credentials being sent
-            console.log('🔑 Executing action:', action, 'with adminKey:', adminKey ? 'Set' : 'Empty', 'adminName:', adminName ? adminName : 'Empty');
-            
-            try {
-                let response;
-                let successMessage;
-                
-                switch(action) {
-                    case 'remove':
-                        console.log('📤 Sending DELETE request with headers:', { 'X-Admin-Key': adminKey ? '***SET***' : 'EMPTY', 'X-Admin-Id': adminName || 'EMPTY' });
-                        console.log('📤 Sending body:', { reason, ban: false, adminId: adminName || 'EMPTY' });
-                        response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId), {
-                            method: 'DELETE',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey,
-                                'X-Admin-Id': adminName
-                            },
-                            body: JSON.stringify({ reason, ban: false, adminId: adminName })
-                        });
-                        successMessage = '"' + characterName + '" has been removed from gallery';
-                        break;
-                        
-                    case 'ban':
-                        response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/ban', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey,
-                                'X-Admin-Id': adminName
-                            },
-                            body: JSON.stringify({ reason, adminId: adminName })
-                        });
-                        successMessage = '"' + characterName + '" has been banned';
-                        break;
-                        
-                    case 'nsfw':
-                        response = await fetch(serverUrl + '/admin/profiles/' + encodeURIComponent(characterId) + '/nsfw', {
-                            method: 'PATCH',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Admin-Key': adminKey,
-                                'X-Admin-Id': adminName
-                            },
-                            body: JSON.stringify({ isNSFW: true })
-                        });
-                        successMessage = characterName + ' has been marked as NSFW';
-                        break;
-                }
-                
-                if (response.ok) {
-                    closeModal();
-                    showToast('✅ ' + successMessage);
-                    
-                    // Update the profile data in memory and re-render
-                    updateProfileInMemory(characterId, action);
-                    renderProfilesPage();
-                    
-                    await refreshStats();
-                } else {
-                    showToast('❌ Error performing action', 'error');
-                }
-                
-            } catch (error) {
-                showToast('Error: ' + error.message, 'error');
-            }
-        }
-        
-        // Load saved admin credentials on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🔄 Page loaded, checking for saved credentials...');
-            
-            try {
-                const savedAdminKey = localStorage.getItem('cs_admin_key');
-                const savedAdminName = localStorage.getItem('cs_admin_name');
-                
-                console.log('📋 Saved credentials:', savedAdminKey ? 'Key found' : 'No key', savedAdminName ? 'Name found' : 'No name');
-                
-                if (savedAdminKey) {
-                    document.getElementById('adminKey').value = savedAdminKey;
-                    adminKey = savedAdminKey;
-                }
-                
-                if (savedAdminName) {
-                    document.getElementById('adminName').value = savedAdminName;
-                    adminName = savedAdminName;
-                }
-                
-                // Auto-load dashboard if both credentials are saved
-                if (savedAdminKey && savedAdminName) {
-                    console.log('🚀 Auto-loading dashboard with saved credentials...');
-                    setTimeout(() => {
-                        autoLoadDashboard();
-                    }, 100);
-                }
-            } catch (e) {
-                console.error('❌ Error loading saved credentials:', e);
-            }
-        });
-        
-        async function autoLoadDashboard() {
-            try {
-                // Test credentials first
-                const testResponse = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
-                
-                if (!testResponse.ok) {
-                    throw new Error('Invalid saved credentials');
-                }
-                
-                console.log('✅ Saved credentials valid, loading dashboard...');
-                await refreshStats();
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
-                loadProfiles();
-                console.log('🎉 Dashboard auto-loaded successfully');
-                
-            } catch (error) {
-                console.error('❌ Auto-load failed:', error);
-                // Clear invalid credentials
-                localStorage.removeItem('cs_admin_key');
-                localStorage.removeItem('cs_admin_name');
-                adminKey = '';
-                adminName = '';
-                document.getElementById('adminKey').value = '';
-                document.getElementById('adminName').value = '';
-                alert('Saved credentials expired. Please log in again.');
-            }
-        }
-        
-        function applyFilters() {
-            const searchTerm = document.getElementById('profileSearch').value.toLowerCase();
-            const serverFilter = document.getElementById('serverFilter').value;
-            const nsfwFilter = document.getElementById('nsfwFilter').value;
-            const imageFilter = document.getElementById('imageFilter').value;
-            const likesFilter = document.getElementById('likesFilter').value;
-            const sortFilter = document.getElementById('sortFilter').value;
-            
-            let filtered = [...allProfiles];
-            
-            // Apply search filter
-            if (searchTerm) {
-                filtered = filtered.filter(profile =>
-                    profile.CharacterName.toLowerCase().includes(searchTerm) ||
-                    profile.Server.toLowerCase().includes(searchTerm) ||
-                    profile.CharacterId.toLowerCase().includes(searchTerm) ||
-                    (profile.Bio && profile.Bio.toLowerCase().includes(searchTerm)) ||
-                    (profile.GalleryStatus && profile.GalleryStatus.toLowerCase().includes(searchTerm)) ||
-                    (profile.Race && profile.Race.toLowerCase().includes(searchTerm)) ||
-                    (profile.Tags && profile.Tags.toLowerCase().includes(searchTerm))
-                );
-            }
-            
-            // Apply server filter
-            if (serverFilter) {
-                filtered = filtered.filter(profile => profile.Server === serverFilter);
-            }
-            
-            // Apply NSFW filter
-            if (nsfwFilter !== '') {
-                const isNSFW = nsfwFilter === 'true';
-                filtered = filtered.filter(profile => !!profile.IsNSFW === isNSFW);
-            }
-            
-            // Apply image filter
-            if (imageFilter !== '') {
-                const hasImage = imageFilter === 'true';
-                filtered = filtered.filter(profile => !!profile.ProfileImageUrl === hasImage);
-            }
-            
-            // Apply likes filter
-            if (likesFilter) {
-                switch(likesFilter) {
-                    case '0':
-                        filtered = filtered.filter(profile => profile.LikeCount === 0);
-                        break;
-                    case '1-5':
-                        filtered = filtered.filter(profile => profile.LikeCount >= 1 && profile.LikeCount <= 5);
-                        break;
-                    case '6-20':
-                        filtered = filtered.filter(profile => profile.LikeCount >= 6 && profile.LikeCount <= 20);
-                        break;
-                    case '21+':
-                        filtered = filtered.filter(profile => profile.LikeCount >= 21);
-                        break;
-                }
-            }
-            
-            // Apply sorting
-            switch(sortFilter) {
-                case 'likes':
-                    filtered.sort((a, b) => b.LikeCount - a.LikeCount);
-                    break;
-                case 'newest':
-                    filtered.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
-                    break;
-                case 'oldest':
-                    filtered.sort((a, b) => new Date(a.LastUpdated) - new Date(b.LastUpdated));
-                    break;
-                case 'name':
-                    filtered.sort((a, b) => a.CharacterName.localeCompare(b.CharacterName));
-                    break;
-            }
-            
-            filteredProfiles = filtered;
-            currentPage = 1;
-            
-            // Update results display
-            document.getElementById('filterResults').textContent = \`\${filtered.length} profiles found\`;
-            
-            renderProfilesPage();
-        }
-        
-        function clearFilters() {
-            document.getElementById('profileSearch').value = '';
-            document.getElementById('serverFilter').value = '';
-            document.getElementById('nsfwFilter').value = '';
-            document.getElementById('imageFilter').value = '';
-            document.getElementById('likesFilter').value = '';
-            document.getElementById('sortFilter').value = 'likes';
-            
-            // Clear saved filters and page
-            localStorage.removeItem('cs_admin_filters');
-            localStorage.removeItem('cs_admin_current_page');
-            
-            applyFilters();
-        }
-        
-        function populateServerDropdown() {
-            const serverSelect = document.getElementById('serverFilter');
-            const currentValue = serverSelect.value;
-            
-            // Clear existing options except "All Servers"
-            serverSelect.innerHTML = '<option value="">All Servers</option>';
-            
-            // Add server options
-            const sortedServers = Array.from(availableServers).sort();
-            sortedServers.forEach(server => {
-                const option = document.createElement('option');
-                option.value = server;
-                option.textContent = server;
-                serverSelect.appendChild(option);
-            });
-            
-            // Restore previous selection if valid
-            if (sortedServers.includes(currentValue)) {
-                serverSelect.value = currentValue;
-            }
-        }
-        
-        function renderProfilesPage() {
-            const startIndex = (currentPage - 1) * profilesPerPage;
-            const endIndex = startIndex + profilesPerPage;
-            const pageProfiles = filteredProfiles.slice(startIndex, endIndex);
-            
-            renderProfileCards(pageProfiles);
-            updatePaginationControls();
-        }
-        
-        function updatePaginationControls() {
-            const totalPages = Math.ceil(filteredProfiles.length / profilesPerPage);
-            const pagination = document.getElementById('profilesPagination');
-            const paginationBottom = document.getElementById('profilesPaginationBottom');
-            
-            if (totalPages <= 1) {
-                pagination.style.display = 'none';
-                paginationBottom.style.display = 'none';
-                return;
-            }
-            
-            pagination.style.display = 'flex';
-            paginationBottom.style.display = 'flex';
-            
-            // Update page info
-            document.getElementById('pageInfo').textContent = \`Page \${currentPage} of \${totalPages}\`;
-            document.getElementById('pageInfoBottom').textContent = \`Page \${currentPage} of \${totalPages}\`;
-            document.getElementById('totalInfo').textContent = \`(\${filteredProfiles.length} profiles)\`;
-            
-            // Update buttons
-            const prevButtons = [document.getElementById('prevPageBtn'), paginationBottom.querySelector('button:first-child')];
-            const nextButtons = [document.getElementById('nextPageBtn'), paginationBottom.querySelector('button:last-child')];
-            
-            prevButtons.forEach(btn => {
-                btn.disabled = currentPage === 1;
-            });
-            
-            nextButtons.forEach(btn => {
-                btn.disabled = currentPage === totalPages;
-            });
-        }
-        
-        function changePage(direction) {
-            const totalPages = Math.ceil(filteredProfiles.length / profilesPerPage);
-            const newPage = currentPage + direction;
-            
-            if (newPage >= 1 && newPage <= totalPages) {
-                currentPage = newPage;
-                
-                // Save current page to localStorage for persistence
-                localStorage.setItem('cs_admin_current_page', currentPage);
-                
-                renderProfilesPage();
-                // Removed the annoying scroll to top behavior
-            }
-        }
-        
-        function renderProfileCards(profiles) {
-            const grid = document.getElementById('profilesGrid');
-            grid.innerHTML = '';
-            
-            profiles.forEach(profile => {
-                const card = document.createElement('div');
-                card.className = 'profile-card';
-                
-                // Create clickable image element or placeholder
-                const imageHtml = profile.ProfileImageUrl 
-                    ? \`<img src="\${profile.ProfileImageUrl}" 
-                            alt="\${profile.CharacterName}" 
-                            class="profile-image" 
-                            onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                    : \`<div class="profile-image-placeholder">🖼️</div>\`;
-                
-                // Format character name with NSFW badge if needed
-                const characterNameHtml = \`
-                    <div class="profile-name">
-                        \${profile.CharacterName}
-                        \${profile.IsNSFW ? '<span class="nsfw-badge">🔞 NSFW</span>' : ''}
-                    </div>
-                \`;
-                
-                // Show either Gallery Status OR Bio (Gallery Status takes priority)
-                let contentHtml = '';
-                if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                    contentHtml = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
-                } else if (profile.Bio && profile.Bio.trim()) {
-                    contentHtml = \`<div class="profile-content">\${profile.Bio}</div>\`;
-                } else {
-                    contentHtml = \`<div class="profile-content" style="color: #999; font-style: italic;">No bio</div>\`;
-                }
-                
-                // FIXED: NSFW profiles only get Remove and Ban buttons (NO NSFW BUTTON!)
-                const actionButtons = profile.IsNSFW ? \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Remove
-                    </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Ban
-                    </button>
-                \` : \`
-                    <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Remove
-                    </button>
-                    <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                        Ban
-                    </button>
-                    <button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">
-                        Mark NSFW
-                    </button>
-                \`;
-                
-                card.innerHTML = \`
-                    <div class="profile-header">
-                        <div class="profile-info">
-                            <div class="profile-name-row">
-                                <input type="checkbox" class="profile-checkbox" value="\${profile.CharacterId}" onchange="updateBulkSelection()" \${selectedProfiles.has(profile.CharacterId) ? 'checked' : ''}>
-                                \${characterNameHtml}
-                            </div>
-                            <div class="profile-id">\${profile.CharacterId}</div>
-                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
-                                <span style="color: #4CAF50;">❤️ \${profile.LikeCount}</span>
-                            </div>
-                        </div>
-                        \${imageHtml}
-                    </div>
-                    \${contentHtml}
-                    <div class="profile-actions">
-                        \${actionButtons}
-                    </div>
-                \`;
-                grid.appendChild(card);
-            });
-            
-            // Update the "Select All on Page" checkbox state after rendering
-            updateSelectAllCheckbox();
-        }
-        
-        async function showTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            document.getElementById(tabName).classList.add('active');
-            event.target.classList.add('active');
-            
-            // Auto-refresh stats when switching tabs
-            await refreshStats();
-            
-            switch(tabName) {
-                case 'profiles':
-                    loadProfiles();
-                    break;
-                case 'activity':
-                    loadActivityFeed();
-                    break;
-                case 'flagged':
-                    loadFlaggedProfiles();
-                    break;
-                case 'announcements':
-                    loadAnnouncements();
-                    break;
-                case 'reports':
-                    loadReports();
-                    break;
-                case 'archived':
-                    loadArchivedReports();
-                    break;
-                case 'banned':
-                    loadBannedProfiles();
-                    break;
-                case 'moderation':
-                    loadModerationLog();
-                    break;
-            }
-        }
-        
-        async function loadDashboard() {
-            adminKey = document.getElementById('adminKey').value;
-            adminName = document.getElementById('adminName').value;
-            
-            if (!adminKey) {
-                alert('Please enter your admin key');
-                return;
-            }
-            
-            if (!adminName) {
-                alert('Please enter your admin name');
-                return;
-            }
-            
-            try {
-                console.log('🔐 Testing credentials before saving...');
-                await refreshStats();
-                
-                // Only save credentials AFTER successful authentication
-                console.log('✅ Authentication successful, saving credentials...');
-                localStorage.setItem('cs_admin_key', adminKey);
-                localStorage.setItem('cs_admin_name', adminName);
-                console.log('💾 Credentials saved to localStorage');
-                
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.querySelector('.auth-section').style.display = 'none';
-                loadProfiles();
-                
-            } catch (error) {
-                console.error('❌ Authentication failed:', error);
-                showToast('Error: ' + error.message, 'error');
-                // Don't save credentials if login fails
-            }
-        }
-        
-        async function refreshStats() {
-            if (!adminKey) return;
-            
-            const refreshBtn = document.getElementById('refreshBtn');
-            if (refreshBtn) {
-                refreshBtn.textContent = '🔄 Refreshing...';
-                refreshBtn.disabled = true;
-            }
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/dashboard?adminKey=\${adminKey}\`);
-                if (!response.ok) {
-                    throw new Error('Failed to load stats');
-                }
-                
-                const stats = await response.json();
-                
-                document.getElementById('totalProfiles').textContent = stats.totalProfiles;
-                document.getElementById('pendingReports').textContent = stats.pendingReports;
-                document.getElementById('totalBanned').textContent = stats.totalBanned;
-                document.getElementById('activeAnnouncements').textContent = stats.activeAnnouncements;
-                
-                // Refresh gallery profiles as well
-                loadProfiles();
-                
-            } catch (error) {
-                console.error('Error refreshing:', error);
-                showToast('Error refreshing: ' + error.message, 'error');
-            } finally {
-                if (refreshBtn) {
-                    refreshBtn.textContent = '🔄 Refresh All';
-                    refreshBtn.disabled = false;
-                }
-            }
-        }
-        
-        async function loadProfiles() {
-            const loading = document.getElementById('profilesLoading');
-            const grid = document.getElementById('profilesGrid');
-            
-            loading.style.display = 'block';
-            grid.innerHTML = '';
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
-                const profiles = await response.json();
-                
-                loading.style.display = 'none';
-                allProfiles = profiles;
-                
-                // Populate available servers
-                availableServers.clear();
-                profiles.forEach(profile => {
-                    if (profile.Server) {
-                        availableServers.add(profile.Server);
-                    }
-                });
-                populateServerDropdown();
-                
-                // Apply initial filters
-                applyFilters();
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading profiles: \${error.message}</div>\`;
-            }
-        }
-        
-        // Activity Feed Functions
-        async function loadActivityFeed() {
-            const loading = document.getElementById('activityLoading');
-            const container = document.getElementById('activityContainer');
-            const typeFilter = document.getElementById('activityTypeFilter').value;
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                let url = \`\${serverUrl}/admin/activity?adminKey=\${adminKey}\`;
-                if (typeFilter) {
-                    url += \`&type=\${typeFilter}\`;
-                }
-                
-                const response = await fetch(url);
-                const activities = await response.json();
-                
-                loading.style.display = 'none';
-                
-                if (activities.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">📭 No activity to show</div>';
-                    return;
-                }
-                
-                activities.forEach(activity => {
-                    const item = document.createElement('div');
-                    item.className = \`activity-item \${activity.type}\`;
-                    
-                    const timeAgo = getTimeAgo(activity.timestamp);
-                    let metadataText = '';
-                    
-                    if (activity.metadata) {
-                        const meta = activity.metadata;
-                        switch(activity.type) {
-                            case 'upload':
-                                metadataText = \`Server: \${meta.server || 'Unknown'}\${meta.hasImage ? ' • Has Image' : ''}\`;
-                                break;
-                            case 'like':
-                                metadataText = \`Total Likes: \${meta.newCount || 0}\`;
-                                break;
-                            case 'report':
-                                metadataText = \`Reason: \${meta.reason || 'Unknown'} • Reporter: \${meta.reporterCharacter || 'Anonymous'}\`;
-                                break;
-                            case 'moderation':
-                                metadataText = \`Action: \${meta.action || 'Unknown'} • Admin: \${meta.adminId || 'Unknown'}\`;
-                                break;
-                            case 'flag':
-                                metadataText = \`Keywords: \${meta.keywords ? meta.keywords.join(', ') : 'Unknown'}\`;
-                                break;
-                        }
-                    }
-                    
-                    item.innerHTML = \`
-                        <div class="activity-content">
-                            <div class="activity-message">\${activity.message}</div>
-                            \${metadataText ? \`<div class="activity-metadata">\${metadataText}</div>\` : ''}
-                        </div>
-                        <div class="activity-time">\${timeAgo}</div>
-                    \`;
-                    
-                    container.appendChild(item);
-                });
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading activity: \${error.message}</div>\`;
-            }
-        }
-        
-        function toggleAutoRefresh() {
-            const checkbox = document.getElementById('autoRefreshActivity');
-            const refreshBtn = document.getElementById('refreshActivityBtn');
-            
-            if (checkbox.checked) {
-                activityRefreshInterval = setInterval(() => {
-                    if (document.querySelector('.tab.active').onclick.toString().includes('activity')) {
-                        loadActivityFeed();
-                    }
-                }, 30000); // 30 seconds
-                refreshBtn.textContent = '🔄 Auto-refreshing (30s)';
-            } else {
-                if (activityRefreshInterval) {
-                    clearInterval(activityRefreshInterval);
-                    activityRefreshInterval = null;
-                }
-                refreshBtn.textContent = '🔄 Refresh';
-            }
-        }
-        
-        function getTimeAgo(timestamp) {
-            const now = new Date();
-            const time = new Date(timestamp);
-            const diffMs = now - time;
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffHours = Math.floor(diffMins / 60);
-            const diffDays = Math.floor(diffHours / 24);
-            
-            if (diffMins < 1) return 'Just now';
-            if (diffMins < 60) return \`\${diffMins}m ago\`;
-            if (diffHours < 24) return \`\${diffHours}h ago\`;
-            if (diffDays < 7) return \`\${diffDays}d ago\`;
-            
-            return time.toLocaleDateString();
-        }
-        
-        // Auto-Flagging Functions
-        async function loadFlaggedProfiles() {
-            const loading = document.getElementById('flaggedLoading');
-            const container = document.getElementById('flaggedContainer');
-            const statusFilter = document.getElementById('flagStatusFilter').value;
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                let url = \`\${serverUrl}/admin/flagged?adminKey=\${adminKey}\`;
-                if (statusFilter) {
-                    url += \`&status=\${statusFilter}\`;
-                }
-                
-                const response = await fetch(url);
-                const flaggedProfiles = await response.json();
-                
-                loading.style.display = 'none';
-                
-                if (flaggedProfiles.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">🎉 No flagged content!</div>';
-                    return;
-                }
-                
-                flaggedProfiles.forEach(flag => {
-                    const card = document.createElement('div');
-                    card.className = 'flagged-card';
-                    
-                    const timeAgo = getTimeAgo(flag.flaggedAt);
-                    const keywordsHtml = flag.flaggedKeywords.map(kw => 
-                        \`<span class="flagged-keywords">\${kw}</span>\`
-                    ).join('');
-                    
-                    const statusBadge = flag.status === 'pending' ? 
-                        '<span style="background: rgba(255, 152, 0, 0.2); color: #ff9800; padding: 4px 8px; border-radius: 4px;">⏳ PENDING</span>' :
-                        flag.status === 'approved' ?
-                        '<span style="background: rgba(76, 175, 80, 0.2); color: #4CAF50; padding: 4px 8px; border-radius: 4px;">✅ APPROVED</span>' :
-                        '<span style="background: rgba(244, 67, 54, 0.2); color: #f44336; padding: 4px 8px; border-radius: 4px;">❌ REMOVED</span>';
-                    
-                    const actionButtons = flag.status === 'pending' ? \`
-                        <div style="margin-top: 10px;">
-                            <button class="btn btn-primary" onclick="updateFlagStatus('\${flag.id}', 'approved')">Approve</button>
-                            <button class="btn btn-danger" onclick="updateFlagStatus('\${flag.id}', 'removed')">Remove</button>
-                            <button class="btn btn-warning" onclick="confirmRemoveProfile('\${flag.characterId}', '\${flag.characterName}')">Remove Profile</button>
-                        </div>
-                    \` : '';
-                    
-                    card.innerHTML = \`
-                        <div class="flagged-header">
-                            <strong>\${flag.characterName}</strong>
-                            \${statusBadge}
-                        </div>
-                        <div style="margin: 10px 0;">
-                            <strong>Flagged Keywords:</strong><br>
-                            \${keywordsHtml}
-                        </div>
-                        <div class="flagged-content">
-                            \${flag.content}
-                        </div>
-                        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
-                            <strong>Flagged:</strong> \${timeAgo}
-                            \${flag.reviewedBy ? \` • <strong>Reviewed by:</strong> \${flag.reviewedBy}\` : ''}
-                        </div>
-                        \${actionButtons}
-                    \`;
-                    
-                    container.appendChild(card);
-                });
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading flagged content: \${error.message}</div>\`;
-            }
-        }
-        
-        async function updateFlagStatus(flagId, status) {
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/flagged/\${flagId}\`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ status })
-                });
-                
-                if (response.ok) {
-                    showToast('✅ Flag ' + status);
-                    loadFlaggedProfiles();
-                } else {
-                    showToast('❌ Error updating flag status', 'error');
-                }
-            } catch (error) {
-                showToast(\`❌ Error: \${error.message}\`, 'error');
-            }
-        }
-        
-        function showKeywordManager() {
-            showPromptModal(
-                'Add Keyword', 
-                'Add new keyword to auto-flag list:', 
-                'Enter keyword...', 
-                (newKeyword) => {
-                    if (newKeyword && newKeyword.trim()) {
-                        addFlagKeyword(newKeyword.trim());
-                    }
-                }
-            );
-        }
-        
-        async function addFlagKeyword(keyword) {
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/flagged/keywords\`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ keyword })
-                });
-                
-                if (response.ok) {
-                    showToast('✅ Added keyword: "' + keyword + '"');
-                } else {
-                    showToast('❌ Error adding keyword', 'error');
-                }
-            } catch (error) {
-                showToast(\`❌ Error: \${error.message}\`, 'error');
-            }
-        }
-        
-        function confirmRemoveProfile(characterId, characterName) {
-            openModal('remove', characterId, characterName);
-        }
-        
-        function confirmBanProfile(characterId, characterName) {
-            openModal('ban', characterId, characterName);
-        }
-        
-        // Image modal functions
-        function openImageModal(imageUrl, characterName) {
-            const modal = document.getElementById('imageModal');
-            const modalImg = document.getElementById('modalImage');
-            modal.style.display = 'block';
-            modalImg.src = imageUrl;
-            modalImg.alt = characterName;
-        }
-        
-        function closeImageModal() {
-            document.getElementById('imageModal').style.display = 'none';
-        }
-        
-        // Close modal when pressing Escape key
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                closeImageModal();
-            }
-        });
-        
-        async function unbanProfile(characterId, characterName) {
-            showPromptModal(
-                'Unban Profile', 
-                'Why are you unbanning ' + (characterName || characterId) + '?', 
-                'Enter reason for unbanning...', 
-                (reason) => {
-                    if (reason) {
-                        submitUnbanProfile(characterId, characterName, reason);
-                    }
-                }
-            );
-        }
-        
-        async function submitUnbanProfile(characterId, characterName, reason) {
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/profiles/\${encodeURIComponent(characterId)}/unban\`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ reason })
-                });
-                
-                if (response.ok) {
-                    showToast((characterName || characterId) + ' has been unbanned');
-                    await loadBannedProfiles();
-                    await refreshStats();
-                } else {
-                    showToast('Error unbanning profile', 'error');
-                }
-            } catch (error) {
-                showToast('Error: ' + error.message, 'error');
-            }
-        }
-        
-        async function loadBannedProfiles() {
-            const loading = document.getElementById('bannedLoading');
-            const container = document.getElementById('bannedContainer');
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/moderation/banned?adminKey=\${adminKey}\`);
-                const bannedIds = await response.json();
-                
-                loading.style.display = 'none';
-                
-                if (bannedIds.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">🎉 No banned profiles!</div>';
-                    return;
-                }
-                
-                // Try to get profile info for each banned ID
-                const galleryResponse = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
-                const allProfiles = galleryResponse.ok ? await galleryResponse.json() : [];
-                
-                bannedIds.forEach(bannedId => {
-                    const card = document.createElement('div');
-                    card.className = 'profile-card';
-                    card.style.borderLeft = '4px solid #f44336';
-                    
-                    // Try to find profile info
-                    const profile = allProfiles.find(p => p.CharacterId === bannedId);
-                    
-                    if (profile) {
-                        // Profile still exists - show full info
-                        const imageHtml = profile.ProfileImageUrl 
-                            ? \`<img src="\${profile.ProfileImageUrl}" 
-                                    alt="\${profile.CharacterName}" 
-                                    class="profile-image" 
-                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                               <div class="profile-image-placeholder" style="display: none;">🖼️</div>\`
-                            : \`<div class="profile-image-placeholder">🖼️</div>\`;
-                        
-                        card.innerHTML = \`
-                            <div class="profile-header">
-                                <div class="profile-info">
-                                    <div class="profile-name" style="color: #f44336;">🚫 \${profile.CharacterName}</div>
-                                    <div class="profile-id">\${profile.CharacterId}</div>
-                                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                                        <span style="color: #ccc; font-size: 0.9em;">\${profile.Server}</span>
-                                        <span style="color: #f44336;">BANNED</span>
-                                    </div>
-                                </div>
-                                \${imageHtml}
-                            </div>
-                            <div class="profile-content">
-                                \${profile.Bio || profile.GalleryStatus || 'No bio'}
-                            </div>
-                            <div class="profile-actions">
-                                <button class="btn btn-primary" onclick="unbanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                                    Unban
-                                </button>
-                            </div>
-                        \`;
-                    } else {
-                        // Profile doesn't exist anymore - show basic info
-                        card.innerHTML = \`
-                            <div class="profile-header">
-                                <div class="profile-info">
-                                    <div class="profile-name" style="color: #f44336;">🚫 \${bannedId}</div>
-                                    <div class="profile-id">Profile Removed</div>
-                                    <div style="margin-top: 8px;">
-                                        <span style="color: #f44336;">BANNED</span>
-                                    </div>
-                                </div>
-                                <div class="profile-image-placeholder">❌</div>
-                            </div>
-                            <div class="profile-content">
-                                Profile was removed but ban still active
-                            </div>
-                            <div class="profile-actions">
-                                <button class="btn btn-primary" onclick="unbanProfile('\${bannedId}', '\${bannedId}')">
-                                    Unban
-                                </button>
-                            </div>
-                        \`;
-                    }
-                    
-                    container.appendChild(card);
-                });
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading banned profiles: \${error.message}</div>\`;
-            }
-        }
-        
-        async function loadReports() {
-            const loading = document.getElementById('reportsLoading');
-            const container = document.getElementById('reportsContainer');
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/reports?status=pending&adminKey=\${adminKey}\`);
-                const reports = await response.json();
-                
-                loading.style.display = 'none';
-                
-                if (reports.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">🎉 No pending reports!</div>';
-                    return;
-                }
-                
-                await renderReports(reports, container);
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading reports: \${error.message}</div>\`;
-            }
-        }
-        
-        // Global variable to store all archived reports for filtering
-        let allArchivedReports = [];
-        
-        async function loadArchivedReports() {
-            const loading = document.getElementById('archivedLoading');
-            const container = document.getElementById('archivedContainer');
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/reports?adminKey=\${adminKey}\`);
-                const allReports = await response.json();
-                
-                // Filter for resolved and dismissed reports
-                allArchivedReports = allReports.filter(report => 
-                    report.status === 'resolved' || report.status === 'dismissed'
-                );
-                
-                loading.style.display = 'none';
-                
-                if (allArchivedReports.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">📁 No archived reports</div>';
-                    return;
-                }
-                
-                await renderReports(allArchivedReports, container, true);
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading archived reports: \${error.message}</div>\`;
-            }
-        }
-        
-        function filterArchivedReports() {
-            const searchTerm = document.getElementById('reportSearch').value.toLowerCase();
-            const container = document.getElementById('archivedContainer');
-            
-            if (!searchTerm) {
-                renderReports(allArchivedReports, container, true);
-                return;
-            }
-            
-            const filteredReports = allArchivedReports.filter(report =>
-                report.reportedCharacterName.toLowerCase().includes(searchTerm) ||
-                report.reporterCharacter.toLowerCase().includes(searchTerm)
-            );
-            
-            renderReports(filteredReports, container, true);
-        }
-        
-        async function renderReports(reports, container, isArchived = false) {
-            container.innerHTML = '';
-            
-            // Group reports by reported character for archived view
-            if (isArchived) {
-                const groupedReports = {};
-                reports.forEach(report => {
-                    if (!groupedReports[report.reportedCharacterName]) {
-                        groupedReports[report.reportedCharacterName] = [];
-                    }
-                    groupedReports[report.reportedCharacterName].push(report);
-                });
-                
-                // Add summary header for archived reports
-                const summary = document.createElement('div');
-                summary.style.cssText = 'background: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px; color: #ccc;';
-                const uniqueReported = Object.keys(groupedReports).length;
-                const totalReports = reports.length;
-                const repeatOffenders = Object.entries(groupedReports).filter(([name, reports]) => reports.length > 1);
-                
-                summary.innerHTML = \`
-                    📊 \${totalReports} archived reports for \${uniqueReported} characters
-                    \${repeatOffenders.length > 0 ? \`<br>⚠️ \${repeatOffenders.length} characters with multiple reports\` : ''}
-                \`;
-                container.appendChild(summary);
-                
-                // Show repeat offenders if any
-                if (repeatOffenders.length > 0) {
-                    const repeatDiv = document.createElement('div');
-                    repeatDiv.style.cssText = 'background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; padding: 10px; border-radius: 8px; margin-bottom: 15px;';
-                    repeatDiv.innerHTML = \`
-                        <strong>🔄 Multiple Reports:</strong><br>
-                        \${repeatOffenders.map(([name, reps]) => \`\${name} (\${reps.length} reports)\`).join(', ')}
-                    \`;
-                    container.appendChild(repeatDiv);
-                }
-            }
-            
-            // Process reports and fetch profile data
-            for (const report of reports) {
-                const card = document.createElement('div');
-                
-                // Get reason class for color coding
-                const reasonClass = getReasonClass(report.reason);
-                card.className = \`report-card \${reasonClass}\`;
-                
-                // Use EXACT same logic as Gallery Profiles tab
-                let profileHtml = '';
-                try {
-                    const response = await fetch(\`\${serverUrl}/gallery?admin=true&key=\${adminKey}\`);
-                    const profiles = await response.json();
-                    
-                    // Find the profile using the same method as Gallery Profiles
-                    const profile = profiles.find(p => 
-                        p.CharacterName === report.reportedCharacterName || 
-                        p.CharacterId === report.reportedCharacterId
-                    );
-                    
-                    if (profile) {
-                        // EXACT same image logic as Gallery Profiles tab
-                        const imageHtml = profile.ProfileImageUrl 
-                            ? \`<img src="\${profile.ProfileImageUrl}" 
-                                    alt="\${profile.CharacterName}" 
-                                    class="reported-profile-image" 
-                                    onclick="openImageModal('\${profile.ProfileImageUrl}', '\${profile.CharacterName}')"
-                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                               <div class="reported-profile-placeholder" style="display: none;">🖼️</div>\`
-                            : \`<div class="reported-profile-placeholder">🖼️</div>\`;
-                        
-                        // FIXED: Only show action buttons for pending reports, and NO NSFW BUTTON for NSFW profiles
-                        const actionButtonsHtml = !isArchived ? \`
-                            <div class="reported-profile-actions">
-                                <button class="btn btn-danger" onclick="confirmRemoveProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                                    Remove
-                                </button>
-                                <button class="btn btn-warning" onclick="confirmBanProfile('\${profile.CharacterId}', '\${profile.CharacterName}')">
-                                    Ban
-                                </button>
-                                \${profile.IsNSFW ? '' : \`<button class="btn btn-nsfw" onclick="toggleNSFW('\${profile.CharacterId}', '\${profile.CharacterName}', false)">Mark NSFW</button>\`}
-                            </div>
-                        \` : '';
-                        
-                        // Show either Gallery Status OR Bio (Gallery Status takes priority) - SAME AS GALLERY TAB
-                        let statusContent = '';
-                        if (profile.GalleryStatus && profile.GalleryStatus.trim()) {
-                            statusContent = \`<div class="gallery-status">\${profile.GalleryStatus}</div>\`;
-                        } else if (profile.Bio && profile.Bio.trim()) {
-                            statusContent = \`<div style="color: #ddd; font-size: 0.9em; margin: 4px 0; max-height: 60px; overflow: hidden;">\${profile.Bio}</div>\`;
-                        } else {
-                            statusContent = \`<div style="color: #999; font-style: italic; margin: 4px 0;">No bio</div>\`;
-                        }
-
-                        profileHtml = \`
-                            <div class="reported-profile">
-                                \${imageHtml}
-                                <div class="reported-profile-name">\${profile.CharacterName}</div>
-                                <div class="reported-profile-server">\${profile.Server}</div>
-                                \${statusContent}
-                                \${actionButtonsHtml}
-                            </div>
-                        \`;
-                    } else {
-                        // Profile not found
-                        profileHtml = \`
-                            <div class="reported-profile">
-                                <div class="reported-profile-placeholder">❌</div>
-                                <div class="reported-profile-name">Profile Missing</div>
-                                <div class="reported-profile-server">Removed/Private</div>
-                            </div>
-                        \`;
-                    }
-                } catch (error) {
-                    // Error fetching
-                    profileHtml = \`
-                        <div class="reported-profile">
-                            <div class="reported-profile-placeholder">⚠️</div>
-                            <div class="reported-profile-name">Error Loading</div>
-                            <div class="reported-profile-server">-</div>
-                        </div>
-                    \`;
-                }
-                
-                const actionButtons = report.status === 'pending' ? \`
-                    <div style="margin-top: 10px;">
-                        <button class="btn btn-primary" onclick="updateReport('\${report.id}', 'resolved')">Mark Resolved</button>
-                        <button class="btn btn-warning" onclick="updateReport('\${report.id}', 'dismissed')">Dismiss</button>
-                    </div>
-                \` : \`
-                    <div style="margin-top: 10px;">
-                        <span style="color: #4CAF50; font-size: 0.9em;">✅ \${report.status.toUpperCase()}</span>
-                        \${report.reviewedAt ? \` on \${new Date(report.reviewedAt).toLocaleDateString()}\` : ''}
-                        \${report.reviewedBy ? \` by \${report.reviewedBy}\` : ''}
-                        \${report.adminNotes ? \`<br><strong>Admin Notes:</strong> \${report.adminNotes}\` : ''}
-                    </div>
-                \`;
-                
-                card.innerHTML = \`
-                    <div class="report-info">
-                        <div class="report-header">
-                            <strong>\${report.reportedCharacterName}</strong>
-                            <span class="btn btn-\${report.status === 'pending' ? 'warning' : (report.status === 'resolved' ? 'primary' : 'secondary')}">\${report.status}</span>
-                        </div>
-                        <div class="reason-badge \${reasonClass}">\${report.reason}</div>
-                        <p><strong>Details:</strong> \${report.details || 'None'}</p>
-                        <p><strong>Reported by:</strong> \${report.reporterCharacter}</p>
-                        <p><strong>Date:</strong> \${new Date(report.createdAt).toLocaleDateString()}</p>
-                        \${actionButtons}
-                    </div>
-                    \${profileHtml}
-                \`;
-                container.appendChild(card);
-            }
-        }
-        
-        function toggleNSFW(characterId, characterName, currentNSFW) {
-            // Only allow marking as NSFW, not removing NSFW flag
-            if (currentNSFW) {
-                showToast('NSFW profiles cannot be unmarked. Use Remove button if needed.', 'warning');
-                return;
-            }
-            
-            openModal('nsfw', characterId, characterName);
-        }
-        
-        // Helper function to get CSS class based on report reason
-        function getReasonClass(reason) {
-            const reasonLower = reason.toLowerCase();
-            if (reasonLower.includes('spam')) return 'reason-spam';
-            if (reasonLower.includes('inappropriate') || reasonLower.includes('content')) return 'reason-inappropriate';
-            if (reasonLower.includes('malicious') || reasonLower.includes('link')) return 'reason-malicious';
-            if (reasonLower.includes('harassment') || reasonLower.includes('abuse')) return 'reason-harassment';
-            return 'reason-other';
-        }
-        
-        async function updateReport(reportId, status) {
-            showPromptModal(
-                'Update Report', 
-                'Updating report status to: ' + status, 
-                'Add admin notes (optional)...', 
-                (adminNotes) => {
-                    submitReportUpdate(reportId, status, adminNotes);
-                }
-            );
-        }
-        
-        async function submitReportUpdate(reportId, status, adminNotes) {
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/reports/\${reportId}\`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ status, adminNotes })
-                });
-                
-                if (response.ok) {
-                    showToast('✅ Report updated');
-                    await loadReports();
-                    await loadArchivedReports();
-                    await refreshStats();
-                } else {
-                    showToast('❌ Error updating report', 'error');
-                }
-            } catch (error) {
-                showToast(\`❌ Error: \${error.message}\`, 'error');
-            }
-        }
-        
-        async function createAnnouncement() {
-            const title = document.getElementById('announcementTitle').value;
-            const message = document.getElementById('announcementMessage').value;
-            const type = document.getElementById('announcementType').value;
-            
-            if (!title || !message) {
-                showToast('Please fill in title and message', 'error');
-                return;
-            }
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/announcements\`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    },
-                    body: JSON.stringify({ title, message, type })
-                });
-                
-                if (response.ok) {
-                    showToast('✅ Announcement created');
-                    document.getElementById('announcementTitle').value = '';
-                    document.getElementById('announcementMessage').value = '';
-                    loadAnnouncements();
-                    await refreshStats();
-                } else {
-                    showToast('❌ Error creating announcement', 'error');
-                }
-            } catch (error) {
-                showToast(\`❌ Error: \${error.message}\`, 'error');
-            }
-        }
-        
-        async function loadAnnouncements() {
-            const loading = document.getElementById('announcementsLoading');
-            const container = document.getElementById('announcementsContainer');
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/announcements?adminKey=\${adminKey}\`);
-                const announcements = await response.json();
-                
-                loading.style.display = 'none';
-                
-                announcements.forEach(announcement => {
-                    const card = document.createElement('div');
-                    card.className = 'announcement-card';
-                    card.innerHTML = \`
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <strong>\${announcement.title}</strong>
-                            <span class="btn btn-\${announcement.active ? 'primary' : 'warning'}">\${announcement.active ? 'Active' : 'Inactive'}</span>
-                        </div>
-                        <p>\${announcement.message}</p>
-                        <p><strong>Type:</strong> \${announcement.type}</p>
-                        <p><strong>Created:</strong> \${new Date(announcement.createdAt).toLocaleDateString()}</p>
-                        \${announcement.active ? \`
-                            <button class="btn btn-warning" onclick="deactivateAnnouncement('\${announcement.id}')">Deactivate</button>
-                        \` : ''}
-                        <button class="btn btn-danger" onclick="deleteAnnouncement('\${announcement.id}')">Delete</button>
-                    \`;
-                    container.appendChild(card);
-                });
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading announcements: \${error.message}</div>\`;
-            }
-        }
-        
-        async function deactivateAnnouncement(id) {
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}/deactivate\`, {
-                    method: 'PATCH',
-                    headers: { 
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    }
-                });
-                
-                if (response.ok) {
-                    loadAnnouncements();
-                    await refreshStats();
-                } else {
-                    showToast('❌ Error deactivating announcement', 'error');
-                }
-            } catch (error) {
-                showToast(\`❌ Error: \${error.message}\`, 'error');
-            }
-        }
-        
-        async function deleteAnnouncement(id) {
-            showConfirmModal(
-                'Delete Announcement', 
-                'Are you sure you want to delete this announcement?', 
-                'Delete', 
-                'btn btn-danger', 
-                () => {
-                    submitDeleteAnnouncement(id);
-                }
-            );
-        }
-        
-        async function submitDeleteAnnouncement(id) {
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/announcements/\${id}\`, {
-                    method: 'DELETE',
-                    headers: { 
-                        'X-Admin-Key': adminKey,
-                        'X-Admin-Id': adminName
-                    }
-                });
-                
-                if (response.ok) {
-                    loadAnnouncements();
-                    await refreshStats();
-                } else {
-                    showToast('❌ Error deleting announcement', 'error');
-                }
-            } catch (error) {
-                showToast(\`❌ Error: \${error.message}\`, 'error');
-            }
-        }
-        
-        async function loadModerationLog() {
-            const loading = document.getElementById('moderationLoading');
-            const container = document.getElementById('moderationContainer');
-            
-            loading.style.display = 'block';
-            container.innerHTML = '';
-            
-            try {
-                const response = await fetch(\`\${serverUrl}/admin/moderation/actions?adminKey=\${adminKey}\`);
-                const actions = await response.json();
-                
-                loading.style.display = 'none';
-                
-                actions.forEach(action => {
-                    const card = document.createElement('div');
-                    card.className = 'profile-card';
-                    
-                    const repeatBadge = action.repeatCount && action.repeatCount > 1 
-                        ? \`<span style="background: rgba(255, 152, 0, 0.2); color: #ff9800; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 8px;">REPEAT \${action.repeatCount}x</span>\`
-                        : '';
-                    
-                    card.innerHTML = \`
-                        <div><strong>\${action.action.toUpperCase()}</strong> - \${action.characterName}\${repeatBadge}</div>
-                        <p><strong>Reason:</strong> \${action.reason}</p>
-                        <p><strong>Admin:</strong> \${action.adminId}</p>
-                        <p><strong>Date:</strong> \${new Date(action.timestamp).toLocaleString()}</p>
-                    \`;
-                    container.appendChild(card);
-                });
-                
-            } catch (error) {
-                loading.innerHTML = \`<div class="error">Error loading moderation log: \${error.message}</div>\`;
-            }
-        }
-    </script>
-    
-    <!-- Moderation Modal -->
-    <div class="modal-overlay" id="moderationModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle">Moderate Profile</h3>
-                <div class="character-name" id="modalCharacterName"></div>
-            </div>
-            <div class="modal-body">
-                <label for="modalReason">Reason (required):</label>
-                <textarea id="modalReason" placeholder="Enter the reason for this action..."></textarea>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary" id="modalConfirmBtn">Confirm</button>
-                <button class="btn btn-secondary" id="modalCancelBtn" onclick="closeModal()">Cancel</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Bulk Action Bar -->
-    <div class="bulk-action-bar" id="bulkActionBar">
-        <span class="bulk-count" id="bulkCount">0 selected</span>
-        <button class="btn" onclick="bulkRemoveProfiles()">Remove Selected</button>
-        <button class="btn" onclick="bulkBanProfiles()">Ban Selected</button>
-        <button class="btn" onclick="bulkMarkNSFW()">Mark Selected as NSFW</button>
-        <button class="btn" onclick="clearBulkSelection()">Clear Selection</button>
-    </div>
-    
-    <!-- Toast Notification Container -->
-    <div class="toast-container" id="toastContainer"></div>
-</body>
-</html>
-    `;
-    
-    res.send(adminHtml);
+    if (adminPanelHtml) {
+        res.send(adminPanelHtml);
+    } else {
+        res.status(500).send('Admin panel not available. Please ensure admin-panel.html exists.');
+    }
 });
 
+// LEGACY EMBEDDED HTML REMOVED - Now served from admin-panel.html
+// Original HTML started here:
+// <!DOCTYPE html>
+// <html lang="en">
+// <head>
+//     <meta charset="UTF-8">
+// ... (3000+ lines of embedded HTML removed)
+// Old route handler also removed - new handler above reads from file
 // =============================================================================
 // ALL YOUR EXISTING ENDPOINTS (keeping them exactly the same)
 // =============================================================================
@@ -4212,6 +1377,9 @@ app.post("/names/lookup", async (req, res) => {
         // Process each requested character
         for (const physicalName of limitedChars) {
             if (!physicalName || typeof physicalName !== 'string') continue;
+
+            // Check if user is banned from names feature - silently skip
+            if (moderationDB.isNameBanned(physicalName)) continue;
 
             const expectedSuffix = `_${physicalName}.json`;
 
@@ -4829,6 +1997,215 @@ app.get("/admin/moderation/banned", requireAdmin, (req, res) => {
     } catch (error) {
         console.error('Get banned profiles error:', error);
         res.status(500).json({ error: 'Failed to get banned profiles' });
+    }
+});
+
+// ===============================
+// 🚫 NAME BAN ENDPOINTS (3-STRIKE SYSTEM)
+// ===============================
+// Ban user from CS+ Names feature with strike tracking
+app.post("/admin/names/ban", requireAdmin, (req, res) => {
+    try {
+        const { physicalName, reason, offensiveCSName } = req.body;
+        const adminId = req.adminId;
+
+        if (!physicalName) {
+            return res.status(400).json({ error: 'Physical name required' });
+        }
+
+        // Add to ban list
+        moderationDB.banFromNames(physicalName);
+
+        // Create warning with strike tracking
+        const warning = moderationDB.addNameWarning(physicalName, offensiveCSName || '[Unknown]', adminId);
+
+        // Log the action
+        moderationDB.logAction('name_ban', physicalName, offensiveCSName || physicalName, reason || 'Offensive CS+ name', adminId);
+
+        console.log(`🚫 NAME BAN: ${physicalName} (CS+ name: ${offensiveCSName || 'N/A'}) - Strike ${warning.strikeNumber} by ${adminId}`);
+
+        res.json({
+            success: true,
+            message: `${physicalName} banned from names feature`,
+            warning: {
+                id: warning.id,
+                strikeNumber: warning.strikeNumber,
+                status: warning.status
+            }
+        });
+    } catch (error) {
+        console.error('Name ban error:', error);
+        res.status(500).json({ error: 'Failed to ban user from names' });
+    }
+});
+
+// Unban user from CS+ Names feature
+app.post("/admin/names/unban", requireAdmin, (req, res) => {
+    try {
+        const { physicalName } = req.body;
+        const adminId = req.adminId;
+
+        if (!physicalName) {
+            return res.status(400).json({ error: 'Physical name required' });
+        }
+
+        moderationDB.unbanFromNames(physicalName);
+        moderationDB.logAction('name_unban', physicalName, physicalName, 'Unbanned from names', adminId);
+
+        console.log(`✅ NAME UNBAN: ${physicalName} by ${adminId}`);
+
+        res.json({ success: true, message: `${physicalName} unbanned from names feature` });
+    } catch (error) {
+        console.error('Name unban error:', error);
+        res.status(500).json({ error: 'Failed to unban user from names' });
+    }
+});
+
+// Get list of name-banned users
+app.get("/admin/moderation/namebanned", requireAdmin, (req, res) => {
+    try {
+        const nameBannedUsers = moderationDB.getNameBannedUsers();
+        res.json(nameBannedUsers);
+    } catch (error) {
+        console.error('Get name-banned users error:', error);
+        res.status(500).json({ error: 'Failed to get name-banned users' });
+    }
+});
+
+// Get all name warnings (admin)
+app.get("/admin/names/warnings", requireAdmin, (req, res) => {
+    try {
+        const warnings = moderationDB.getAllNameWarnings();
+        res.json(warnings);
+    } catch (error) {
+        console.error('Get name warnings error:', error);
+        res.status(500).json({ error: 'Failed to get name warnings' });
+    }
+});
+
+// Get pending review warnings (admin) - strike 2 users who changed names
+app.get("/admin/names/pending-review", requireAdmin, (req, res) => {
+    try {
+        const pendingWarnings = moderationDB.getPendingReviewWarnings();
+        res.json(pendingWarnings);
+    } catch (error) {
+        console.error('Get pending review warnings error:', error);
+        res.status(500).json({ error: 'Failed to get pending review warnings' });
+    }
+});
+
+// Approve name change (admin) - for strike 2 users
+app.post("/admin/names/approve/:warningId", requireAdmin, (req, res) => {
+    try {
+        const { warningId } = req.params;
+        const success = moderationDB.approveNameChange(warningId);
+
+        if (success) {
+            res.json({ success: true, message: 'Name change approved' });
+        } else {
+            res.status(404).json({ error: 'Warning not found or not pending review' });
+        }
+    } catch (error) {
+        console.error('Approve name change error:', error);
+        res.status(500).json({ error: 'Failed to approve name change' });
+    }
+});
+
+// Reject name change (admin) - for strike 2 users
+app.post("/admin/names/reject/:warningId", requireAdmin, (req, res) => {
+    try {
+        const { warningId } = req.params;
+        const { reason } = req.body;
+        const success = moderationDB.rejectNameChange(warningId, reason || 'Name still inappropriate');
+
+        if (success) {
+            res.json({ success: true, message: 'Name change rejected' });
+        } else {
+            res.status(404).json({ error: 'Warning not found or not pending review' });
+        }
+    } catch (error) {
+        console.error('Reject name change error:', error);
+        res.status(500).json({ error: 'Failed to reject name change' });
+    }
+});
+
+// ===============================
+// 👤 USER WARNING ENDPOINTS (Public)
+// ===============================
+// Get warnings for a user (plugin calls this on startup)
+app.get("/user/warnings/:physicalName", (req, res) => {
+    try {
+        const { physicalName } = req.params;
+
+        if (!physicalName) {
+            return res.status(400).json({ error: 'Physical name required' });
+        }
+
+        // Get unacknowledged warnings
+        const unacknowledgedWarnings = moderationDB.getUnacknowledgedWarnings(physicalName);
+
+        // Get active warning (if any)
+        const activeWarning = moderationDB.getActiveWarning(physicalName);
+
+        // Get strike count
+        const strikeCount = moderationDB.getUserStrikeCount(physicalName);
+
+        res.json({
+            hasUnacknowledgedWarning: unacknowledgedWarnings.length > 0,
+            unacknowledgedWarnings,
+            activeWarning,
+            strikeCount,
+            isPermabanned: moderationDB.isPermabanned(physicalName)
+        });
+    } catch (error) {
+        console.error('Get user warnings error:', error);
+        res.status(500).json({ error: 'Failed to get warnings' });
+    }
+});
+
+// Acknowledge a warning (user clicked checkbox + accept)
+app.post("/user/warnings/:warningId/acknowledge", (req, res) => {
+    try {
+        const { warningId } = req.params;
+
+        const success = moderationDB.acknowledgeWarning(warningId);
+
+        if (success) {
+            res.json({ success: true, message: 'Warning acknowledged' });
+        } else {
+            res.status(404).json({ error: 'Warning not found' });
+        }
+    } catch (error) {
+        console.error('Acknowledge warning error:', error);
+        res.status(500).json({ error: 'Failed to acknowledge warning' });
+    }
+});
+
+// Check if name change resolves warning (called when user updates their CS+ name)
+app.post("/user/check-name-change", (req, res) => {
+    try {
+        const { physicalName, newCSName } = req.body;
+
+        if (!physicalName || !newCSName) {
+            return res.status(400).json({ error: 'Physical name and new CS+ name required' });
+        }
+
+        const result = moderationDB.checkNameChange(physicalName, newCSName);
+
+        res.json({
+            resolved: result.resolved,
+            needsReview: result.needsReview,
+            message: result.resolved
+                ? 'Your name has been restored!'
+                : result.needsReview
+                    ? 'Your new name is pending admin review.'
+                    : result.warning?.status === 'permaban'
+                        ? 'You are permanently banned from the names feature.'
+                        : 'No active warning found.'
+        });
+    } catch (error) {
+        console.error('Check name change error:', error);
+        res.status(500).json({ error: 'Failed to check name change' });
     }
 });
 
