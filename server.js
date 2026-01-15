@@ -869,9 +869,9 @@ function requireAdmin(req, res, next) {
         return res.status(403).json({ error: 'Admin access required' });
     }
     
-    // FIXED: Get admin ID from header, fallback to 'unknown'
+    // Get admin ID from header, fallback to 'unknown'
     req.adminId = req.headers['x-admin-id'] || req.body.adminId || 'unknown_admin';
-    console.log(`🛡️ Admin authenticated: ${req.adminId}`);
+    // Not logging every auth to avoid log spam - admin actions are logged separately
     next();
 }
 
