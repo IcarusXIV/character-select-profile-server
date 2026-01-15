@@ -2526,8 +2526,7 @@
                         <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'view')" title="View">👁️</button>
-                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'nsfw')" title="Mark NSFW">🔞</button>
-                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'remove')" title="Remove">🗑️</button>
+                            <button onclick="event.stopPropagation(); showContextMenu(event, '${safeId}')" title="Actions">⋮</button>
                         </div>
                         <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
@@ -2678,7 +2677,9 @@
         async function singleAction(characterId, action) {
             // Unescape the ID since it comes from an HTML onclick attribute
             characterId = unescapeFromHtml(characterId);
-            const profile = profiles.find(p => p.CharacterId === characterId);
+            // Search both gallery profiles and all profiles data
+            const profile = profiles.find(p => p.CharacterId === characterId)
+                         || allProfilesData.find(p => p.CharacterId === characterId);
             const name = profile?.CharacterName || characterId.split('@')[0];
             const server = characterId.split('@')[1] || 'Unknown';
             const safeId = escapeForHtml(characterId);
