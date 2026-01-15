@@ -1869,11 +1869,21 @@
             const newWarnings = stats.newWarningsToday || 0;
             const newFlagged = stats.newFlaggedToday || 0;
 
+            const newGallery = stats.newGalleryProfilesToday || 0;
             document.getElementById('statsGrid').innerHTML = `
                 <div class="stat-card">
-                    <div class="stat-label">📊 Total Profiles</div>
-                    <div class="stat-value">${stats.totalProfiles || 0}</div>
-                    <div class="stat-change ${newProfiles > 0 ? 'positive' : 'neutral'}">${newProfiles > 0 ? `+${newProfiles} today` : 'No new today'}</div>
+                    <div class="stat-label">📊 Profiles</div>
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px;">
+                        <div>
+                            <div class="stat-value">${stats.totalProfiles || 0}</div>
+                            <div style="font-size: 0.75em; color: var(--text-secondary);">Total</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="stat-value" style="font-size: 1.5em; color: var(--accent);">${stats.galleryProfiles || 0}</div>
+                            <div style="font-size: 0.75em; color: var(--text-secondary);">Gallery</div>
+                        </div>
+                    </div>
+                    <div class="stat-change ${newProfiles > 0 ? 'positive' : 'neutral'}">${newProfiles > 0 ? `+${newProfiles} total` : 'No new'} ${newGallery > 0 ? `/ +${newGallery} gallery` : ''} today</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">🚨 Pending Reports</div>
