@@ -2328,10 +2328,12 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
         // Count all profiles
         const allProfiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
 
-        // Count only showcase/public profiles (same logic as gallery)
-        let showcaseCount = 0;
+        // Count profiles - both total (AlwaysShare + ShowcasePublic) and gallery (ShowcasePublic only)
+        let totalCount = 0;
+        let galleryCount = 0;
         let newProfilesToday = 0;
         let newProfilesThisWeek = 0;
+        let newGalleryProfilesToday = 0;
 
         for (const file of allProfiles) {
             try {
@@ -2341,9 +2343,14 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
                 const filePath = path.join(profilesDir, file);
                 const profileData = await readProfileAsync(filePath);
 
-                if (isValidProfile(profileData) &&
-                    (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2)) {
-                    showcaseCount++;
+                if (!isValidProfile(profileData)) continue;
+
+                const isShowcasePublic = profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2;
+                const isAlwaysShare = profileData.Sharing === 'AlwaysShare' || profileData.Sharing === 0;
+
+                // Count total (both AlwaysShare and ShowcasePublic)
+                if (isShowcasePublic || isAlwaysShare) {
+                    totalCount++;
 
                     // Check if profile is new (only count profiles with CreatedAt for accuracy)
                     if (profileData.CreatedAt) {
@@ -2353,6 +2360,18 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
                         }
                         if (createdDate > oneWeekAgo) {
                             newProfilesThisWeek++;
+                        }
+                    }
+                }
+
+                // Count gallery (ShowcasePublic only)
+                if (isShowcasePublic) {
+                    galleryCount++;
+
+                    if (profileData.CreatedAt) {
+                        const createdDate = new Date(profileData.CreatedAt);
+                        if (createdDate > oneDayAgo) {
+                            newGalleryProfilesToday++;
                         }
                     }
                 }
@@ -2378,8 +2397,10 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
         const newFlaggedToday = allFlagged.filter(f => new Date(f.flaggedAt) > oneDayAgo).length;
 
         const stats = {
-            totalProfiles: showcaseCount,
+            totalProfiles: totalCount,
+            galleryProfiles: galleryCount,
             newProfilesToday,
+            newGalleryProfilesToday,
             newProfilesThisWeek,
             totalReports: allReports.length,
             pendingReports: pendingReports.length,
