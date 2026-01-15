@@ -1584,6 +1584,100 @@ app.get("/gallery", async (req, res) => {
     }
 });
 
+// All Profiles endpoint (admin only) - returns both ShowcasePublic and AlwaysShare profiles
+app.get("/profiles/all", async (req, res) => {
+    try {
+        const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
+
+        if (!isAdmin) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file =>
+                    file.endsWith('.json') &&
+                    !file.endsWith('_follows.json')
+                ));
+            });
+        });
+
+        const allProfiles = [];
+
+        for (let i = 0; i < profileFiles.length; i += 10) {
+            const batch = profileFiles.slice(i, i + 10);
+
+            const batchResults = await Promise.all(batch.map(async (file) => {
+                const characterId = file.replace('.json', '');
+                const filePath = path.join(profilesDir, file);
+
+                try {
+                    const profileData = await readProfileAsync(filePath);
+
+                    if (!isValidProfile(profileData)) {
+                        return null;
+                    }
+
+                    // Include both ShowcasePublic and AlwaysShare (exclude NeverShare)
+                    const sharing = profileData.Sharing;
+                    const isShowcasePublic = sharing === 'ShowcasePublic' || sharing === 2;
+                    const isAlwaysShare = sharing === 'AlwaysShare' || sharing === 0;
+
+                    if (isShowcasePublic || isAlwaysShare) {
+                        const underscoreIndex = characterId.indexOf('_');
+                        let csCharacterName, physicalCharacterName;
+
+                        if (underscoreIndex > 0) {
+                            csCharacterName = characterId.substring(0, underscoreIndex);
+                            physicalCharacterName = characterId.substring(underscoreIndex + 1);
+                        } else {
+                            csCharacterName = profileData.CharacterName || characterId.split('@')[0];
+                            physicalCharacterName = characterId;
+                        }
+
+                        return {
+                            CharacterId: characterId,
+                            CharacterName: csCharacterName,
+                            Server: extractServerFromName(physicalCharacterName),
+                            ProfileImageUrl: profileData.ProfileImageUrl || null,
+                            Tags: profileData.Tags || "",
+                            Bio: profileData.Bio || "",
+                            GalleryStatus: profileData.GalleryStatus || "",
+                            Race: profileData.Race || "",
+                            Pronouns: profileData.Pronouns || "",
+                            Links: profileData.Links || "",
+                            LikeCount: likesDB.getLikeCount(characterId),
+                            LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                            ImageZoom: profileData.ImageZoom || 1.0,
+                            ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                            IsNSFW: profileData.IsNSFW || false,
+                            Sharing: isShowcasePublic ? 'ShowcasePublic' : 'AlwaysShare',
+                            IsBanned: moderationDB.isProfileBanned(characterId)
+                        };
+                    }
+                    return null;
+                } catch (err) {
+                    console.error(`[Error] Failed to process profile ${file}:`, err.message);
+                    return null;
+                }
+            }));
+
+            batchResults.forEach(result => {
+                if (result) allProfiles.push(result);
+            });
+        }
+
+        allProfiles.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
+
+        res.json(allProfiles);
+
+    } catch (err) {
+        console.error('All profiles error:', err);
+        res.status(500).json({ error: 'Failed to load profiles' });
+    }
+});
+
 // Like endpoints
 app.post("/gallery/:name/like", async (req, res) => {
     try {
