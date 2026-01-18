@@ -1459,10 +1459,14 @@
 
         // ============ AUTO-REFRESH ============
         let autoRefreshInterval = null;
+        let activityRefreshInterval = null;
         const AUTO_REFRESH_SECONDS = 30;
+        const ACTIVITY_REFRESH_SECONDS = 10;
 
         function startAutoRefresh() {
-            stopAutoRefresh(); // Clear any existing interval
+            stopAutoRefresh(); // Clear any existing intervals
+
+            // Main refresh for all data (30 seconds)
             autoRefreshInterval = setInterval(async () => {
                 if (!isAuthenticated) return;
                 try {
@@ -1471,21 +1475,59 @@
                         loadDashboard(),
                         loadReports(),
                         loadWarnings(),
-                        loadFlagged(),
-                        loadActivity()
+                        loadFlagged()
                     ]);
+                    // Load activity separately then update dashboard's recent activity
+                    await loadActivity();
+                    updateDashboardActivity();
                     updateBadges();
                 } catch (error) {
                     console.error('Auto-refresh failed:', error);
                 }
             }, AUTO_REFRESH_SECONDS * 1000);
+
+            // Faster refresh for activity only (10 seconds) - live updates
+            activityRefreshInterval = setInterval(async () => {
+                if (!isAuthenticated) return;
+                try {
+                    await loadActivity();
+                    updateDashboardActivity();
+                } catch (error) {
+                    console.error('Activity refresh failed:', error);
+                }
+            }, ACTIVITY_REFRESH_SECONDS * 1000);
         }
 
         function stopAutoRefresh() {
             if (autoRefreshInterval) {
                 clearInterval(autoRefreshInterval);
                 autoRefreshInterval = null;
-                console.log('Auto-refresh stopped');
+            }
+            if (activityRefreshInterval) {
+                clearInterval(activityRefreshInterval);
+                activityRefreshInterval = null;
+            }
+        }
+
+        // Update just the dashboard's recent activity section
+        function updateDashboardActivity() {
+            const recentActivity = document.getElementById('recentActivity');
+            if (!recentActivity) return;
+
+            const recent = activityLog.slice(0, 5);
+            if (recent.length === 0) {
+                recentActivity.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No recent activity</p>';
+            } else {
+                recentActivity.innerHTML = recent.map(a => `
+                    <div class="activity-item">
+                        <div class="activity-dot ${a.type || 'dismiss'}"></div>
+                        <div class="activity-info">
+                            <div class="activity-message">${a.message || a.action || 'Action'}</div>
+                            <div class="activity-meta">${a.details?.characterName || a.characterName || ''}</div>
+                        </div>
+                        <div class="activity-time">${formatTime(a.timestamp || a.createdAt)}</div>
+                    </div>
+                `).join('');
             }
         }
 
@@ -1723,8 +1765,9 @@
                          onclick="toggleProfileSelection('${escapeForHtml(characterId)}')">
                         <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
-                            <button onclick="event.stopPropagation(); viewProfileDetails('${escapeForHtml(characterId)}')" title="View">👁️</button>
-                            <button onclick="event.stopPropagation(); showContextMenu(event, '${escapeForHtml(characterId)}')" title="Actions">⋮</button>
+                            <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'view')" title="View">👁️</button>
+                            <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
+                            <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'delete')" title="Delete">🗑️</button>
                         </div>
                         <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
@@ -2526,7 +2569,8 @@
                         <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'view')" title="View">👁️</button>
-                            <button onclick="event.stopPropagation(); showContextMenu(event, '${safeId}')" title="Actions">⋮</button>
+                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
+                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'delete')" title="Delete">🗑️</button>
                         </div>
                         <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
@@ -3121,3 +3165,4 @@
     </script>
 </body>
 </html>
+
