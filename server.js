@@ -37,6 +37,12 @@ let galleryCache = null;
 let galleryCacheTime = 0;
 const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
 
+// Names lookup caching - indexed by physical character name
+let namesCache = null;           // Map<physicalName, {csName, nameplateColor}>
+let namesCacheTime = 0;
+let namesCacheBuilding = false;  // Prevent concurrent rebuilds
+const NAMES_CACHE_DURATION = 30 * 1000; // 30 seconds - balance between freshness and performance
+
 app.use(require('compression')());
 app.use(cors());
 app.use(bodyParser.json());
@@ -1191,6 +1197,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
 
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
+        invalidateNamesCache();  // Clear names cache so new settings take effect
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1268,6 +1275,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
 
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
+        invalidateNamesCache();  // Clear names cache so new settings take effect
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1365,19 +1373,25 @@ app.get("/view/:name", async (req, res) => {
 // ===============================
 // Batch lookup CS+ names for multiple physical character names
 // Used for shared name replacement feature
-app.post("/names/lookup", async (req, res) => {
-    try {
-        const { characters } = req.body;
+// Now with caching for performance under load
 
-        if (!Array.isArray(characters) || characters.length === 0) {
-            return res.status(400).json({ error: "Invalid request: characters array required" });
+// Build/rebuild the names cache
+async function rebuildNamesCache() {
+    if (namesCacheBuilding) {
+        // Another rebuild is in progress, wait for it
+        while (namesCacheBuilding) {
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
+        return;
+    }
 
-        // Limit batch size to prevent abuse
-        const limitedChars = characters.slice(0, 50);
-        const results = {};
+    namesCacheBuilding = true;
+    const startTime = Date.now();
 
-        // Get list of all profile files once
+    try {
+        const newCache = new Map();
+
+        // Get all profile files
         const profileFiles = await new Promise((resolve, reject) => {
             fs.readdir(profilesDir, (err, files) => {
                 if (err) reject(err);
@@ -1388,71 +1402,117 @@ app.post("/names/lookup", async (req, res) => {
             });
         });
 
-        // Process each requested character
-        for (const physicalName of limitedChars) {
-            if (!physicalName || typeof physicalName !== 'string') continue;
+        // Build index: physicalName -> {csName, nameplateColor, modTime}
+        // We need to track modTime to handle multiple CS+ chars on same physical char
+        const tempIndex = new Map(); // physicalName -> {csName, nameplateColor, modTime}
 
-            // Check if user is banned from names feature - silently skip
-            if (moderationDB.isNameBanned(physicalName)) continue;
+        for (const file of profileFiles) {
+            try {
+                // Extract physical name from filename: "CSName_PhysicalName@World.json"
+                const lastUnderscore = file.lastIndexOf('_');
+                if (lastUnderscore === -1) continue;
 
-            const expectedSuffix = `_${physicalName}.json`;
+                const physicalName = file.substring(lastUnderscore + 1, file.length - 5); // Remove .json
+                if (!physicalName || !physicalName.includes('@')) continue;
 
-            // Find matching profile files
-            const matchingFiles = profileFiles.filter(file => file.endsWith(expectedSuffix));
-
-            if (matchingFiles.length === 0) continue;
-
-            // Get the most recently modified matching profile
-            let bestMatch = null;
-            let bestModTime = 0;
-
-            for (const file of matchingFiles) {
                 const fullPath = path.join(profilesDir, file);
-                try {
-                    const stats = fs.statSync(fullPath);
-                    if (stats.mtime.getTime() > bestModTime) {
-                        const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                const stats = fs.statSync(fullPath);
+                const modTime = stats.mtime.getTime();
 
-                        // Check sharing setting - skip if NeverShare
-                        // NeverShare can be string 'NeverShare' or number 0
-                        if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 0) {
-                            continue;
-                        }
+                // Check if we already have a newer profile for this physical name
+                const existing = tempIndex.get(physicalName);
+                if (existing && existing.modTime > modTime) continue;
 
-                        // Check if user opted in to name visibility
-                        // Only show if explicitly set to true (old profiles without this field are NOT shown)
-                        if (profileData.AllowOthersToSeeMyCSName !== true) {
-                            continue;
-                        }
+                // Read and validate profile
+                const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
 
-                        bestModTime = stats.mtime.getTime();
-                        bestMatch = profileData;
-                    }
-                } catch (err) {
-                    console.error(`Error reading profile ${file}:`, err.message);
-                }
-            }
+                // Skip if NeverShare
+                if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 0) continue;
 
-            // Add to results if we found a valid profile
-            if (bestMatch && bestMatch.CharacterName) {
-                // Convert NameplateColor from {X, Y, Z} object to [r, g, b] array
+                // Skip if user hasn't opted in to name visibility
+                if (profileData.AllowOthersToSeeMyCSName !== true) continue;
+
+                // Skip if name banned
+                if (moderationDB.isNameBanned(physicalName)) continue;
+
+                // Skip if no character name
+                if (!profileData.CharacterName) continue;
+
+                // Convert nameplate colour
                 let colorArray = [1.0, 1.0, 1.0];
-                if (bestMatch.NameplateColor) {
-                    if (Array.isArray(bestMatch.NameplateColor)) {
-                        colorArray = bestMatch.NameplateColor;
-                    } else if (typeof bestMatch.NameplateColor === 'object') {
+                if (profileData.NameplateColor) {
+                    if (Array.isArray(profileData.NameplateColor)) {
+                        colorArray = profileData.NameplateColor;
+                    } else if (typeof profileData.NameplateColor === 'object') {
                         colorArray = [
-                            bestMatch.NameplateColor.X ?? 1.0,
-                            bestMatch.NameplateColor.Y ?? 1.0,
-                            bestMatch.NameplateColor.Z ?? 1.0
+                            profileData.NameplateColor.X ?? 1.0,
+                            profileData.NameplateColor.Y ?? 1.0,
+                            profileData.NameplateColor.Z ?? 1.0
                         ];
                     }
                 }
 
-                results[physicalName] = {
-                    csName: bestMatch.CharacterName,
-                    nameplateColor: colorArray
-                };
+                tempIndex.set(physicalName, {
+                    csName: profileData.CharacterName,
+                    nameplateColor: colorArray,
+                    modTime: modTime
+                });
+            } catch (err) {
+                // Skip files that can't be read
+            }
+        }
+
+        // Convert to final cache (without modTime)
+        for (const [physicalName, data] of tempIndex) {
+            newCache.set(physicalName, {
+                csName: data.csName,
+                nameplateColor: data.nameplateColor
+            });
+        }
+
+        namesCache = newCache;
+        namesCacheTime = Date.now();
+
+        const elapsed = Date.now() - startTime;
+        console.log(`🔍 Names cache rebuilt: ${newCache.size} entries in ${elapsed}ms`);
+    } catch (err) {
+        console.error('Error rebuilding names cache:', err);
+    } finally {
+        namesCacheBuilding = false;
+    }
+}
+
+// Invalidate names cache (call when profiles are uploaded/deleted)
+function invalidateNamesCache() {
+    namesCache = null;
+    namesCacheTime = 0;
+}
+
+app.post("/names/lookup", async (req, res) => {
+    try {
+        const { characters } = req.body;
+
+        if (!Array.isArray(characters) || characters.length === 0) {
+            return res.status(400).json({ error: "Invalid request: characters array required" });
+        }
+
+        // Rebuild cache if stale or missing
+        const now = Date.now();
+        if (!namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION) {
+            await rebuildNamesCache();
+        }
+
+        // Limit batch size to prevent abuse
+        const limitedChars = characters.slice(0, 50);
+        const results = {};
+
+        // Fast lookup from cache
+        for (const physicalName of limitedChars) {
+            if (!physicalName || typeof physicalName !== 'string') continue;
+
+            const cached = namesCache?.get(physicalName);
+            if (cached) {
+                results[physicalName] = cached;
             }
         }
 
@@ -1994,7 +2054,8 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
         }
 
         galleryCache = null;
-        
+        invalidateNamesCache();
+
         console.log(`🛡️ Profile ${characterName} removed by ${adminId}${ban ? ' and banned' : ''}`);
         res.json({ success: true, banned: !!ban });
         
@@ -2036,12 +2097,13 @@ app.patch("/admin/profiles/:characterId/nsfw", requireAdmin, async (req, res) =>
             adminId
         );
         
-        // Clear gallery cache to reflect changes
+        // Clear caches to reflect changes
         galleryCache = null;
-        
+        invalidateNamesCache();
+
         console.log(`🛡️ Profile ${profile.CharacterName} ${isNSFW ? 'marked as' : 'unmarked from'} NSFW by ${adminId}`);
         res.json({ success: true, isNSFW });
-        
+
     } catch (error) {
         console.error('Update NSFW status error:', error);
         res.status(500).json({ error: 'Failed to update NSFW status' });
@@ -2514,11 +2576,6 @@ app.delete("/admin/flagged/keywords/:keyword", requireAdmin, (req, res) => {
 // SERVER STARTUP
 // =============================================================================
 
-process.on('SIGTERM', () => {
-    console.log('💤 Server shutting down gracefully...');
-    process.exit(0);
-});
-
 app.listen(PORT, () => {
     console.log(`✅ Character Select+ RP server running at http://localhost:${PORT}`);
     console.log(`📁 Profiles directory: ${profilesDir}`);
@@ -2527,7 +2584,7 @@ app.listen(PORT, () => {
     console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}`);
     console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging`);
     console.log(`🗂️ Using data directory: ${DATA_DIR}`);
-    
+
     if (process.env.ADMIN_SECRET_KEY) {
         console.log(`👑 Admin access enabled - visit /admin to moderate`);
     } else {
