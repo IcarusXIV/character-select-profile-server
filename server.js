@@ -1426,8 +1426,8 @@ async function rebuildNamesCache() {
                 // Read and validate profile
                 const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
 
-                // Skip if NeverShare
-                if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 0) continue;
+                // Skip if NeverShare (NeverShare = 1 in the enum)
+                if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
 
                 // Skip if user hasn't opted in to name visibility
                 if (profileData.AllowOthersToSeeMyCSName !== true) continue;
