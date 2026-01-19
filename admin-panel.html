@@ -938,6 +938,11 @@
                     Announcements
                     <span class="nav-badge info" id="announcementsBadge"></span>
                 </div>
+                <div class="nav-item" data-page="namesync" onclick="showPage('namesync', this)">
+                    <span class="icon">🔗</span>
+                    Name Sync
+                    <span class="nav-badge info" id="namesyncBadge"></span>
+                </div>
             </div>
         </nav>
         <div class="sidebar-footer">
@@ -1259,6 +1264,32 @@
                         <div class="empty-state">
                             <div class="empty-state-icon">📋</div>
                             <div class="empty-state-title">No announcements yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Name Sync Page -->
+            <div class="page" id="page-namesync">
+                <h2 style="margin-bottom: 20px;">Name Sync Cache</h2>
+
+                <div class="card" style="margin-bottom: 24px;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Opted-In Users</h3>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <span id="namesCacheInfo" style="color: var(--text-secondary); font-size: 0.9em;"></span>
+                            <button class="btn btn-ghost" onclick="loadNamesCache()">🔄 Refresh</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div style="margin-bottom: 16px;">
+                            <input type="text" class="form-input" id="namesCacheSearch" placeholder="Search by name..." oninput="filterNamesCache()">
+                        </div>
+                        <div id="namesCacheList">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🔗</div>
+                                <div class="empty-state-title">Loading...</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3001,6 +3032,94 @@
             }
         }
 
+        // ============ NAME SYNC CACHE ============
+        let namesCacheData = [];
+
+        async function loadNamesCache() {
+            try {
+                const response = await apiGet('/admin/names/cache');
+                namesCacheData = response.entries || [];
+
+                // Update badge
+                const badge = document.getElementById('namesyncBadge');
+                if (badge) badge.textContent = response.count || '';
+
+                // Update info text
+                const info = document.getElementById('namesCacheInfo');
+                if (info) {
+                    const ageText = response.cacheAge !== null ? `Cache age: ${response.cacheAge}s` : 'Cache not built';
+                    info.textContent = `${response.count} users opted in • ${ageText}`;
+                }
+
+                renderNamesCache();
+            } catch (error) {
+                console.error('Error loading names cache:', error);
+                document.getElementById('namesCacheList').innerHTML =
+                    '<div class="empty-state"><div class="empty-state-icon">❌</div><div class="empty-state-title">Error loading cache</div></div>';
+            }
+        }
+
+        function filterNamesCache() {
+            renderNamesCache();
+        }
+
+        function renderNamesCache() {
+            const container = document.getElementById('namesCacheList');
+            const searchTerm = (document.getElementById('namesCacheSearch')?.value || '').toLowerCase();
+
+            let filtered = namesCacheData;
+            if (searchTerm) {
+                filtered = namesCacheData.filter(entry =>
+                    entry.csName.toLowerCase().includes(searchTerm) ||
+                    entry.physicalName.toLowerCase().includes(searchTerm)
+                );
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔗</div>
+                        <div class="empty-state-title">${searchTerm ? 'No matches found' : 'No users opted in yet'}</div>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <th style="text-align: left; padding: 12px 8px; color: var(--text-secondary); font-weight: 500;">CS+ Name</th>
+                            <th style="text-align: left; padding: 12px 8px; color: var(--text-secondary); font-weight: 500;">Physical Name</th>
+                            <th style="text-align: center; padding: 12px 8px; color: var(--text-secondary); font-weight: 500;">Colour</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.map(entry => {
+                            const color = entry.nameplateColor || [1, 1, 1];
+                            const r = Math.round(color[0] * 255);
+                            const g = Math.round(color[1] * 255);
+                            const b = Math.round(color[2] * 255);
+                            const colorHex = `rgb(${r}, ${g}, ${b})`;
+
+                            return `
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 12px 8px;">
+                                        <span style="color: ${colorHex}; font-weight: 500;">${escapeHtml(entry.csName)}</span>
+                                    </td>
+                                    <td style="padding: 12px 8px; color: var(--text-secondary);">
+                                        ${escapeHtml(entry.physicalName)}
+                                    </td>
+                                    <td style="padding: 12px 8px; text-align: center;">
+                                        <div style="display: inline-block; width: 24px; height: 24px; border-radius: 4px; background: ${colorHex}; border: 1px solid var(--border-color);"></div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
         // ============ UTILITIES ============
         function showPage(pageName, navItem) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -3011,6 +3130,11 @@
                 navItem.classList.add('active');
             } else {
                 document.querySelector(`.nav-item[data-page="${pageName}"]`)?.classList.add('active');
+            }
+
+            // Load data for specific pages
+            if (pageName === 'namesync') {
+                loadNamesCache();
             }
         }
 
@@ -3165,4 +3289,3 @@
     </script>
 </body>
 </html>
-
