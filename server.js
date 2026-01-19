@@ -2299,6 +2299,41 @@ app.post("/admin/names/reject/:warningId", requireAdmin, (req, res) => {
     }
 });
 
+// Get names cache contents (admin)
+app.get("/admin/names/cache", requireAdmin, async (req, res) => {
+    try {
+        // Rebuild cache if stale or missing
+        const now = Date.now();
+        if (!namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION) {
+            await rebuildNamesCache();
+        }
+
+        // Convert Map to array for JSON response
+        const cacheEntries = [];
+        if (namesCache) {
+            for (const [physicalName, data] of namesCache) {
+                cacheEntries.push({
+                    physicalName: physicalName,
+                    csName: data.csName,
+                    nameplateColor: data.nameplateColor
+                });
+            }
+        }
+
+        // Sort alphabetically by CS+ name
+        cacheEntries.sort((a, b) => a.csName.localeCompare(b.csName));
+
+        res.json({
+            count: cacheEntries.length,
+            cacheAge: namesCache ? Math.floor((now - namesCacheTime) / 1000) : null,
+            entries: cacheEntries
+        });
+    } catch (error) {
+        console.error('Get names cache error:', error);
+        res.status(500).json({ error: 'Failed to get names cache' });
+    }
+});
+
 // ===============================
 // 👤 USER WARNING ENDPOINTS (Public)
 // ===============================
