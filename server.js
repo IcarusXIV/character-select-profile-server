@@ -1410,9 +1410,11 @@ async function rebuildNamesCache() {
             });
         });
 
-        // Build index: physicalName -> {csName, nameplateColor, modTime}
-        // We need to track modTime to handle multiple CS+ chars on same physical char
-        const tempIndex = new Map(); // physicalName -> {csName, nameplateColor, modTime}
+        // Build index: physicalName -> {csName, nameplateColor, activeTime}
+        // We use LastActiveTime from profile data (set on every upload) instead of file modTime
+        // This ensures the most recently APPLIED character is used, not just most recently modified file
+        const tempIndex = new Map(); // physicalName -> {csName, nameplateColor, activeTime}
+        const newestActiveTime = new Map(); // Track newest LastActiveTime seen per physicalName (even if validation failed)
 
         for (const file of profileFiles) {
             try {
@@ -1424,18 +1426,28 @@ async function rebuildNamesCache() {
                 if (!physicalName || !physicalName.includes('@')) continue;
 
                 const fullPath = path.join(profilesDir, file);
-                const stats = fs.statSync(fullPath);
-                const modTime = stats.mtime.getTime();
 
-                // Check if we already have a newer profile for this physical name
-                const existing = tempIndex.get(physicalName);
-                if (existing && existing.modTime > modTime) continue;
-
-                // Clear any older entry - if this newer file fails validation, we want NO entry
-                tempIndex.delete(physicalName);
-
-                // Read and validate profile
+                // Read profile first to get LastActiveTime
                 const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+
+                // Use LastActiveTime from profile, fallback to file modTime if not present
+                let activeTime;
+                if (profileData.LastActiveTime) {
+                    activeTime = new Date(profileData.LastActiveTime).getTime();
+                } else {
+                    const stats = fs.statSync(fullPath);
+                    activeTime = stats.mtime.getTime();
+                }
+
+                // Check if we've already seen a newer file for this physical name
+                const seenNewerTime = newestActiveTime.get(physicalName);
+                if (seenNewerTime && seenNewerTime > activeTime) continue; // Skip older profiles
+
+                // Track this as the newest activeTime we've seen
+                newestActiveTime.set(physicalName, activeTime);
+
+                // Clear any older entry - if this newer profile fails validation, we want NO entry
+                tempIndex.delete(physicalName);
 
                 // Skip if NeverShare (NeverShare = 1 in the enum)
                 if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
@@ -1466,14 +1478,14 @@ async function rebuildNamesCache() {
                 tempIndex.set(physicalName, {
                     csName: profileData.CharacterName,
                     nameplateColor: colorArray,
-                    modTime: modTime
+                    activeTime: activeTime
                 });
             } catch (err) {
                 // Skip files that can't be read
             }
         }
 
-        // Convert to final cache (without modTime)
+        // Convert to final cache (without activeTime)
         for (const [physicalName, data] of tempIndex) {
             newCache.set(physicalName, {
                 csName: data.csName,
@@ -1565,7 +1577,8 @@ async function rebuildProfilesLookupCache() {
         });
 
         // Track most recent profile per physical name
-        const tempIndex = new Map(); // physicalName -> modTime
+        const tempIndex = new Map(); // physicalName -> modTime (only valid profiles)
+        const newestModTime = new Map(); // Track newest modTime seen per physicalName (even if validation failed)
 
         for (const file of profileFiles) {
             try {
@@ -1580,9 +1593,12 @@ async function rebuildProfilesLookupCache() {
                 const stats = fs.statSync(fullPath);
                 const modTime = stats.mtime.getTime();
 
-                // Check if we already have a newer profile for this physical name
-                const existing = tempIndex.get(physicalName);
-                if (existing && existing > modTime) continue;
+                // Check if we've already seen a newer file for this physical name
+                const seenNewerTime = newestModTime.get(physicalName);
+                if (seenNewerTime && seenNewerTime > modTime) continue; // Skip older files
+
+                // Track this as the newest modTime we've seen
+                newestModTime.set(physicalName, modTime);
 
                 // Clear any older entry - if this newer file fails validation, we want NO entry
                 tempIndex.delete(physicalName);
