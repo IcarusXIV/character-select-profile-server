@@ -1431,6 +1431,9 @@ async function rebuildNamesCache() {
                 const existing = tempIndex.get(physicalName);
                 if (existing && existing.modTime > modTime) continue;
 
+                // Clear any older entry - if this newer file fails validation, we want NO entry
+                tempIndex.delete(physicalName);
+
                 // Read and validate profile
                 const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
 
@@ -1580,6 +1583,9 @@ async function rebuildProfilesLookupCache() {
                 // Check if we already have a newer profile for this physical name
                 const existing = tempIndex.get(physicalName);
                 if (existing && existing > modTime) continue;
+
+                // Clear any older entry - if this newer file fails validation, we want NO entry
+                tempIndex.delete(physicalName);
 
                 // Read and validate profile
                 const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
