@@ -43,6 +43,12 @@ let namesCacheTime = 0;
 let namesCacheBuilding = false;  // Prevent concurrent rebuilds
 const NAMES_CACHE_DURATION = 30 * 1000; // 30 seconds - balance between freshness and performance
 
+// RP Profiles lookup caching - tracks who has shared profiles (for context menu)
+let profilesLookupCache = null;  // Set<physicalName> - users with shared profiles
+let profilesLookupCacheTime = 0;
+let profilesLookupCacheBuilding = false;
+const PROFILES_LOOKUP_CACHE_DURATION = 30 * 1000; // 30 seconds
+
 app.use(require('compression')());
 app.use(cors());
 app.use(bodyParser.json());
@@ -1198,6 +1204,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
         invalidateNamesCache();  // Clear names cache so new settings take effect
+        invalidateProfilesLookupCache();  // Clear profiles lookup cache
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1276,6 +1283,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
         invalidateNamesCache();  // Clear names cache so new settings take effect
+        invalidateProfilesLookupCache();  // Clear profiles lookup cache
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1519,6 +1527,128 @@ app.post("/names/lookup", async (req, res) => {
         res.json({ results });
     } catch (err) {
         console.error(`Error in names lookup endpoint: ${err}`);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// ===============================
+// 📋 RP PROFILES LOOKUP (for context menu)
+// ===============================
+// Separate from names lookup - checks if users have shared RP profiles
+// Does NOT require AllowOthersToSeeMyCSName - just checks if profile exists and is shared
+
+async function rebuildProfilesLookupCache() {
+    if (profilesLookupCacheBuilding) {
+        while (profilesLookupCacheBuilding) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return;
+    }
+
+    profilesLookupCacheBuilding = true;
+    const startTime = Date.now();
+
+    try {
+        const newCache = new Set();
+
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file =>
+                    file.endsWith('.json') &&
+                    !file.endsWith('_follows.json')
+                ));
+            });
+        });
+
+        // Track most recent profile per physical name
+        const tempIndex = new Map(); // physicalName -> modTime
+
+        for (const file of profileFiles) {
+            try {
+                // Extract physical name from filename: "CSName_PhysicalName@World.json"
+                const lastUnderscore = file.lastIndexOf('_');
+                if (lastUnderscore === -1) continue;
+
+                const physicalName = file.substring(lastUnderscore + 1, file.length - 5);
+                if (!physicalName || !physicalName.includes('@')) continue;
+
+                const fullPath = path.join(profilesDir, file);
+                const stats = fs.statSync(fullPath);
+                const modTime = stats.mtime.getTime();
+
+                // Check if we already have a newer profile for this physical name
+                const existing = tempIndex.get(physicalName);
+                if (existing && existing > modTime) continue;
+
+                // Read and validate profile
+                const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+
+                // Skip if NeverShare
+                if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+
+                // Skip if banned
+                if (moderationDB.isProfileBanned(file.replace('.json', ''))) continue;
+
+                // Has a shared profile (AlwaysShare or ShowcasePublic)
+                tempIndex.set(physicalName, modTime);
+            } catch (err) {
+                // Skip files that can't be read
+            }
+        }
+
+        // Convert to Set
+        for (const physicalName of tempIndex.keys()) {
+            newCache.add(physicalName);
+        }
+
+        profilesLookupCache = newCache;
+        profilesLookupCacheTime = Date.now();
+
+        const elapsed = Date.now() - startTime;
+        console.log(`📋 Profiles lookup cache rebuilt: ${newCache.size} entries in ${elapsed}ms`);
+    } catch (err) {
+        console.error('Error rebuilding profiles lookup cache:', err);
+    } finally {
+        profilesLookupCacheBuilding = false;
+    }
+}
+
+function invalidateProfilesLookupCache() {
+    profilesLookupCache = null;
+    profilesLookupCacheTime = 0;
+}
+
+app.post("/profiles/lookup", async (req, res) => {
+    try {
+        const { characters } = req.body;
+
+        if (!Array.isArray(characters) || characters.length === 0) {
+            return res.status(400).json({ error: "Invalid request: characters array required" });
+        }
+
+        // Rebuild cache if stale or missing
+        const now = Date.now();
+        if (!profilesLookupCache || (now - profilesLookupCacheTime) > PROFILES_LOOKUP_CACHE_DURATION) {
+            await rebuildProfilesLookupCache();
+        }
+
+        // Limit batch size to prevent abuse
+        const limitedChars = characters.slice(0, 50);
+        const results = {};
+
+        // Fast lookup from cache
+        for (const physicalName of limitedChars) {
+            if (!physicalName || typeof physicalName !== 'string') continue;
+
+            if (profilesLookupCache?.has(physicalName)) {
+                results[physicalName] = { hasProfile: true };
+            }
+        }
+
+        res.json({ results });
+    } catch (err) {
+        console.error(`Error in profiles lookup endpoint: ${err}`);
         res.status(500).json({ error: "Server error" });
     }
 });
@@ -2055,6 +2185,7 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
 
         galleryCache = null;
         invalidateNamesCache();
+        invalidateProfilesLookupCache();
 
         console.log(`🛡️ Profile ${characterName} removed by ${adminId}${ban ? ' and banned' : ''}`);
         res.json({ success: true, banned: !!ban });
@@ -2100,6 +2231,7 @@ app.patch("/admin/profiles/:characterId/nsfw", requireAdmin, async (req, res) =>
         // Clear caches to reflect changes
         galleryCache = null;
         invalidateNamesCache();
+        invalidateProfilesLookupCache();
 
         console.log(`🛡️ Profile ${profile.CharacterName} ${isNSFW ? 'marked as' : 'unmarked from'} NSFW by ${adminId}`);
         res.json({ success: true, isNSFW });
