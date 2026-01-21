@@ -1416,7 +1416,16 @@ async function rebuildNamesCache() {
         const tempIndex = new Map(); // physicalName -> {csName, nameplateColor, activeTime}
         const newestActiveTime = new Map(); // Track newest LastActiveTime seen per physicalName (even if validation failed)
 
-        for (const file of profileFiles) {
+        // Process files sequentially with async reads to avoid blocking event loop
+        // (Can't parallelize due to race conditions with same physical name)
+        for (let i = 0; i < profileFiles.length; i++) {
+            const file = profileFiles[i];
+
+            // Yield to event loop every 50 files
+            if (i > 0 && i % 50 === 0) {
+                await new Promise(resolve => setImmediate(resolve));
+            }
+
             try {
                 // Extract physical name from filename: "CSName_PhysicalName@World.json"
                 const lastUnderscore = file.lastIndexOf('_');
@@ -1427,15 +1436,16 @@ async function rebuildNamesCache() {
 
                 const fullPath = path.join(profilesDir, file);
 
-                // Read profile first to get LastActiveTime
-                const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                // Read profile asynchronously to get LastActiveTime
+                const fileContent = await fs.promises.readFile(fullPath, 'utf-8');
+                const profileData = JSON.parse(fileContent);
 
                 // Use LastActiveTime from profile, fallback to file modTime if not present
                 let activeTime;
                 if (profileData.LastActiveTime) {
                     activeTime = new Date(profileData.LastActiveTime).getTime();
                 } else {
-                    const stats = fs.statSync(fullPath);
+                    const stats = await fs.promises.stat(fullPath);
                     activeTime = stats.mtime.getTime();
                 }
 
