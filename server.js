@@ -1413,94 +1413,107 @@ async function rebuildNamesCache() {
         // Build index: physicalName -> {csName, nameplateColor, activeTime}
         // We use LastActiveTime from profile data (set on every upload) instead of file modTime
         // This ensures the most recently APPLIED character is used, not just most recently modified file
-        const tempIndex = new Map(); // physicalName -> {csName, nameplateColor, activeTime}
-        const newestActiveTime = new Map(); // Track newest LastActiveTime seen per physicalName (even if validation failed)
+        const allResults = []; // Collect all valid results first
 
-        // Process files sequentially with async reads to avoid blocking event loop
-        // (Can't parallelize due to race conditions with same physical name)
-        for (let i = 0; i < profileFiles.length; i++) {
-            const file = profileFiles[i];
+        // Process files in parallel batches for speed
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < profileFiles.length; i += BATCH_SIZE) {
+            const batch = profileFiles.slice(i, i + BATCH_SIZE);
 
-            // Yield to event loop every 50 files
-            if (i > 0 && i % 50 === 0) {
-                await new Promise(resolve => setImmediate(resolve));
-            }
+            // Process batch in parallel
+            const batchResults = await Promise.all(batch.map(async (file) => {
+                try {
+                    // Extract physical name from filename: "CSName_PhysicalName@World.json"
+                    const lastUnderscore = file.lastIndexOf('_');
+                    if (lastUnderscore === -1) return null;
 
-            try {
-                // Extract physical name from filename: "CSName_PhysicalName@World.json"
-                const lastUnderscore = file.lastIndexOf('_');
-                if (lastUnderscore === -1) continue;
+                    const physicalName = file.substring(lastUnderscore + 1, file.length - 5); // Remove .json
+                    if (!physicalName || !physicalName.includes('@')) return null;
 
-                const physicalName = file.substring(lastUnderscore + 1, file.length - 5); // Remove .json
-                if (!physicalName || !physicalName.includes('@')) continue;
+                    const fullPath = path.join(profilesDir, file);
 
-                const fullPath = path.join(profilesDir, file);
+                    // Read profile to get LastActiveTime
+                    const fileContent = await fs.promises.readFile(fullPath, 'utf-8');
+                    const profileData = JSON.parse(fileContent);
 
-                // Read profile asynchronously to get LastActiveTime
-                const fileContent = await fs.promises.readFile(fullPath, 'utf-8');
-                const profileData = JSON.parse(fileContent);
-
-                // Use LastActiveTime from profile, fallback to file modTime if not present
-                let activeTime;
-                if (profileData.LastActiveTime) {
-                    activeTime = new Date(profileData.LastActiveTime).getTime();
-                } else {
-                    const stats = await fs.promises.stat(fullPath);
-                    activeTime = stats.mtime.getTime();
-                }
-
-                // Check if we've already seen a newer file for this physical name
-                const seenNewerTime = newestActiveTime.get(physicalName);
-                if (seenNewerTime && seenNewerTime > activeTime) continue; // Skip older profiles
-
-                // Track this as the newest activeTime we've seen
-                newestActiveTime.set(physicalName, activeTime);
-
-                // Clear any older entry - if this newer profile fails validation, we want NO entry
-                tempIndex.delete(physicalName);
-
-                // Skip if NeverShare (NeverShare = 1 in the enum)
-                if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
-
-                // Skip if user hasn't opted in to name visibility
-                if (profileData.AllowOthersToSeeMyCSName !== true) continue;
-
-                // Skip if name banned
-                if (moderationDB.isNameBanned(physicalName)) continue;
-
-                // Skip if no character name
-                if (!profileData.CharacterName) continue;
-
-                // Convert nameplate colour
-                let colorArray = [1.0, 1.0, 1.0];
-                if (profileData.NameplateColor) {
-                    if (Array.isArray(profileData.NameplateColor)) {
-                        colorArray = profileData.NameplateColor;
-                    } else if (typeof profileData.NameplateColor === 'object') {
-                        colorArray = [
-                            profileData.NameplateColor.X ?? 1.0,
-                            profileData.NameplateColor.Y ?? 1.0,
-                            profileData.NameplateColor.Z ?? 1.0
-                        ];
+                    // Use LastActiveTime from profile, fallback to file modTime if not present
+                    let activeTime;
+                    if (profileData.LastActiveTime) {
+                        activeTime = new Date(profileData.LastActiveTime).getTime();
+                    } else {
+                        const stats = await fs.promises.stat(fullPath);
+                        activeTime = stats.mtime.getTime();
                     }
-                }
 
-                tempIndex.set(physicalName, {
-                    csName: profileData.CharacterName,
-                    nameplateColor: colorArray,
-                    activeTime: activeTime
-                });
-            } catch (err) {
-                // Skip files that can't be read
+                    return {
+                        physicalName,
+                        activeTime,
+                        profileData
+                    };
+                } catch (err) {
+                    return null; // Skip files that can't be read
+                }
+            }));
+
+            // Collect non-null results
+            for (const result of batchResults) {
+                if (result) allResults.push(result);
             }
+
+            // Yield to event loop between batches
+            await new Promise(resolve => setImmediate(resolve));
         }
 
-        // Convert to final cache (without activeTime)
-        for (const [physicalName, data] of tempIndex) {
-            newCache.set(physicalName, {
-                csName: data.csName,
-                nameplateColor: data.nameplateColor
+        // Now process all results to find newest per physical name
+        const newestActiveTime = new Map();
+        const tempIndex = new Map();
+
+        for (const { physicalName, activeTime, profileData } of allResults) {
+            // Check if we've already seen a newer file for this physical name
+            const seenNewerTime = newestActiveTime.get(physicalName);
+            if (seenNewerTime && seenNewerTime > activeTime) continue; // Skip older profiles
+
+            // Track this as the newest activeTime we've seen
+            newestActiveTime.set(physicalName, activeTime);
+
+            // Clear any older entry - if this newer profile fails validation, we want NO entry
+            tempIndex.delete(physicalName);
+
+            // Skip if NeverShare (NeverShare = 1 in the enum)
+            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+
+            // Skip if user hasn't opted in to name visibility
+            if (profileData.AllowOthersToSeeMyCSName !== true) continue;
+
+            // Skip if name banned
+            if (moderationDB.isNameBanned(physicalName)) continue;
+
+            // Skip if no character name
+            if (!profileData.CharacterName) continue;
+
+            // Convert nameplate colour
+            let colorArray = [1.0, 1.0, 1.0];
+            if (profileData.NameplateColor) {
+                if (Array.isArray(profileData.NameplateColor)) {
+                    colorArray = profileData.NameplateColor;
+                } else if (typeof profileData.NameplateColor === 'object') {
+                    colorArray = [
+                        profileData.NameplateColor.X ?? 1.0,
+                        profileData.NameplateColor.Y ?? 1.0,
+                        profileData.NameplateColor.Z ?? 1.0
+                    ];
+                }
+            }
+
+            tempIndex.set(physicalName, {
+                csName: profileData.CharacterName,
+                nameplateColor: colorArray
             });
+        }
+
+        // Copy to final cache
+        for (const [physicalName, data] of tempIndex) {
+            newCache.set(physicalName, data);
         }
 
         namesCache = newCache;
@@ -1586,47 +1599,64 @@ async function rebuildProfilesLookupCache() {
             });
         });
 
-        // Track most recent profile per physical name
-        const tempIndex = new Map(); // physicalName -> modTime (only valid profiles)
-        const newestModTime = new Map(); // Track newest modTime seen per physicalName (even if validation failed)
+        // Collect all results first using parallel batch processing
+        const allResults = [];
+        const BATCH_SIZE = 100;
 
-        for (const file of profileFiles) {
-            try {
-                // Extract physical name from filename: "CSName_PhysicalName@World.json"
-                const lastUnderscore = file.lastIndexOf('_');
-                if (lastUnderscore === -1) continue;
+        for (let i = 0; i < profileFiles.length; i += BATCH_SIZE) {
+            const batch = profileFiles.slice(i, i + BATCH_SIZE);
 
-                const physicalName = file.substring(lastUnderscore + 1, file.length - 5);
-                if (!physicalName || !physicalName.includes('@')) continue;
+            const batchResults = await Promise.all(batch.map(async (file) => {
+                try {
+                    // Extract physical name from filename: "CSName_PhysicalName@World.json"
+                    const lastUnderscore = file.lastIndexOf('_');
+                    if (lastUnderscore === -1) return null;
 
-                const fullPath = path.join(profilesDir, file);
-                const stats = fs.statSync(fullPath);
-                const modTime = stats.mtime.getTime();
+                    const physicalName = file.substring(lastUnderscore + 1, file.length - 5);
+                    if (!physicalName || !physicalName.includes('@')) return null;
 
-                // Check if we've already seen a newer file for this physical name
-                const seenNewerTime = newestModTime.get(physicalName);
-                if (seenNewerTime && seenNewerTime > modTime) continue; // Skip older files
+                    const fullPath = path.join(profilesDir, file);
+                    const stats = await fs.promises.stat(fullPath);
+                    const modTime = stats.mtime.getTime();
 
-                // Track this as the newest modTime we've seen
-                newestModTime.set(physicalName, modTime);
+                    // Read and validate profile
+                    const fileContent = await fs.promises.readFile(fullPath, 'utf-8');
+                    const profileData = JSON.parse(fileContent);
 
-                // Clear any older entry - if this newer file fails validation, we want NO entry
-                tempIndex.delete(physicalName);
+                    return { file, physicalName, modTime, profileData };
+                } catch (err) {
+                    return null;
+                }
+            }));
 
-                // Read and validate profile
-                const profileData = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
-
-                // Skip if NeverShare
-                if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
-
-                // Skip if banned
-                if (moderationDB.isProfileBanned(file.replace('.json', ''))) continue;
-
-                // Has a shared profile (AlwaysShare or ShowcasePublic)
-                tempIndex.set(physicalName, modTime);
-            } catch (err) {
-                // Skip files that can't be read
+            for (const result of batchResults) {
+                if (result) allResults.push(result);
             }
+
+            // Yield to event loop between batches
+            await new Promise(resolve => setImmediate(resolve));
+        }
+
+        // Process results to find newest per physical name
+        const tempIndex = new Map();
+        const newestModTime = new Map();
+
+        for (const { file, physicalName, modTime, profileData } of allResults) {
+            // Check if we've already seen a newer file for this physical name
+            const seenNewerTime = newestModTime.get(physicalName);
+            if (seenNewerTime && seenNewerTime > modTime) continue;
+
+            newestModTime.set(physicalName, modTime);
+            tempIndex.delete(physicalName);
+
+            // Skip if NeverShare
+            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+
+            // Skip if banned
+            if (moderationDB.isProfileBanned(file.replace('.json', ''))) continue;
+
+            // Has a shared profile (AlwaysShare or ShowcasePublic)
+            tempIndex.set(physicalName, modTime);
         }
 
         // Convert to Set
