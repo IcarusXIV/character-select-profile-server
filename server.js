@@ -2802,57 +2802,6 @@ app.delete("/admin/flagged/keywords/:keyword", requireAdmin, (req, res) => {
 });
 
 // =============================================================================
-// NAME SYNC EXPIRY CLEANUP (24-hour TTL)
-// =============================================================================
-
-const NAME_SYNC_EXPIRY_HOURS = 24;
-const CLEANUP_INTERVAL_HOURS = 1; // Run cleanup every hour
-
-async function cleanupExpiredProfiles() {
-    try {
-        const cutoffTime = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
-        const files = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json'));
-
-        let cleanedCount = 0;
-        let checkedCount = 0;
-
-        for (const file of files) {
-            try {
-                const filePath = path.join(profilesDir, file);
-                const profileData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-                checkedCount++;
-
-                // Check LastActiveTime - if older than 24 hours, delete the profile
-                if (profileData.LastActiveTime) {
-                    const lastActive = new Date(profileData.LastActiveTime).getTime();
-                    if (lastActive < cutoffTime) {
-                        fs.unlinkSync(filePath);
-                        cleanedCount++;
-                        console.log(`🧹 Expired profile removed: ${file} (last active: ${profileData.LastActiveTime})`);
-                    }
-                }
-            } catch (fileErr) {
-                // Skip files that can't be read/parsed
-                console.error(`Error processing ${file} during cleanup:`, fileErr.message);
-            }
-        }
-
-        if (cleanedCount > 0) {
-            console.log(`🧹 Name Sync cleanup complete: ${cleanedCount} expired profiles removed (checked ${checkedCount})`);
-            // Invalidate caches since profiles were removed
-            namesCache = null;
-            profilesLookupCache = null;
-        }
-    } catch (err) {
-        console.error('Error during profile cleanup:', err);
-    }
-}
-
-// Run cleanup on startup and then every hour
-cleanupExpiredProfiles();
-setInterval(cleanupExpiredProfiles, CLEANUP_INTERVAL_HOURS * 60 * 60 * 1000);
-
-// =============================================================================
 // SERVER STARTUP
 // =============================================================================
 
@@ -2863,7 +2812,6 @@ app.listen(PORT, () => {
     console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
     console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}`);
     console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging`);
-    console.log(`🧹 Name Sync expiry: Profiles inactive for ${NAME_SYNC_EXPIRY_HOURS}+ hours will be auto-removed (checked every ${CLEANUP_INTERVAL_HOURS}h)`);
     console.log(`🗂️ Using data directory: ${DATA_DIR}`);
 
     if (process.env.ADMIN_SECRET_KEY) {
