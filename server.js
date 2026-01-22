@@ -1485,6 +1485,10 @@ async function rebuildNamesCache() {
             // Skip if user hasn't opted in to name visibility
             if (profileData.AllowOthersToSeeMyCSName !== true) continue;
 
+            // Skip if profile is older than 24 hours (Name Sync expiry - profiles NOT deleted, just excluded from Name Sync)
+            const expiryTime = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
+            if (activeTime < expiryTime) continue;
+
             // Skip if name banned
             if (moderationDB.isNameBanned(physicalName)) continue;
 
@@ -2802,6 +2806,12 @@ app.delete("/admin/flagged/keywords/:keyword", requireAdmin, (req, res) => {
 });
 
 // =============================================================================
+// NAME SYNC EXPIRY CONSTANT (24-hour TTL - checked at query time, NOT deletion)
+// =============================================================================
+
+const NAME_SYNC_EXPIRY_HOURS = 24;
+
+// =============================================================================
 // SERVER STARTUP
 // =============================================================================
 
@@ -2812,6 +2822,7 @@ app.listen(PORT, () => {
     console.log(`🛡️ Admin dashboard: http://localhost:${PORT}/admin`);
     console.log(`💾 Database files: ${likesDbFile}, ${friendsDbFile}, ${announcementsDbFile}, ${reportsDbFile}, ${moderationDbFile}, ${activityDbFile}, ${flaggedDbFile}`);
     console.log(`🚀 Features: Gallery, Likes, Friends, Announcements, Reports, Visual Moderation Dashboard, Activity Feed, Auto-Flagging`);
+    console.log(`🧹 Name Sync expiry: Names hidden after ${NAME_SYNC_EXPIRY_HOURS}h inactivity (profiles preserved for RP/Gallery)`);
     console.log(`🗂️ Using data directory: ${DATA_DIR}`);
 
     if (process.env.ADMIN_SECRET_KEY) {
