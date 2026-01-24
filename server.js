@@ -1211,8 +1211,9 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
 
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
-        invalidateNamesCache();  // Clear names cache so new settings take effect
-        invalidateProfilesLookupCache();  // Clear profiles lookup cache
+        // Incrementally update caches instead of full invalidation (scales better with 20k+ profiles)
+        updateNamesCacheEntry(physicalCharacterName, csCharacterName, profile.NameplateColor, profile.Sharing, profile.AllowOthersToSeeMyCSName);
+        updateProfilesLookupCacheEntry(physicalCharacterName, profile.Sharing);
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1290,8 +1291,9 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
 
         await atomicWriteProfile(filePath, profile);
         galleryCache = null;
-        invalidateNamesCache();  // Clear names cache so new settings take effect
-        invalidateProfilesLookupCache();  // Clear profiles lookup cache
+        // Incrementally update caches instead of full invalidation (scales better with 20k+ profiles)
+        updateNamesCacheEntry(physicalCharacterName, csCharacterName, profile.NameplateColor, profile.Sharing, profile.AllowOthersToSeeMyCSName);
+        updateProfilesLookupCacheEntry(physicalCharacterName, profile.Sharing);
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1546,6 +1548,31 @@ function invalidateNamesCache() {
     namesCacheTime = 0;
 }
 
+// Update a single entry in the names cache (avoids full rebuild)
+function updateNamesCacheEntry(physicalName, csName, nameplateColor, sharing, allowOthersToSee) {
+    if (!namesCache) return; // Cache not built yet, will be built on next request
+
+    // Check if this profile should be visible in names lookup
+    const isPrivate = sharing === 'NeverShare' || sharing === 1;
+    const optedIn = allowOthersToSee === true;
+
+    if (isPrivate || !optedIn) {
+        // Remove from cache if exists
+        namesCache.delete(physicalName);
+    } else {
+        // Add/update in cache
+        let color = [1, 1, 1]; // Default white
+        if (nameplateColor) {
+            if (Array.isArray(nameplateColor)) {
+                color = nameplateColor;
+            } else if (typeof nameplateColor === 'object') {
+                color = [nameplateColor.X || 1, nameplateColor.Y || 1, nameplateColor.Z || 1];
+            }
+        }
+        namesCache.set(physicalName, { csName, nameplateColor: color });
+    }
+}
+
 app.post("/names/lookup", async (req, res) => {
     try {
         const { characters } = req.body;
@@ -1691,6 +1718,21 @@ async function rebuildProfilesLookupCache() {
 function invalidateProfilesLookupCache() {
     profilesLookupCache = null;
     profilesLookupCacheTime = 0;
+}
+
+// Update a single entry in the profiles lookup cache (avoids full rebuild)
+function updateProfilesLookupCacheEntry(physicalName, sharing) {
+    if (!profilesLookupCache) return; // Cache not built yet, will be built on next request
+
+    const isPrivate = sharing === 'NeverShare' || sharing === 1;
+
+    if (isPrivate) {
+        // Remove from cache if exists
+        profilesLookupCache.delete(physicalName);
+    } else {
+        // Add to cache (AlwaysShare or ShowcasePublic)
+        profilesLookupCache.add(physicalName);
+    }
 }
 
 app.post("/profiles/lookup", async (req, res) => {
