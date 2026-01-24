@@ -51,7 +51,15 @@ const PROFILES_LOOKUP_CACHE_DURATION = 30 * 1000; // 30 seconds
 
 app.use(require('compression')());
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+
+// Handle aborted requests silently (client disconnect during upload)
+app.use((req, res, next) => {
+    req.on('aborted', () => {
+        // Silently ignore - don't log spam
+    });
+    next();
+});
 
 // Database files - ALL NOW PERSISTENT WITH VOLUMES
 const likesDbFile = path.join(DATA_DIR, "likes_database.json");
@@ -2810,6 +2818,22 @@ app.delete("/admin/flagged/keywords/:keyword", requireAdmin, (req, res) => {
 // =============================================================================
 
 const NAME_SYNC_EXPIRY_HOURS = 24;
+
+// =============================================================================
+// GLOBAL ERROR HANDLER (catches body-parser aborted requests)
+// =============================================================================
+
+app.use((err, req, res, next) => {
+    // Silently ignore aborted requests (client disconnected)
+    if (err.type === 'request.aborted' || err.code === 'ECONNRESET') {
+        return;
+    }
+    // Log other errors but don't spam
+    console.error(`[Error] ${req.method} ${req.path}: ${err.message}`);
+    if (!res.headersSent) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // =============================================================================
 // SERVER STARTUP
