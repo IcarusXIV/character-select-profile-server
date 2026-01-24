@@ -41,13 +41,13 @@ const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
 let namesCache = null;           // Map<physicalName, {csName, nameplateColor}>
 let namesCacheTime = 0;
 let namesCacheBuilding = false;  // Prevent concurrent rebuilds
-const NAMES_CACHE_DURATION = 30 * 1000; // 30 seconds - balance between freshness and performance
+const NAMES_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes - reduced from 30s to prevent server overload
 
 // RP Profiles lookup caching - tracks who has shared profiles (for context menu)
 let profilesLookupCache = null;  // Set<physicalName> - users with shared profiles
 let profilesLookupCacheTime = 0;
 let profilesLookupCacheBuilding = false;
-const PROFILES_LOOKUP_CACHE_DURATION = 30 * 1000; // 30 seconds
+const PROFILES_LOOKUP_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes - reduced from 30s to prevent server overload
 
 app.use(require('compression')());
 app.use(cors());
