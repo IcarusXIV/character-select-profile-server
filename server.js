@@ -35,7 +35,8 @@ const upload = multer({ dest: uploadsDir });
 // Gallery caching
 let galleryCache = null;
 let galleryCacheTime = 0;
-const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
+let galleryCacheBuilding = false;
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes cache - extended for 24k+ profiles
 
 // Names lookup caching - indexed by physical character name
 let namesCache = null;           // Map<physicalName, {csName, nameplateColor}>
@@ -1422,8 +1423,8 @@ async function rebuildNamesCache() {
         // This ensures the most recently APPLIED character is used, not just most recently modified file
         const allResults = []; // Collect all valid results first
 
-        // Process files in parallel batches for speed
-        const BATCH_SIZE = 100;
+        // Process files in smaller batches with delays to prevent server overload
+        const BATCH_SIZE = 25; // Reduced from 100 to prevent resource exhaustion
         for (let i = 0; i < profileFiles.length; i += BATCH_SIZE) {
             const batch = profileFiles.slice(i, i + BATCH_SIZE);
 
@@ -1467,8 +1468,8 @@ async function rebuildNamesCache() {
                 if (result) allResults.push(result);
             }
 
-            // Yield to event loop between batches
-            await new Promise(resolve => setImmediate(resolve));
+            // Yield to event loop between batches with small delay to let other requests through
+            await new Promise(resolve => setTimeout(resolve, 10));
         }
 
         // Now process all results to find newest per physical name
@@ -1643,7 +1644,7 @@ async function rebuildProfilesLookupCache() {
 
         // Collect all results first using parallel batch processing
         const allResults = [];
-        const BATCH_SIZE = 100;
+        const BATCH_SIZE = 25; // Reduced from 100 to prevent resource exhaustion
 
         for (let i = 0; i < profileFiles.length; i += BATCH_SIZE) {
             const batch = profileFiles.slice(i, i + BATCH_SIZE);
@@ -1675,8 +1676,8 @@ async function rebuildProfilesLookupCache() {
                 if (result) allResults.push(result);
             }
 
-            // Yield to event loop between batches
-            await new Promise(resolve => setImmediate(resolve));
+            // Yield to event loop between batches with small delay to let other requests through
+            await new Promise(resolve => setTimeout(resolve, 10));
         }
 
         // Process results to find newest per physical name
@@ -1780,65 +1781,47 @@ app.post("/profiles/lookup", async (req, res) => {
     }
 });
 
-// Gallery endpoint
-app.get("/gallery", async (req, res) => {
-    try {
-        const isPlugin = req.headers['x-plugin-auth'] === 'cs-plus-gallery-client';
-        const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
-        const showNSFW = req.query.nsfw === 'true'; // Client can request NSFW content
-        
-        const now = Date.now();
-        if (galleryCache && (now - galleryCacheTime) < CACHE_DURATION) {
-            let profiles = galleryCache;
-            
-            // Apply NSFW filter if requested
-            if (!showNSFW && !isAdmin) {
-                profiles = profiles.filter(profile => !profile.IsNSFW);
-            }
-            
-            if (isPlugin || isAdmin) {
-                return res.json(profiles);
-            } else {
-                return res.json(sanitizeGalleryData(profiles));
-            }
-        }
+// Gallery cache rebuild function (runs in background)
+async function rebuildGalleryCache() {
+    if (galleryCacheBuilding) return;
+    galleryCacheBuilding = true;
 
+    const startTime = Date.now();
+    try {
         const profileFiles = await new Promise((resolve, reject) => {
             fs.readdir(profilesDir, (err, files) => {
                 if (err) reject(err);
-                else resolve(files.filter(file => 
-                    file.endsWith('.json') && 
+                else resolve(files.filter(file =>
+                    file.endsWith('.json') &&
                     !file.endsWith('_follows.json')
                 ));
             });
         });
 
         const showcaseProfiles = [];
-        let skippedFiles = 0;
 
-        for (let i = 0; i < profileFiles.length; i += 10) {
-            const batch = profileFiles.slice(i, i + 10);
-            
+        for (let i = 0; i < profileFiles.length; i += 25) {
+            const batch = profileFiles.slice(i, i + 25);
+
             const batchResults = await Promise.all(batch.map(async (file) => {
                 const characterId = file.replace('.json', '');
                 const filePath = path.join(profilesDir, file);
-                
+
                 try {
                     if (moderationDB.isProfileBanned(characterId)) {
                         return null;
                     }
 
                     const profileData = await readProfileAsync(filePath);
-                    
+
                     if (!isValidProfile(profileData)) {
-                        skippedFiles++;
                         return null;
                     }
-                    
+
                     if (profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2) {
                         const underscoreIndex = characterId.indexOf('_');
                         let csCharacterName, physicalCharacterName;
-                        
+
                         if (underscoreIndex > 0) {
                             csCharacterName = characterId.substring(0, underscoreIndex);
                             physicalCharacterName = characterId.substring(underscoreIndex + 1);
@@ -1862,13 +1845,11 @@ app.get("/gallery", async (req, res) => {
                             LastUpdated: profileData.LastUpdated || new Date().toISOString(),
                             ImageZoom: profileData.ImageZoom || 1.0,
                             ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
-                            IsNSFW: profileData.IsNSFW || false // Include NSFW flag
+                            IsNSFW: profileData.IsNSFW || false
                         };
                     }
                     return null;
                 } catch (err) {
-                    console.error(`[Error] Failed to process profile ${file}:`, err.message);
-                    skippedFiles++;
                     return null;
                 }
             }));
@@ -1876,25 +1857,57 @@ app.get("/gallery", async (req, res) => {
             batchResults.forEach(result => {
                 if (result) showcaseProfiles.push(result);
             });
+
+            // Yield to event loop between batches
+            await new Promise(resolve => setTimeout(resolve, 10));
         }
 
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
-        
+
         galleryCache = showcaseProfiles;
-        galleryCacheTime = now;
-        
-        // Apply NSFW filter
-        let filteredProfiles = showcaseProfiles;
+        galleryCacheTime = Date.now();
+        console.log(`📚 Gallery cache rebuilt: ${showcaseProfiles.length} profiles in ${Date.now() - startTime}ms`);
+    } catch (err) {
+        console.error(`Gallery cache rebuild error: ${err}`);
+    } finally {
+        galleryCacheBuilding = false;
+    }
+}
+
+// Gallery endpoint
+app.get("/gallery", async (req, res) => {
+    try {
+        const isPlugin = req.headers['x-plugin-auth'] === 'cs-plus-gallery-client';
+        const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
+        const showNSFW = req.query.nsfw === 'true'; // Client can request NSFW content
+
+        const now = Date.now();
+        const cacheStale = !galleryCache || (now - galleryCacheTime) >= CACHE_DURATION;
+
+        // Serve stale cache while rebuilding in background
+        if (cacheStale) {
+            if (galleryCache) {
+                // Cache exists but stale - trigger background rebuild
+                rebuildGalleryCache();
+            } else {
+                // No cache at all - must wait for initial build
+                await rebuildGalleryCache();
+            }
+        }
+
+        // Return from cache (may be stale but that's ok)
+        let profiles = galleryCache || [];
+
+        // Apply NSFW filter if requested
         if (!showNSFW && !isAdmin) {
-            filteredProfiles = showcaseProfiles.filter(profile => !profile.IsNSFW);
+            profiles = profiles.filter(profile => !profile.IsNSFW);
         }
-        
+
         if (isPlugin || isAdmin) {
-            res.json(filteredProfiles);
+            return res.json(profiles);
         } else {
-            res.json(sanitizeGalleryData(filteredProfiles));
+            return res.json(sanitizeGalleryData(profiles));
         }
-        
     } catch (err) {
         console.error('Gallery error:', err);
         res.status(500).json({ error: 'Failed to load gallery' });
@@ -2919,5 +2932,10 @@ app.listen(PORT, () => {
         console.log(`✅ Profiles lookup cache pre-warmed`);
     }).catch(err => {
         console.error(`⚠️ Profiles lookup cache pre-warm failed: ${err}`);
+    });
+    rebuildGalleryCache().then(() => {
+        console.log(`✅ Gallery cache pre-warmed`);
+    }).catch(err => {
+        console.error(`⚠️ Gallery cache pre-warm failed: ${err}`);
     });
 });
