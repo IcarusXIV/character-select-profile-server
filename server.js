@@ -1211,7 +1211,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         profile.LastActiveTime = new Date().toISOString();
 
         await atomicWriteProfile(filePath, profile);
-        galleryCache = null;
+        // Don't invalidate galleryCache here - let it refresh on 30-min schedule to avoid constant rebuilds
         // Incrementally update caches instead of full invalidation (scales better with 20k+ profiles)
         updateNamesCacheEntry(physicalCharacterName, csCharacterName, profile.NameplateColor, profile.Sharing, profile.AllowOthersToSeeMyCSName);
         updateProfilesLookupCacheEntry(physicalCharacterName, profile.Sharing);
@@ -1291,7 +1291,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         profile.LastActiveTime = new Date().toISOString();
 
         await atomicWriteProfile(filePath, profile);
-        galleryCache = null;
+        // Don't invalidate galleryCache here - let it refresh on 30-min schedule to avoid constant rebuilds
         // Incrementally update caches instead of full invalidation (scales better with 20k+ profiles)
         updateNamesCacheEntry(physicalCharacterName, csCharacterName, profile.NameplateColor, profile.Sharing, profile.AllowOthersToSeeMyCSName);
         updateProfilesLookupCacheEntry(physicalCharacterName, profile.Sharing);
@@ -1395,9 +1395,14 @@ app.get("/view/:name", async (req, res) => {
 // Now with caching for performance under load
 
 // Build/rebuild the names cache (non-blocking - serves stale while rebuilding)
-async function rebuildNamesCache() {
+async function rebuildNamesCache(waitForCompletion = false) {
     if (namesCacheBuilding) {
-        // Another rebuild is in progress, don't wait - caller will use existing cache
+        // If caller needs to wait for cache, poll until ready
+        if (waitForCompletion) {
+            while (namesCacheBuilding) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
         return;
     }
 
@@ -1589,7 +1594,7 @@ app.post("/names/lookup", async (req, res) => {
                 rebuildNamesCache(); // Don't await - runs in background
             } else {
                 // No cache at all - must wait for initial build
-                await rebuildNamesCache();
+                await rebuildNamesCache(true);
             }
         }
 
@@ -1620,9 +1625,14 @@ app.post("/names/lookup", async (req, res) => {
 // Separate from names lookup - checks if users have shared RP profiles
 // Does NOT require AllowOthersToSeeMyCSName - just checks if profile exists and is shared
 
-async function rebuildProfilesLookupCache() {
+async function rebuildProfilesLookupCache(waitForCompletion = false) {
     if (profilesLookupCacheBuilding) {
-        // Another rebuild is in progress, don't wait - caller will use existing cache
+        // If caller needs to wait for cache, poll until ready
+        if (waitForCompletion) {
+            while (profilesLookupCacheBuilding) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
         return;
     }
 
@@ -1757,7 +1767,7 @@ app.post("/profiles/lookup", async (req, res) => {
                 rebuildProfilesLookupCache(); // Don't await - runs in background
             } else {
                 // No cache at all - must wait for initial build
-                await rebuildProfilesLookupCache();
+                await rebuildProfilesLookupCache(true);
             }
         }
 
@@ -1782,8 +1792,16 @@ app.post("/profiles/lookup", async (req, res) => {
 });
 
 // Gallery cache rebuild function (runs in background)
-async function rebuildGalleryCache() {
-    if (galleryCacheBuilding) return;
+async function rebuildGalleryCache(waitForCompletion = false) {
+    if (galleryCacheBuilding) {
+        // If caller needs to wait for cache, poll until ready
+        if (waitForCompletion) {
+            while (galleryCacheBuilding) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+        return;
+    }
     galleryCacheBuilding = true;
 
     const startTime = Date.now();
@@ -1890,8 +1908,8 @@ app.get("/gallery", async (req, res) => {
                 // Cache exists but stale - trigger background rebuild
                 rebuildGalleryCache();
             } else {
-                // No cache at all - must wait for initial build
-                await rebuildGalleryCache();
+                // No cache at all - must wait for initial build (with waitForCompletion flag)
+                await rebuildGalleryCache(true);
             }
         }
 
