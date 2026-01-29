@@ -41,13 +41,13 @@ const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
 let namesCache = null;           // Map<physicalName, {csName, nameplateColor}>
 let namesCacheTime = 0;
 let namesCacheBuilding = false;  // Prevent concurrent rebuilds
-const NAMES_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes - reduced from 30s to prevent server overload
+const NAMES_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes - extended for 24k+ profiles
 
 // RP Profiles lookup caching - tracks who has shared profiles (for context menu)
 let profilesLookupCache = null;  // Set<physicalName> - users with shared profiles
 let profilesLookupCacheTime = 0;
 let profilesLookupCacheBuilding = false;
-const PROFILES_LOOKUP_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes - reduced from 30s to prevent server overload
+const PROFILES_LOOKUP_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes - extended for 24k+ profiles
 
 app.use(require('compression')());
 app.use(cors());
@@ -1393,13 +1393,10 @@ app.get("/view/:name", async (req, res) => {
 // Used for shared name replacement feature
 // Now with caching for performance under load
 
-// Build/rebuild the names cache
+// Build/rebuild the names cache (non-blocking - serves stale while rebuilding)
 async function rebuildNamesCache() {
     if (namesCacheBuilding) {
-        // Another rebuild is in progress, wait for it
-        while (namesCacheBuilding) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
+        // Another rebuild is in progress, don't wait - caller will use existing cache
         return;
     }
 
@@ -1581,17 +1578,25 @@ app.post("/names/lookup", async (req, res) => {
             return res.status(400).json({ error: "Invalid request: characters array required" });
         }
 
-        // Rebuild cache if stale or missing
+        // Check if cache needs refresh
         const now = Date.now();
-        if (!namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION) {
-            await rebuildNamesCache();
+        const cacheStale = !namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION;
+
+        if (cacheStale) {
+            if (namesCache) {
+                // Cache exists but stale - trigger background rebuild, serve stale data now
+                rebuildNamesCache(); // Don't await - runs in background
+            } else {
+                // No cache at all - must wait for initial build
+                await rebuildNamesCache();
+            }
         }
 
         // Limit batch size to prevent abuse
         const limitedChars = characters.slice(0, 50);
         const results = {};
 
-        // Fast lookup from cache
+        // Fast lookup from cache (may be stale but that's ok)
         for (const physicalName of limitedChars) {
             if (!physicalName || typeof physicalName !== 'string') continue;
 
@@ -1616,9 +1621,7 @@ app.post("/names/lookup", async (req, res) => {
 
 async function rebuildProfilesLookupCache() {
     if (profilesLookupCacheBuilding) {
-        while (profilesLookupCacheBuilding) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
+        // Another rebuild is in progress, don't wait - caller will use existing cache
         return;
     }
 
@@ -1743,17 +1746,25 @@ app.post("/profiles/lookup", async (req, res) => {
             return res.status(400).json({ error: "Invalid request: characters array required" });
         }
 
-        // Rebuild cache if stale or missing
+        // Check if cache needs refresh
         const now = Date.now();
-        if (!profilesLookupCache || (now - profilesLookupCacheTime) > PROFILES_LOOKUP_CACHE_DURATION) {
-            await rebuildProfilesLookupCache();
+        const cacheStale = !profilesLookupCache || (now - profilesLookupCacheTime) > PROFILES_LOOKUP_CACHE_DURATION;
+
+        if (cacheStale) {
+            if (profilesLookupCache) {
+                // Cache exists but stale - trigger background rebuild, serve stale data now
+                rebuildProfilesLookupCache(); // Don't await - runs in background
+            } else {
+                // No cache at all - must wait for initial build
+                await rebuildProfilesLookupCache();
+            }
         }
 
         // Limit batch size to prevent abuse
         const limitedChars = characters.slice(0, 50);
         const results = {};
 
-        // Fast lookup from cache
+        // Fast lookup from cache (may be stale but that's ok)
         for (const physicalName of limitedChars) {
             if (!physicalName || typeof physicalName !== 'string') continue;
 
@@ -2896,4 +2907,17 @@ app.listen(PORT, () => {
     } else {
         console.log(`⚠️  Admin access disabled - set ADMIN_SECRET_KEY environment variable to enable`);
     }
+
+    // Pre-warm caches in background so first requests don't wait
+    console.log(`🔄 Pre-warming caches in background...`);
+    rebuildNamesCache().then(() => {
+        console.log(`✅ Names cache pre-warmed`);
+    }).catch(err => {
+        console.error(`⚠️ Names cache pre-warm failed: ${err}`);
+    });
+    rebuildProfilesLookupCache().then(() => {
+        console.log(`✅ Profiles lookup cache pre-warmed`);
+    }).catch(err => {
+        console.error(`⚠️ Profiles lookup cache pre-warm failed: ${err}`);
+    });
 });
