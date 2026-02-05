@@ -380,6 +380,7 @@ class ModerationDatabase {
     constructor() {
         this.actions = [];
         this.bannedProfiles = new Set();
+        this.bannedUsers = new Set(); // Physical names banned from ALL uploads (user-level ban)
         this.nameBannedUsers = new Set(); // Physical names banned from CS+ Names feature
         this.nameWarnings = []; // Warning records for the 3-strike system
         this.userStrikeCounts = new Map(); // physicalName -> strike count
@@ -392,15 +393,17 @@ class ModerationDatabase {
                 const data = JSON.parse(fs.readFileSync(moderationDbFile, 'utf-8'));
                 this.actions = data.actions || [];
                 this.bannedProfiles = new Set(data.bannedProfiles || []);
+                this.bannedUsers = new Set(data.bannedUsers || []);
                 this.nameBannedUsers = new Set(data.nameBannedUsers || []);
                 this.nameWarnings = data.nameWarnings || [];
                 this.userStrikeCounts = new Map(data.userStrikeCounts || []);
-                console.log(`🛡️ Loaded ${this.actions.length} moderation actions, ${this.bannedProfiles.size} banned profiles, ${this.nameBannedUsers.size} name-banned users, ${this.nameWarnings.length} name warnings`);
+                console.log(`🛡️ Loaded ${this.actions.length} moderation actions, ${this.bannedProfiles.size} banned profiles, ${this.bannedUsers.size} banned users, ${this.nameBannedUsers.size} name-banned users, ${this.nameWarnings.length} name warnings`);
             }
         } catch (err) {
             console.error('Error loading moderation database:', err);
             this.actions = [];
             this.bannedProfiles = new Set();
+            this.bannedUsers = new Set();
             this.nameBannedUsers = new Set();
             this.nameWarnings = [];
             this.userStrikeCounts = new Map();
@@ -412,6 +415,7 @@ class ModerationDatabase {
             const data = {
                 actions: this.actions,
                 bannedProfiles: Array.from(this.bannedProfiles),
+                bannedUsers: Array.from(this.bannedUsers),
                 nameBannedUsers: Array.from(this.nameBannedUsers),
                 nameWarnings: this.nameWarnings,
                 userStrikeCounts: Array.from(this.userStrikeCounts.entries()),
@@ -471,16 +475,54 @@ class ModerationDatabase {
 
     banProfile(characterId) {
         this.bannedProfiles.add(characterId);
+        // Also ban the physical user to prevent evasion by renaming CS+ character
+        const physicalName = this.extractPhysicalName(characterId);
+        if (physicalName) {
+            this.bannedUsers.add(physicalName);
+        }
         this.save();
     }
 
     unbanProfile(characterId) {
         this.bannedProfiles.delete(characterId);
+        // Also unban the physical user
+        const physicalName = this.extractPhysicalName(characterId);
+        if (physicalName) {
+            this.bannedUsers.delete(physicalName);
+        }
         this.save();
+    }
+
+    // Extract physical name from characterId (format: "CSName_FirstName LastName@World")
+    extractPhysicalName(characterId) {
+        const underscoreIndex = characterId.indexOf('_');
+        if (underscoreIndex > 0) {
+            return characterId.substring(underscoreIndex + 1);
+        }
+        return null;
     }
 
     isProfileBanned(characterId) {
         return this.bannedProfiles.has(characterId);
+    }
+
+    // User bans - prevents ALL uploads from a physical character
+    banUser(physicalName) {
+        this.bannedUsers.add(physicalName);
+        this.save();
+    }
+
+    unbanUser(physicalName) {
+        this.bannedUsers.delete(physicalName);
+        this.save();
+    }
+
+    isUserBanned(physicalName) {
+        return this.bannedUsers.has(physicalName);
+    }
+
+    getBannedUsers() {
+        return Array.from(this.bannedUsers);
     }
 
     // Name bans - prevents CS+ name from showing to others
@@ -1181,6 +1223,11 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         const characterId = newFileName;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
 
+        // Check if user is banned (blocks ALL uploads from this physical character)
+        if (moderationDB.isUserBanned(physicalCharacterName)) {
+            return res.status(403).json({ error: 'User has been banned from uploading profiles' });
+        }
+
         if (moderationDB.isProfileBanned(characterId)) {
             return res.status(403).json({ error: 'Profile has been banned from the gallery' });
         }
@@ -1260,6 +1307,11 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         const newFileName = `${sanitizedCSName}_${physicalCharacterName}`;
         const characterId = newFileName;
         const filePath = path.join(profilesDir, `${newFileName}.json`);
+
+        // Check if user is banned (blocks ALL uploads from this physical character)
+        if (moderationDB.isUserBanned(physicalCharacterName)) {
+            return res.status(403).json({ error: 'User has been banned from uploading profiles' });
+        }
 
         if (moderationDB.isProfileBanned(characterId)) {
             return res.status(403).json({ error: 'Profile has been banned from the gallery' });
@@ -2419,19 +2471,33 @@ app.post("/admin/profiles/:characterId/ban", requireAdmin, (req, res) => {
     }
 });
 
-// Unban profile (admin only)
+// Unban profile (admin only) - legacy endpoint for characterId-based unbans
 app.post("/admin/profiles/:characterId/unban", requireAdmin, (req, res) => {
     try {
         const characterId = decodeURIComponent(req.params.characterId);
         const { reason } = req.body;
         const adminId = req.adminId;
-        
-        moderationDB.unbanProfile(characterId);
-        moderationDB.logAction('unban', characterId, characterId, reason || 'No reason provided', adminId);
-        
-        console.log(`🛡️ Profile ${characterId} unbanned by ${adminId}`);
+
+        // Check if this looks like a physical name (contains @ but no underscore before it)
+        // Physical names: "John Smith@Balmung"
+        // CharacterIds: "CS_Name_John Smith@Balmung"
+        const underscoreIndex = characterId.indexOf('_');
+        const atIndex = characterId.indexOf('@');
+
+        if (atIndex > 0 && (underscoreIndex < 0 || underscoreIndex > atIndex)) {
+            // This is a physical name, unban the user directly
+            moderationDB.unbanUser(characterId);
+            moderationDB.logAction('unban', characterId, characterId, reason || 'No reason provided', adminId);
+            console.log(`🛡️ User ${characterId} unbanned by ${adminId}`);
+        } else {
+            // This is a characterId, use the old method
+            moderationDB.unbanProfile(characterId);
+            moderationDB.logAction('unban', characterId, characterId, reason || 'No reason provided', adminId);
+            console.log(`🛡️ Profile ${characterId} unbanned by ${adminId}`);
+        }
+
         res.json({ success: true });
-        
+
     } catch (error) {
         console.error('Unban profile error:', error);
         res.status(500).json({ error: 'Failed to unban profile' });
@@ -2449,14 +2515,14 @@ app.get("/admin/moderation/actions", requireAdmin, (req, res) => {
     }
 });
 
-// Get banned profiles (admin only)
+// Get banned users (admin only) - returns physical names banned from uploading
 app.get("/admin/moderation/banned", requireAdmin, (req, res) => {
     try {
-        const bannedProfiles = Array.from(moderationDB.bannedProfiles);
-        res.json(bannedProfiles);
+        const bannedUsers = moderationDB.getBannedUsers();
+        res.json(bannedUsers);
     } catch (error) {
-        console.error('Get banned profiles error:', error);
-        res.status(500).json({ error: 'Failed to get banned profiles' });
+        console.error('Get banned users error:', error);
+        res.status(500).json({ error: 'Failed to get banned users' });
     }
 });
 
@@ -2532,10 +2598,21 @@ app.get("/admin/moderation/namebanned", requireAdmin, (req, res) => {
     }
 });
 
-// Get all name warnings (admin)
+// Get name warnings (admin) - supports status filtering
 app.get("/admin/names/warnings", requireAdmin, (req, res) => {
     try {
-        const warnings = moderationDB.getAllNameWarnings();
+        const { status } = req.query;
+        let warnings = moderationDB.getAllNameWarnings();
+
+        if (status === 'active') {
+            // Active warnings: not resolved (still needs action or is permaban)
+            warnings = warnings.filter(w => !w.resolved);
+        } else if (status === 'resolved') {
+            // Resolved warnings: user successfully changed name and it was approved
+            warnings = warnings.filter(w => w.resolved);
+        }
+        // Default: return all warnings
+
         res.json(warnings);
     } catch (error) {
         console.error('Get name warnings error:', error);
@@ -2543,7 +2620,7 @@ app.get("/admin/names/warnings", requireAdmin, (req, res) => {
     }
 });
 
-// Get pending review warnings (admin) - strike 2 users who changed names
+// Get pending review warnings (admin) - strike 2 users who changed names and need approval
 app.get("/admin/names/pending-review", requireAdmin, (req, res) => {
     try {
         const pendingWarnings = moderationDB.getPendingReviewWarnings();
@@ -2551,6 +2628,22 @@ app.get("/admin/names/pending-review", requireAdmin, (req, res) => {
     } catch (error) {
         console.error('Get pending review warnings error:', error);
         res.status(500).json({ error: 'Failed to get pending review warnings' });
+    }
+});
+
+// Get resolved reviews (admin) - approved or rejected name changes
+app.get("/admin/names/resolved-reviews", requireAdmin, (req, res) => {
+    try {
+        const allWarnings = moderationDB.getAllNameWarnings();
+        // Resolved reviews: had pendingReview at some point and now resolved or rejected
+        const resolvedReviews = allWarnings.filter(w =>
+            w.resolved || // Approved
+            (w.rejectionReason && !w.pendingReview) // Rejected
+        );
+        res.json(resolvedReviews);
+    } catch (error) {
+        console.error('Get resolved reviews error:', error);
+        res.status(500).json({ error: 'Failed to get resolved reviews' });
     }
 });
 
@@ -2793,7 +2886,7 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
             pendingReports: pendingReports.length,
             newReportsToday,
             newReportsThisWeek,
-            totalBanned: moderationDB.bannedProfiles.size,
+            totalBanned: moderationDB.bannedUsers.size,
             totalAnnouncements: announcementsDB.getAllAnnouncements().length,
             activeAnnouncements: announcementsDB.getActiveAnnouncements().length,
             recentActions: moderationDB.getActions().slice(0, 10),
