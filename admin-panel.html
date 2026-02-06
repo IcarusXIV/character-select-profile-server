@@ -1398,6 +1398,8 @@
         let currentGalleryPage = 1;
         let currentAllProfilesPage = 1;
         let allProfilesData = [];
+        let _cachedAllProfilesFiltered = null;
+        let _cachedGalleryFiltered = null;
         const profilesPerPage = 50;
         let currentReportFilter = 'all';
         let currentWarningFilter = 'all';
@@ -1744,6 +1746,7 @@
                     const data = await response.json();
                     // Server returns array directly when admin auth is provided
                     profiles = Array.isArray(data) ? data : (data.profiles || []);
+                    _cachedGalleryFiltered = null;
                     // Pre-parse dates and search fields once on load
                     profiles.forEach(p => {
                         p._ts = new Date(p.LastUpdated || 0).getTime();
@@ -1763,6 +1766,7 @@
                 const response = await fetch(`${serverUrl}/profiles/all?admin=true&key=${adminKey}`);
                 if (response.ok) {
                     allProfilesData = await response.json();
+                    _cachedAllProfilesFiltered = null;
                     // Pre-parse dates and search fields once on load
                     allProfilesData.forEach(p => {
                         p._ts = new Date(p.LastUpdated || 0).getTime();
@@ -1818,6 +1822,7 @@
                 filtered.sort((a, b) => (a._searchName || '').localeCompare(b._searchName || ''));
             }
 
+            _cachedAllProfilesFiltered = filtered;
             renderAllProfilesPage(filtered);
         }
 
@@ -1880,7 +1885,11 @@
 
         function changeAllProfilesPage(page) {
             currentAllProfilesPage = page;
-            filterAllProfiles();
+            if (_cachedAllProfilesFiltered) {
+                renderAllProfilesPage(_cachedAllProfilesFiltered);
+            } else {
+                filterAllProfiles();
+            }
         }
 
         async function loadActivity() {
@@ -2703,6 +2712,7 @@
                 filtered.sort((a, b) => (a._searchName || '').localeCompare(b._searchName || ''));
             }
 
+            _cachedGalleryFiltered = filtered;
             renderGalleryPage(filtered);
         }
 
@@ -2760,7 +2770,11 @@
 
         function changePage(page) {
             currentGalleryPage = page;
-            filterGallery();
+            if (_cachedGalleryFiltered) {
+                renderGalleryPage(_cachedGalleryFiltered);
+            } else {
+                filterGallery();
+            }
         }
 
         function toggleProfileSelection(characterId, event) {
@@ -3521,6 +3535,8 @@
                     p._searchName.includes(query) ||
                     p._searchId.includes(query)
                 );
+                _cachedAllProfilesFiltered = filtered;
+                currentAllProfilesPage = 1;
                 renderAllProfilesPage(filtered);
             } else if (activePage === 'page-gallery') {
                 // Search gallery using pre-computed lowercase fields
@@ -3528,6 +3544,8 @@
                     p._searchName.includes(query) ||
                     p._searchId.includes(query)
                 );
+                _cachedGalleryFiltered = filtered;
+                currentGalleryPage = 1;
                 renderGalleryPage(filtered);
             } else if (activePage === 'page-reports') {
                 // Search reports
@@ -3603,4 +3621,3 @@
     </script>
 </body>
 </html>
-
