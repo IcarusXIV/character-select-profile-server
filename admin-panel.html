@@ -90,7 +90,7 @@
             border-radius: 8px;
             cursor: pointer;
             color: var(--text-secondary);
-            transition: all 0.15s;
+            transition: background-color 0.15s, color 0.15s;
             font-size: 0.9em;
         }
 
@@ -182,7 +182,7 @@
             cursor: pointer;
             font-size: 0.85em;
             font-weight: 500;
-            transition: all 0.15s;
+            transition: background-color 0.15s, color 0.15s;
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -209,7 +209,7 @@
             color: var(--text-secondary);
             cursor: pointer;
             font-size: 0.9em;
-            transition: all 0.15s;
+            transition: background-color 0.15s, color 0.15s, border-color 0.15s;
         }
         .tab:hover { background: var(--bg-hover); color: var(--text-primary); }
         .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
@@ -351,7 +351,7 @@
             background: var(--bg-tertiary);
             color: var(--text-secondary);
             cursor: pointer;
-            transition: all 0.15s;
+            transition: background-color 0.15s, color 0.15s;
         }
 
         .filter-chip:hover { background: var(--bg-hover); }
@@ -367,7 +367,7 @@
             padding: 12px;
             border-radius: 8px;
             cursor: pointer;
-            transition: all 0.15s;
+            transition: background-color 0.15s, border-color 0.15s;
             margin-bottom: 4px;
         }
 
@@ -515,7 +515,7 @@
             background: var(--bg-tertiary);
             border-radius: 8px;
             cursor: pointer;
-            transition: all 0.15s;
+            transition: background-color 0.15s;
         }
 
         .priority-item:hover { background: var(--bg-hover); }
@@ -589,7 +589,7 @@
             border-radius: 12px;
             overflow: hidden;
             cursor: pointer;
-            transition: all 0.15s;
+            transition: border-color 0.15s, transform 0.15s, background-color 0.15s;
             position: relative;
         }
 
@@ -962,7 +962,7 @@
             <div class="topbar-left">
                 <div class="search-box">
                     <span>🔍</span>
-                    <input type="text" placeholder="Search profiles, reports..." id="globalSearch" onkeyup="handleSearch()">
+                    <input type="text" placeholder="Search profiles, reports..." id="globalSearch" onkeyup="debouncedSearch()">
                 </div>
             </div>
             <div class="topbar-right">
@@ -1503,53 +1503,34 @@
 
         // ============ AUTO-REFRESH ============
         let autoRefreshInterval = null;
-        let activityRefreshInterval = null;
         const AUTO_REFRESH_SECONDS = 30;
-        const ACTIVITY_REFRESH_SECONDS = 10;
 
         function startAutoRefresh() {
-            stopAutoRefresh(); // Clear any existing intervals
+            stopAutoRefresh();
 
-            // Main refresh for all data (30 seconds)
+            // Single 30-second interval for all key data
             autoRefreshInterval = setInterval(async () => {
                 if (!isAuthenticated) return;
                 try {
-                    // Silently refresh key data
                     await Promise.all([
                         loadDashboard(),
                         loadReports(),
                         loadWarnings(),
-                        loadFlagged()
+                        loadFlagged(),
+                        loadActivity()
                     ]);
-                    // Load activity separately then update dashboard's recent activity
-                    await loadActivity();
                     updateDashboardActivity();
                     updateBadges();
                 } catch (error) {
                     console.error('Auto-refresh failed:', error);
                 }
             }, AUTO_REFRESH_SECONDS * 1000);
-
-            // Faster refresh for activity only (10 seconds) - live updates
-            activityRefreshInterval = setInterval(async () => {
-                if (!isAuthenticated) return;
-                try {
-                    await loadActivity();
-                    updateDashboardActivity();
-                } catch (error) {
-                    console.error('Activity refresh failed:', error);
-                }
-            }, ACTIVITY_REFRESH_SECONDS * 1000);
         }
 
         function stopAutoRefresh() {
             if (autoRefreshInterval) {
                 clearInterval(autoRefreshInterval);
                 autoRefreshInterval = null;
-            }
-            if (activityRefreshInterval) {
-                clearInterval(activityRefreshInterval);
-                activityRefreshInterval = null;
             }
         }
 
@@ -1763,6 +1744,12 @@
                     const data = await response.json();
                     // Server returns array directly when admin auth is provided
                     profiles = Array.isArray(data) ? data : (data.profiles || []);
+                    // Pre-parse dates and search fields once on load
+                    profiles.forEach(p => {
+                        p._ts = new Date(p.LastUpdated || 0).getTime();
+                        p._searchName = (p.CharacterName || '').toLowerCase();
+                        p._searchId = (p.CharacterId || '').toLowerCase();
+                    });
                     console.log('Gallery loaded:', profiles.length, 'profiles');
                     updateGallery();
                 }
@@ -1776,6 +1763,12 @@
                 const response = await fetch(`${serverUrl}/profiles/all?admin=true&key=${adminKey}`);
                 if (response.ok) {
                     allProfilesData = await response.json();
+                    // Pre-parse dates and search fields once on load
+                    allProfilesData.forEach(p => {
+                        p._ts = new Date(p.LastUpdated || 0).getTime();
+                        p._searchName = (p.CharacterName || '').toLowerCase();
+                        p._searchId = (p.CharacterId || '').toLowerCase();
+                    });
                     console.log('All profiles loaded:', allProfilesData.length, 'profiles');
                     updateAllProfiles();
                 }
@@ -1804,28 +1797,25 @@
             const nsfwFilter = document.getElementById('allNsfwFilter').value;
             const sortFilter = document.getElementById('allSortFilter').value;
 
-            let filtered = [...allProfilesData];
+            // Filter directly without copying first
+            let filtered = allProfilesData;
+            if (serverFilter) filtered = filtered.filter(p => p.Server === serverFilter);
+            if (sharingFilter) filtered = filtered.filter(p => p.Sharing === sharingFilter);
+            if (nsfwFilter === 'sfw') filtered = filtered.filter(p => !p.IsNSFW);
+            else if (nsfwFilter === 'nsfw') filtered = filtered.filter(p => p.IsNSFW);
 
-            // Apply filters
-            if (serverFilter) {
-                filtered = filtered.filter(p => p.Server === serverFilter);
-            }
-            if (sharingFilter) {
-                filtered = filtered.filter(p => p.Sharing === sharingFilter);
-            }
-            if (nsfwFilter === 'sfw') {
-                filtered = filtered.filter(p => !p.IsNSFW);
-            } else if (nsfwFilter === 'nsfw') {
-                filtered = filtered.filter(p => p.IsNSFW);
-            }
-
-            // Apply sort
+            // Sort uses pre-parsed timestamps
             if (sortFilter === 'recent') {
-                filtered.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
+                // .filter() already created a new array, safe to sort in-place
+                // If no filters applied, we need to copy to avoid mutating original
+                if (filtered === allProfilesData) filtered = filtered.slice();
+                filtered.sort((a, b) => b._ts - a._ts);
             } else if (sortFilter === 'likes') {
-                filtered.sort((a, b) => b.LikeCount - a.LikeCount);
+                if (filtered === allProfilesData) filtered = filtered.slice();
+                filtered.sort((a, b) => (b.LikeCount || 0) - (a.LikeCount || 0));
             } else if (sortFilter === 'name') {
-                filtered.sort((a, b) => (a.CharacterName || '').localeCompare(b.CharacterName || ''));
+                if (filtered === allProfilesData) filtered = filtered.slice();
+                filtered.sort((a, b) => (a._searchName || '').localeCompare(b._searchName || ''));
             }
 
             renderAllProfilesPage(filtered);
@@ -1858,7 +1848,7 @@
                             <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
                             <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'delete')" title="Delete">🗑️</button>
                         </div>
-                        <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
+                        <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
                             <div class="gallery-card-name">
                                 ${p.CharacterName || 'Unknown'}
@@ -1868,7 +1858,7 @@
                             </div>
                             <div class="gallery-card-server">${server}</div>
                             <div class="gallery-card-stats">
-                                ❤️ ${p.LikeCount || 0} • Updated: ${new Date(p.LastUpdated).toLocaleDateString()}
+                                ❤️ ${p.LikeCount || 0} • Updated: ${p._ts ? new Date(p._ts).toLocaleDateString() : 'Unknown'}
                             </div>
                         </div>
                     </div>
@@ -1905,6 +1895,35 @@
         async function refreshAll() {
             showToast('Refreshing...', 'success');
             await loadAllData();
+        }
+
+        // Targeted refresh functions - avoid re-downloading all data after every action
+        async function refreshAfterReportAction() {
+            await Promise.all([loadReports(), loadDashboard()]);
+            updateBadges();
+        }
+
+        async function refreshAfterProfileAction() {
+            await loadDashboard();
+            const activePage = document.querySelector('.page.active')?.id;
+            if (activePage === 'page-gallery') await loadGallery();
+            else if (activePage === 'page-allprofiles') await loadAllProfiles();
+            updateBadges();
+        }
+
+        async function refreshAfterWarningAction() {
+            await Promise.all([loadWarnings(), loadPendingReviews(), loadDashboard()]);
+            updateBadges();
+        }
+
+        async function refreshAfterBanAction() {
+            await Promise.all([loadBanned(), loadDashboard()]);
+            updateBadges();
+        }
+
+        async function refreshAfterFlaggedAction() {
+            await Promise.all([loadFlagged(), loadDashboard()]);
+            updateBadges();
         }
 
         // ============ BADGES ============
@@ -2093,7 +2112,7 @@
                 const typeLabel = isNameReport ? 'Name' : (report.reason || 'Profile');
                 const statusBadge = isArchived ? `<span class="list-item-badge" style="background: ${report.status === 'resolved' ? 'var(--success)' : 'var(--text-muted)'}">${report.status}</span>` : '';
                 return `
-                    <div class="list-item ${selectedReportId === report.id ? 'selected' : ''}" onclick="selectReport('${report.id}')">
+                    <div class="list-item ${selectedReportId === report.id ? 'selected' : ''}" data-id="${report.id}" onclick="selectReport('${report.id}')">
                         <div class="list-item-header">
                             <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">${isNameReport ? '✏️' : '🚨'}</div>
                             <div class="list-item-info">
@@ -2117,8 +2136,12 @@
         }
 
         function selectReport(id) {
+            // Toggle CSS class instead of re-rendering entire list
+            const oldSel = document.querySelector('#reportsList .list-item.selected');
+            if (oldSel) oldSel.classList.remove('selected');
             selectedReportId = id;
-            updateReportsList();
+            const newSel = document.querySelector(`#reportsList .list-item[data-id="${id}"]`);
+            if (newSel) newSel.classList.add('selected');
 
             const isArchived = currentReportTab === 'archived';
             const sourceReports = isArchived ? archivedReports : reports;
@@ -2272,8 +2295,9 @@
                         await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason });
                         await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: reason });
                         showToast(`Profile removed`, 'success');
-                        await loadAllData();
                         showReportEmptyState();
+                        await refreshAfterReportAction();
+                        await refreshAfterProfileAction();
                     });
                 } else if (action === 'warning') {
                     openModal('Issue Name Warning', report.offensiveCSName, 'This name was reported. Add a note:', 'btn-warning', 'Issue Strike', async (reason) => {
@@ -2285,28 +2309,30 @@
                         });
                         await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: 'Warning issued' });
                         showToast(`Strike issued for "${report.offensiveCSName}"`, 'warning');
-                        await loadAllData();
                         showReportEmptyState();
+                        await refreshAfterReportAction();
                     });
                 } else if (action === 'nsfw') {
                     await apiPatch(`/admin/profiles/${encodeURIComponent(characterId)}/nsfw`, { isNSFW: true });
                     await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: 'Marked as NSFW' });
                     showToast('Profile marked as NSFW', 'success');
-                    await loadAllData();
                     showReportEmptyState();
+                    await refreshAfterReportAction();
+                    await refreshAfterProfileAction();
                 } else if (action === 'ban') {
                     openModal('Ban User', report.reportedCharacterName, 'Reason for ban', 'btn-danger', 'Ban User', async (reason) => {
                         await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason, ban: true });
                         await apiPatch(`/admin/reports/${reportId}`, { status: 'resolved', adminNotes: 'User banned' });
                         showToast('User banned', 'success');
-                        await loadAllData();
                         showReportEmptyState();
+                        await refreshAfterReportAction();
+                        await refreshAfterProfileAction();
                     });
                 } else if (action === 'dismiss') {
                     await apiPatch(`/admin/reports/${reportId}`, { status: 'dismissed', adminNotes: 'Dismissed by admin' });
                     showToast('Report dismissed', 'success');
-                    await loadAllData();
                     showReportEmptyState();
+                    await refreshAfterReportAction();
                 }
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
@@ -2352,7 +2378,7 @@
                 const statusText = warning.status === 'permaban' ? 'Permaban' : `Strike ${warning.strikeNumber}`;
                 const resolvedBadge = isResolved ? `<span class="list-item-badge" style="background: var(--success)">Resolved</span>` : '';
                 return `
-                    <div class="list-item ${selectedWarningId === warning.id ? 'selected' : ''}" onclick="selectWarning('${warning.id}')">
+                    <div class="list-item ${selectedWarningId === warning.id ? 'selected' : ''}" data-id="${warning.id}" onclick="selectWarning('${warning.id}')">
                         <div class="list-item-header">
                             <div class="list-item-info">
                                 <div class="list-item-name">${warning.physicalName.split('@')[0]}</div>
@@ -2375,8 +2401,11 @@
         }
 
         function selectWarning(id) {
+            const oldSel = document.querySelector('#warningsList .list-item.selected');
+            if (oldSel) oldSel.classList.remove('selected');
             selectedWarningId = id;
-            updateWarningsList();
+            const newSel = document.querySelector(`#warningsList .list-item[data-id="${id}"]`);
+            if (newSel) newSel.classList.add('selected');
 
             const sourceWarnings = currentWarningsTab === 'resolved' ? resolvedWarnings : nameWarnings;
             const warning = sourceWarnings.find(w => w.id === id);
@@ -2441,7 +2470,7 @@
                     ? `"${review.offensiveCSName}" → "${review.newCSName}"`
                     : `"${review.offensiveCSName}"`;
                 return `
-                    <div class="list-item ${selectedReviewId === review.id ? 'selected' : ''}" onclick="selectReview('${review.id}')">
+                    <div class="list-item ${selectedReviewId === review.id ? 'selected' : ''}" data-id="${review.id}" onclick="selectReview('${review.id}')">
                         <div class="list-item-header">
                             <div class="list-item-info">
                                 <div class="list-item-name">${review.physicalName.split('@')[0]}</div>
@@ -2456,8 +2485,11 @@
         }
 
         function selectReview(id) {
+            const oldSel = document.querySelector('#reviewsList .list-item.selected');
+            if (oldSel) oldSel.classList.remove('selected');
             selectedReviewId = id;
-            updateReviewsList();
+            const newSel = document.querySelector(`#reviewsList .list-item[data-id="${id}"]`);
+            if (newSel) newSel.classList.add('selected');
 
             const sourceReviews = currentReviewsTab === 'resolved' ? resolvedReviews : pendingReviews;
             const review = sourceReviews.find(r => r.id === id);
@@ -2512,7 +2544,6 @@
                     await apiPost(`/admin/names/reject/${reviewId}`);
                     showToast('Name change rejected', 'warning');
                 }
-                await loadAllData();
                 selectedReviewId = null;
                 document.getElementById('reviewDetail').innerHTML = `
                     <div class="empty-state">
@@ -2521,6 +2552,7 @@
                         <p>Select another review or you're all caught up!</p>
                     </div>
                 `;
+                await refreshAfterWarningAction();
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
             }
@@ -2539,7 +2571,7 @@
             }
 
             list.innerHTML = flaggedContent.map(flagged => `
-                <div class="list-item ${selectedFlaggedId === flagged.id ? 'selected' : ''}" onclick="selectFlagged('${flagged.id}')">
+                <div class="list-item ${selectedFlaggedId === flagged.id ? 'selected' : ''}" data-id="${flagged.id}" onclick="selectFlagged('${flagged.id}')">
                     <div class="list-item-header">
                         <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">🚩</div>
                         <div class="list-item-info">
@@ -2553,8 +2585,11 @@
         }
 
         function selectFlagged(id) {
+            const oldSel = document.querySelector('#flaggedList .list-item.selected');
+            if (oldSel) oldSel.classList.remove('selected');
             selectedFlaggedId = id;
-            updateFlaggedList();
+            const newSel = document.querySelector(`#flaggedList .list-item[data-id="${id}"]`);
+            if (newSel) newSel.classList.add('selected');
 
             const flagged = flaggedContent.find(f => f.id === id);
             const detail = document.getElementById('flaggedDetail');
@@ -2603,20 +2638,22 @@
                         await apiDelete(`/admin/profiles/${encodeURIComponent(flagged.characterId)}`, { reason });
                         await apiPatch(`/admin/flagged/${flaggedId}`, { status: 'removed' });
                         showToast('Profile removed', 'success');
-                        await loadAllData();
                         showFlaggedEmptyState();
+                        await refreshAfterFlaggedAction();
+                        await refreshAfterProfileAction();
                     });
                 } else if (action === 'nsfw') {
                     await apiPatch(`/admin/profiles/${encodeURIComponent(flagged.characterId)}/nsfw`, { isNSFW: true });
                     await apiPatch(`/admin/flagged/${flaggedId}`, { status: 'resolved' });
                     showToast('Marked as NSFW', 'success');
-                    await loadAllData();
                     showFlaggedEmptyState();
+                    await refreshAfterFlaggedAction();
+                    await refreshAfterProfileAction();
                 } else if (action === 'dismiss') {
                     await apiPatch(`/admin/flagged/${flaggedId}`, { status: 'dismissed' });
                     showToast('Flag dismissed', 'success');
-                    await loadAllData();
                     showFlaggedEmptyState();
+                    await refreshAfterFlaggedAction();
                 }
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
@@ -2651,24 +2688,19 @@
             const nsfw = document.getElementById('nsfwFilter').value;
             const sort = document.getElementById('sortFilter').value;
 
+            // First filter always creates new array (removed check)
             let filtered = profiles.filter(p => !p.removed);
+            if (server) filtered = filtered.filter(p => p.CharacterId?.includes(`@${server}`));
+            if (nsfw === 'nsfw') filtered = filtered.filter(p => p.IsNSFW === true);
+            else if (nsfw === 'sfw') filtered = filtered.filter(p => !p.IsNSFW);
 
-            if (server) {
-                filtered = filtered.filter(p => p.CharacterId?.includes(`@${server}`));
-            }
-
-            if (nsfw === 'nsfw') {
-                filtered = filtered.filter(p => p.IsNSFW === true);
-            } else if (nsfw === 'sfw') {
-                filtered = filtered.filter(p => !p.IsNSFW);
-            }
-
+            // Sort uses pre-parsed timestamps
             if (sort === 'likes') {
                 filtered.sort((a, b) => (b.LikeCount || 0) - (a.LikeCount || 0));
             } else if (sort === 'recent') {
-                filtered.sort((a, b) => new Date(b.LastUpdated || 0) - new Date(a.LastUpdated || 0));
+                filtered.sort((a, b) => b._ts - a._ts);
             } else if (sort === 'name') {
-                filtered.sort((a, b) => (a.CharacterName || '').localeCompare(b.CharacterName || ''));
+                filtered.sort((a, b) => (a._searchName || '').localeCompare(b._searchName || ''));
             }
 
             renderGalleryPage(filtered);
@@ -2697,7 +2729,7 @@
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'delete')" title="Delete">🗑️</button>
                         </div>
-                        <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
+                        <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
                             <div class="gallery-card-name">
                                 ${name}
@@ -2791,7 +2823,7 @@
                     }
                     showToast(`${count} profiles removed`, 'success');
                     clearSelection();
-                    await loadAllData();
+                    await refreshAfterProfileAction();
                 });
             } else if (action === 'ban') {
                 openModal('Bulk Ban', `${count} profiles`, 'Reason for ban', 'btn-danger', 'Ban All', async (reason) => {
@@ -2802,7 +2834,7 @@
                     }
                     showToast(`${count} profiles banned`, 'success');
                     clearSelection();
-                    await loadAllData();
+                    await refreshAfterProfileAction();
                 });
             } else if (action === 'nsfw') {
                 for (const id of ids) {
@@ -2812,7 +2844,7 @@
                 }
                 showToast(`${count} profiles marked as NSFW`, 'success');
                 clearSelection();
-                await loadAllData();
+                await refreshAfterProfileAction();
             }
         }
 
@@ -2887,18 +2919,18 @@
                 } else if (action === 'nsfw') {
                     await apiPatch(`/admin/profiles/${encodeURIComponent(characterId)}/nsfw`, { isNSFW: true });
                     showToast(`"${name}" marked as NSFW`, 'success');
-                    await loadAllData();
+                    await refreshAfterProfileAction();
                 } else if (action === 'remove') {
                     openModal('Remove Profile', name, 'Reason for removal', 'btn-danger', 'Remove', async (reason) => {
                         await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason });
                         showToast(`"${name}" removed`, 'success');
-                        await loadAllData();
+                        await refreshAfterProfileAction();
                     });
                 } else if (action === 'ban') {
                     openModal('Ban User', name, 'Reason for ban', 'btn-danger', 'Ban', async (reason) => {
                         await apiDelete(`/admin/profiles/${encodeURIComponent(characterId)}`, { reason, ban: true });
                         showToast(`"${name}" banned`, 'success');
-                        await loadAllData();
+                        await refreshAfterProfileAction();
                     });
                 }
             } catch (error) {
@@ -3022,7 +3054,7 @@
                 const name = id.split('@')[0] || 'Unknown';
                 const server = id.split('@')[1] || 'Unknown';
                 return `
-                    <div class="list-item ${selectedBannedId === id ? 'selected' : ''}" onclick="selectBanned('${safeId}')">
+                    <div class="list-item ${selectedBannedId === id ? 'selected' : ''}" data-id="${safeId}" onclick="selectBanned('${safeId}')">
                         <div class="list-item-header">
                             <div class="list-item-avatar" style="display: flex; align-items: center; justify-content: center; font-size: 1.2em;">🚫</div>
                             <div class="list-item-info">
@@ -3039,8 +3071,12 @@
         function selectBanned(id) {
             // Unescape the ID since it comes from an HTML onclick attribute
             id = unescapeFromHtml(id);
+
+            const oldSel = document.querySelector('#bannedList .list-item.selected');
+            if (oldSel) oldSel.classList.remove('selected');
             selectedBannedId = id;
-            updateBannedList();
+            const newSel = document.querySelector(`#bannedList .list-item[data-id="${escapeForHtml(id)}"]`);
+            if (newSel) newSel.classList.add('selected');
 
             const safeId = escapeForHtml(id);
             const name = id.split('@')[0];
@@ -3080,7 +3116,6 @@
             try {
                 await apiPost(`/admin/profiles/${encodeURIComponent(characterId)}/unban`);
                 showToast('User unbanned', 'success');
-                await loadAllData();
                 selectedBannedId = null;
                 document.getElementById('bannedDetail').innerHTML = `
                     <div class="empty-state">
@@ -3089,6 +3124,7 @@
                         <p>Select another user or you're done!</p>
                     </div>
                 `;
+                await refreshAfterBanAction();
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
             }
@@ -3372,10 +3408,23 @@
         // ============ UTILITIES ============
         function escapeHtml(text) {
             if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
+
+        function debounce(fn, delay) {
+            let timer;
+            return function(...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
+
+        const debouncedSearch = debounce(handleSearch, 300);
 
         function showPage(pageName, navItem) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -3467,17 +3516,17 @@
             // Search based on current page
 
             if (activePage === 'page-allprofiles') {
-                // Search all profiles
+                // Search all profiles using pre-computed lowercase fields
                 const filtered = allProfilesData.filter(p =>
-                    (p.CharacterName || '').toLowerCase().includes(query) ||
-                    (p.CharacterId || '').toLowerCase().includes(query)
+                    p._searchName.includes(query) ||
+                    p._searchId.includes(query)
                 );
                 renderAllProfilesPage(filtered);
             } else if (activePage === 'page-gallery') {
-                // Search gallery
+                // Search gallery using pre-computed lowercase fields
                 const filtered = profiles.filter(p =>
-                    (p.CharacterName || '').toLowerCase().includes(query) ||
-                    (p.CharacterId || '').toLowerCase().includes(query)
+                    p._searchName.includes(query) ||
+                    p._searchId.includes(query)
                 );
                 renderGalleryPage(filtered);
             } else if (activePage === 'page-reports') {
@@ -3554,3 +3603,4 @@
     </script>
 </body>
 </html>
+
