@@ -1847,11 +1847,11 @@
                     <div class="gallery-card ${selectedProfiles.has(characterId) ? 'selected' : ''} ${p.IsBanned ? 'banned' : ''}"
                          data-id="${escapeForHtml(characterId)}"
                          onclick="toggleProfileSelection('${escapeForHtml(characterId)}')">
-                        <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
+                        <input type="checkbox" class="gallery-card-checkbox" onclick="event.stopPropagation(); toggleProfileSelection('${escapeForHtml(characterId)}')" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
                             <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'view')" title="View">👁️</button>
                             <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
-                            <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'delete')" title="Delete">🗑️</button>
+                            <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'remove')" title="Remove">🗑️</button>
                         </div>
                         <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
@@ -2733,11 +2733,11 @@
                     <div class="gallery-card ${selectedProfiles.has(characterId) ? 'selected' : ''}"
                          onclick="toggleProfileSelection('${safeId}', event)"
                          oncontextmenu="showContextMenu(event, '${safeId}')" data-id="${safeId}">
-                        <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
+                        <input type="checkbox" class="gallery-card-checkbox" onclick="event.stopPropagation(); toggleProfileSelection('${safeId}')" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'view')" title="View">👁️</button>
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
-                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'delete')" title="Delete">🗑️</button>
+                            <button onclick="event.stopPropagation(); singleAction('${safeId}', 'remove')" title="Remove">🗑️</button>
                         </div>
                         <div class="gallery-card-image">${p.ProfileImageUrl ? `<img src="${p.ProfileImageUrl}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='👤'">` : '👤'}</div>
                         <div class="gallery-card-content">
@@ -2926,6 +2926,7 @@
                                 <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Close</button>
                                 <button class="btn btn-warning" onclick="this.closest('.modal-overlay').remove(); singleAction('${safeId}', 'nsfw')">Mark NSFW</button>
                                 <button class="btn btn-danger" onclick="this.closest('.modal-overlay').remove(); singleAction('${safeId}', 'remove')">Remove</button>
+                                <button class="btn btn-danger" onclick="this.closest('.modal-overlay').remove(); singleAction('${safeId}', 'ban')">Ban</button>
                             </div>
                         </div>
                     `;
