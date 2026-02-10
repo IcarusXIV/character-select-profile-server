@@ -38,6 +38,11 @@ let galleryCacheTime = 0;
 let galleryCacheBuilding = false;
 const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes cache - extended for 24k+ profiles
 
+// All Profiles caching (admin endpoint)
+let allProfilesCache = null;
+let allProfilesCacheTime = 0;
+let allProfilesCacheBuilding = false;
+
 // Names lookup caching - indexed by physical character name
 let namesCache = null;           // Map<physicalName, {csName, nameplateColor}>
 let namesCacheTime = 0;
@@ -494,12 +499,22 @@ class ModerationDatabase {
     }
 
     // Extract physical name from characterId (format: "CSName_FirstName LastName@World")
+    // CS+ names can contain underscores (special chars get sanitised to _),
+    // so we find @ first and scan backwards to the _ separator
     extractPhysicalName(characterId) {
-        const underscoreIndex = characterId.indexOf('_');
-        if (underscoreIndex > 0) {
-            return characterId.substring(underscoreIndex + 1);
-        }
-        return null;
+        const atIndex = characterId.lastIndexOf('@');
+        if (atIndex <= 0) return null;
+
+        // Physical name is "First Last@World" — find the space before @
+        const beforeAt = characterId.substring(0, atIndex);
+        const lastSpaceIndex = beforeAt.lastIndexOf(' ');
+        if (lastSpaceIndex <= 0) return null;
+
+        // Find the _ separator right before the physical first name
+        const separatorIndex = beforeAt.lastIndexOf('_', lastSpaceIndex);
+        if (separatorIndex < 0) return null;
+
+        return characterId.substring(separatorIndex + 1);
     }
 
     isProfileBanned(characterId) {
@@ -1008,6 +1023,7 @@ async function cleanupOldCharacterVersions(csCharacterName, physicalCharacterNam
         
         if (oldVersions.length > 0) {
             galleryCache = null;
+            allProfilesCache = null;
         }
     } catch (cleanupErr) {
         console.error('Error during cleanup:', cleanupErr.message);
@@ -1944,6 +1960,107 @@ async function rebuildGalleryCache(waitForCompletion = false) {
     }
 }
 
+// All Profiles cache rebuild (admin endpoint, both ShowcasePublic + AlwaysShare)
+async function rebuildAllProfilesCache(waitForCompletion = false) {
+    if (allProfilesCacheBuilding) {
+        if (waitForCompletion) {
+            while (allProfilesCacheBuilding) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+        return;
+    }
+    allProfilesCacheBuilding = true;
+
+    const startTime = Date.now();
+    try {
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file =>
+                    file.endsWith('.json') &&
+                    !file.endsWith('_follows.json')
+                ));
+            });
+        });
+
+        const allProfiles = [];
+
+        for (let i = 0; i < profileFiles.length; i += 25) {
+            const batch = profileFiles.slice(i, i + 25);
+
+            const batchResults = await Promise.all(batch.map(async (file) => {
+                const characterId = file.replace('.json', '');
+                const filePath = path.join(profilesDir, file);
+
+                try {
+                    const profileData = await readProfileAsync(filePath);
+                    if (!isValidProfile(profileData)) return null;
+
+                    const sharing = profileData.Sharing;
+                    const isShowcasePublic = sharing === 'ShowcasePublic' || sharing === 2;
+                    const isAlwaysShare = sharing === 'AlwaysShare' || sharing === 0;
+                    if (!isShowcasePublic && !isAlwaysShare) return null;
+
+                    const underscoreIndex = characterId.indexOf('_');
+                    let csCharacterName, physicalCharacterName;
+                    if (underscoreIndex > 0) {
+                        csCharacterName = characterId.substring(0, underscoreIndex);
+                        physicalCharacterName = characterId.substring(underscoreIndex + 1);
+                    } else {
+                        csCharacterName = profileData.CharacterName || characterId.split('@')[0];
+                        physicalCharacterName = characterId;
+                    }
+
+                    return {
+                        CharacterId: characterId,
+                        CharacterName: csCharacterName,
+                        Server: extractServerFromName(physicalCharacterName),
+                        ProfileImageUrl: profileData.ProfileImageUrl || null,
+                        Tags: profileData.Tags || "",
+                        Bio: profileData.Bio || "",
+                        GalleryStatus: profileData.GalleryStatus || "",
+                        Race: profileData.Race || "",
+                        Pronouns: profileData.Pronouns || "",
+                        Links: profileData.Links || "",
+                        LikeCount: likesDB.getLikeCount(characterId),
+                        LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                        ImageZoom: profileData.ImageZoom || 1.0,
+                        ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                        IsNSFW: profileData.IsNSFW || false,
+                        Sharing: isShowcasePublic ? 'ShowcasePublic' : 'AlwaysShare',
+                        IsBanned: moderationDB.isProfileBanned(characterId)
+                    };
+                } catch (err) {
+                    return null;
+                }
+            }));
+
+            batchResults.forEach(result => {
+                if (result) allProfiles.push(result);
+            });
+
+            // Yield to event loop between batches
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+
+        allProfiles.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
+
+        allProfilesCache = allProfiles;
+        allProfilesCacheTime = Date.now();
+        console.log(`📋 All profiles cache rebuilt: ${allProfiles.length} profiles in ${Date.now() - startTime}ms`);
+    } catch (err) {
+        console.error(`All profiles cache rebuild error: ${err}`);
+    } finally {
+        allProfilesCacheBuilding = false;
+    }
+}
+
+function invalidateAllProfilesCache() {
+    allProfilesCache = null;
+    allProfilesCacheTime = 0;
+}
+
 // Gallery endpoint
 app.get("/gallery", async (req, res) => {
     try {
@@ -1984,7 +2101,7 @@ app.get("/gallery", async (req, res) => {
     }
 });
 
-// All Profiles endpoint (admin only) - returns both ShowcasePublic and AlwaysShare profiles
+// All Profiles endpoint (admin only) - cached like gallery
 app.get("/profiles/all", async (req, res) => {
     try {
         const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
@@ -1993,84 +2110,18 @@ app.get("/profiles/all", async (req, res) => {
             return res.status(403).json({ error: 'Admin access required' });
         }
 
-        const profileFiles = await new Promise((resolve, reject) => {
-            fs.readdir(profilesDir, (err, files) => {
-                if (err) reject(err);
-                else resolve(files.filter(file =>
-                    file.endsWith('.json') &&
-                    !file.endsWith('_follows.json')
-                ));
-            });
-        });
+        const now = Date.now();
+        const cacheStale = !allProfilesCache || (now - allProfilesCacheTime) >= CACHE_DURATION;
 
-        const allProfiles = [];
-
-        for (let i = 0; i < profileFiles.length; i += 10) {
-            const batch = profileFiles.slice(i, i + 10);
-
-            const batchResults = await Promise.all(batch.map(async (file) => {
-                const characterId = file.replace('.json', '');
-                const filePath = path.join(profilesDir, file);
-
-                try {
-                    const profileData = await readProfileAsync(filePath);
-
-                    if (!isValidProfile(profileData)) {
-                        return null;
-                    }
-
-                    // Include both ShowcasePublic and AlwaysShare (exclude NeverShare)
-                    const sharing = profileData.Sharing;
-                    const isShowcasePublic = sharing === 'ShowcasePublic' || sharing === 2;
-                    const isAlwaysShare = sharing === 'AlwaysShare' || sharing === 0;
-
-                    if (isShowcasePublic || isAlwaysShare) {
-                        const underscoreIndex = characterId.indexOf('_');
-                        let csCharacterName, physicalCharacterName;
-
-                        if (underscoreIndex > 0) {
-                            csCharacterName = characterId.substring(0, underscoreIndex);
-                            physicalCharacterName = characterId.substring(underscoreIndex + 1);
-                        } else {
-                            csCharacterName = profileData.CharacterName || characterId.split('@')[0];
-                            physicalCharacterName = characterId;
-                        }
-
-                        return {
-                            CharacterId: characterId,
-                            CharacterName: csCharacterName,
-                            Server: extractServerFromName(physicalCharacterName),
-                            ProfileImageUrl: profileData.ProfileImageUrl || null,
-                            Tags: profileData.Tags || "",
-                            Bio: profileData.Bio || "",
-                            GalleryStatus: profileData.GalleryStatus || "",
-                            Race: profileData.Race || "",
-                            Pronouns: profileData.Pronouns || "",
-                            Links: profileData.Links || "",
-                            LikeCount: likesDB.getLikeCount(characterId),
-                            LastUpdated: profileData.LastUpdated || new Date().toISOString(),
-                            ImageZoom: profileData.ImageZoom || 1.0,
-                            ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
-                            IsNSFW: profileData.IsNSFW || false,
-                            Sharing: isShowcasePublic ? 'ShowcasePublic' : 'AlwaysShare',
-                            IsBanned: moderationDB.isProfileBanned(characterId)
-                        };
-                    }
-                    return null;
-                } catch (err) {
-                    console.error(`[Error] Failed to process profile ${file}:`, err.message);
-                    return null;
-                }
-            }));
-
-            batchResults.forEach(result => {
-                if (result) allProfiles.push(result);
-            });
+        if (cacheStale) {
+            if (allProfilesCache) {
+                rebuildAllProfilesCache();
+            } else {
+                await rebuildAllProfilesCache(true);
+            }
         }
 
-        allProfiles.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
-
-        res.json(allProfiles);
+        res.json(allProfilesCache || []);
 
     } catch (err) {
         console.error('All profiles error:', err);
@@ -2115,8 +2166,9 @@ app.post("/gallery/:name/like", async (req, res) => {
                 console.error('Failed to update profile file, but like saved to database:', err);
             }
         }
-        
+
         galleryCache = null;
+        allProfilesCache = null;
         res.json({ LikeCount: newCount });
         
     } catch (err) {
@@ -2143,8 +2195,9 @@ app.delete("/gallery/:name/like", async (req, res) => {
                 console.error('Failed to update profile file, but unlike saved to database:', err);
             }
         }
-        
+
         galleryCache = null;
+        allProfilesCache = null;
         res.json({ LikeCount: newCount });
         
     } catch (err) {
@@ -2364,16 +2417,30 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
         }
 
         let characterName = characterId;
+        let physicalName = null;
         try {
             const profile = await readProfileAsync(filePath);
             characterName = profile.CharacterName || characterId;
+            // Derive physical name from profile's CS+ name — more reliable than extractPhysicalName
+            // when CS+ names contain special chars (sanitised to underscores in characterId)
+            if (profile.CharacterName) {
+                const sanitizedCS = profile.CharacterName.replace(/[^\w\s\-.']/g, '_');
+                const prefix = sanitizedCS + '_';
+                if (characterId.startsWith(prefix)) {
+                    physicalName = characterId.substring(prefix.length);
+                }
+            }
         } catch (err) {
             // Use characterId as fallback
+        }
+        // Fallback to heuristic extraction
+        if (!physicalName) {
+            physicalName = moderationDB.extractPhysicalName(characterId);
         }
 
         // Delete the profile file
         fs.unlinkSync(filePath);
-        
+
         // Remove associated image if exists
         try {
             const imageFiles = fs.readdirSync(imagesDir);
@@ -2387,13 +2454,19 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
         }
 
         moderationDB.logAction('remove', characterId, characterName, reason || 'No reason provided', adminId);
-        
+
         if (ban) {
-            moderationDB.banProfile(characterId);
+            // Ban both the profile and the physical user
+            moderationDB.bannedProfiles.add(characterId);
+            if (physicalName) {
+                moderationDB.bannedUsers.add(physicalName);
+            }
+            moderationDB.save();
             moderationDB.logAction('ban', characterId, characterName, reason || 'No reason provided', adminId);
         }
 
         galleryCache = null;
+        allProfilesCache = null;
         invalidateNamesCache();
         invalidateProfilesLookupCache();
 
@@ -2440,6 +2513,7 @@ app.patch("/admin/profiles/:characterId/nsfw", requireAdmin, async (req, res) =>
         
         // Clear caches to reflect changes
         galleryCache = null;
+        allProfilesCache = null;
         invalidateNamesCache();
         invalidateProfilesLookupCache();
 
