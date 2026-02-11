@@ -1462,6 +1462,227 @@ app.get("/view/:name", async (req, res) => {
 // Used for shared name replacement feature
 // Now with caching for performance under load
 
+// Unified startup cache warmer - reads all profile files ONCE and populates all 4 caches
+// This avoids reading 24k+ files 4 separate times at startup
+async function warmAllCaches() {
+    const startTime = Date.now();
+    console.log(`🔄 Warming all caches (single pass)...`);
+
+    try {
+        // Read directory once
+        const profileFiles = await new Promise((resolve, reject) => {
+            fs.readdir(profilesDir, (err, files) => {
+                if (err) reject(err);
+                else resolve(files.filter(file =>
+                    file.endsWith('.json') &&
+                    !file.endsWith('_follows.json')
+                ));
+            });
+        });
+
+        console.log(`📁 Found ${profileFiles.length} profile files`);
+
+        // Data collectors for all 4 caches
+        const namesResults = [];          // For names cache
+        const profilesLookupResults = []; // For profiles lookup cache
+        const galleryResults = [];        // For gallery cache
+        const allProfileResults = [];     // For all profiles cache
+
+        const BATCH_SIZE = 25;
+        for (let i = 0; i < profileFiles.length; i += BATCH_SIZE) {
+            const batch = profileFiles.slice(i, i + BATCH_SIZE);
+
+            const batchResults = await Promise.all(batch.map(async (file) => {
+                try {
+                    const characterId = file.replace('.json', '');
+                    const fullPath = path.join(profilesDir, file);
+
+                    // Extract physical name from filename
+                    const lastUnderscore = characterId.lastIndexOf('_');
+                    if (lastUnderscore === -1) return null;
+                    const physicalName = characterId.substring(lastUnderscore + 1);
+                    if (!physicalName || !physicalName.includes('@')) return null;
+
+                    // Read file once
+                    const fileContent = await fs.promises.readFile(fullPath, 'utf-8');
+                    if (!fileContent || fileContent.trim().length === 0) return null;
+                    const profileData = JSON.parse(fileContent);
+                    if (!isValidProfile(profileData)) return null;
+
+                    // Get timing info
+                    let activeTime;
+                    if (profileData.LastActiveTime) {
+                        activeTime = new Date(profileData.LastActiveTime).getTime();
+                    } else {
+                        const stats = await fs.promises.stat(fullPath);
+                        activeTime = stats.mtime.getTime();
+                    }
+
+                    return { file, characterId, physicalName, fullPath, profileData, activeTime };
+                } catch (err) {
+                    return null;
+                }
+            }));
+
+            for (const result of batchResults) {
+                if (result) {
+                    namesResults.push(result);
+                    profilesLookupResults.push(result);
+                    galleryResults.push(result);
+                    allProfileResults.push(result);
+                }
+            }
+
+            // Yield to event loop
+            if (i % 250 === 0 && i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        }
+
+        console.log(`📖 Read ${namesResults.length} valid profiles in ${Date.now() - startTime}ms`);
+
+        // === Build Names Cache ===
+        const newNamesCache = new Map();
+        const newestActiveTime = new Map();
+        const tempNamesIndex = new Map();
+        const expiryTime = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
+
+        for (const { physicalName, activeTime, profileData } of namesResults) {
+            const seenNewerTime = newestActiveTime.get(physicalName);
+            if (seenNewerTime && seenNewerTime > activeTime) continue;
+            newestActiveTime.set(physicalName, activeTime);
+            tempNamesIndex.delete(physicalName);
+
+            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+            if (profileData.AllowOthersToSeeMyCSName !== true) continue;
+            if (activeTime < expiryTime) continue;
+            if (moderationDB.isNameBanned(physicalName)) continue;
+            if (!profileData.CharacterName) continue;
+
+            let colorArray = [1.0, 1.0, 1.0];
+            if (profileData.NameplateColor) {
+                if (Array.isArray(profileData.NameplateColor)) {
+                    colorArray = profileData.NameplateColor;
+                } else if (typeof profileData.NameplateColor === 'object') {
+                    colorArray = [
+                        profileData.NameplateColor.X ?? 1.0,
+                        profileData.NameplateColor.Y ?? 1.0,
+                        profileData.NameplateColor.Z ?? 1.0
+                    ];
+                }
+            }
+            tempNamesIndex.set(physicalName, { csName: profileData.CharacterName, nameplateColor: colorArray });
+        }
+        for (const [k, v] of tempNamesIndex) newNamesCache.set(k, v);
+        namesCache = newNamesCache;
+        namesCacheTime = Date.now();
+        console.log(`✅ Names cache: ${newNamesCache.size} entries`);
+
+        // === Build Profiles Lookup Cache ===
+        const newProfilesLookupCache = new Set();
+        const newestModTime = new Map();
+        const tempProfilesIndex = new Map();
+
+        for (const { file, physicalName, activeTime, profileData } of profilesLookupResults) {
+            const seenNewerTime = newestModTime.get(physicalName);
+            if (seenNewerTime && seenNewerTime > activeTime) continue;
+            newestModTime.set(physicalName, activeTime);
+            tempProfilesIndex.delete(physicalName);
+
+            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+            if (moderationDB.isProfileBanned(file.replace('.json', ''))) continue;
+            tempProfilesIndex.set(physicalName, activeTime);
+        }
+        for (const k of tempProfilesIndex.keys()) newProfilesLookupCache.add(k);
+        profilesLookupCache = newProfilesLookupCache;
+        profilesLookupCacheTime = Date.now();
+        console.log(`✅ Profiles lookup cache: ${newProfilesLookupCache.size} entries`);
+
+        // === Build Gallery Cache ===
+        const showcaseProfiles = [];
+        for (const { characterId, physicalName, profileData } of galleryResults) {
+            if (moderationDB.isProfileBanned(characterId)) continue;
+            if (profileData.Sharing !== 'ShowcasePublic' && profileData.Sharing !== 2) continue;
+
+            const underscoreIndex = characterId.indexOf('_');
+            let csCharacterName;
+            if (underscoreIndex > 0) {
+                csCharacterName = characterId.substring(0, underscoreIndex);
+            } else {
+                csCharacterName = profileData.CharacterName || characterId.split('@')[0];
+            }
+
+            showcaseProfiles.push({
+                CharacterId: characterId,
+                CharacterName: csCharacterName,
+                Server: extractServerFromName(physicalName),
+                ProfileImageUrl: profileData.ProfileImageUrl || null,
+                Tags: profileData.Tags || "",
+                Bio: profileData.Bio || "",
+                GalleryStatus: profileData.GalleryStatus || "",
+                Race: profileData.Race || "",
+                Pronouns: profileData.Pronouns || "",
+                Links: profileData.Links || "",
+                LikeCount: likesDB.getLikeCount(characterId),
+                LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                ImageZoom: profileData.ImageZoom || 1.0,
+                ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                IsNSFW: profileData.IsNSFW || false
+            });
+        }
+        showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
+        galleryCache = showcaseProfiles;
+        galleryCacheTime = Date.now();
+        console.log(`✅ Gallery cache: ${showcaseProfiles.length} profiles`);
+
+        // === Build All Profiles Cache ===
+        const allProfiles = [];
+        for (const { characterId, physicalName, profileData } of allProfileResults) {
+            const sharing = profileData.Sharing;
+            const isShowcasePublic = sharing === 'ShowcasePublic' || sharing === 2;
+            const isAlwaysShare = sharing === 'AlwaysShare' || sharing === 0;
+            if (!isShowcasePublic && !isAlwaysShare) continue;
+
+            const underscoreIndex = characterId.indexOf('_');
+            let csCharacterName;
+            if (underscoreIndex > 0) {
+                csCharacterName = characterId.substring(0, underscoreIndex);
+            } else {
+                csCharacterName = profileData.CharacterName || characterId.split('@')[0];
+            }
+
+            allProfiles.push({
+                CharacterId: characterId,
+                CharacterName: csCharacterName,
+                Server: extractServerFromName(physicalName),
+                ProfileImageUrl: profileData.ProfileImageUrl || null,
+                Tags: profileData.Tags || "",
+                Bio: profileData.Bio || "",
+                GalleryStatus: profileData.GalleryStatus || "",
+                Race: profileData.Race || "",
+                Pronouns: profileData.Pronouns || "",
+                Links: profileData.Links || "",
+                LikeCount: likesDB.getLikeCount(characterId),
+                LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                ImageZoom: profileData.ImageZoom || 1.0,
+                ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                IsNSFW: profileData.IsNSFW || false,
+                Sharing: isShowcasePublic ? 'ShowcasePublic' : 'AlwaysShare',
+                IsBanned: moderationDB.isProfileBanned(characterId)
+            });
+        }
+        allProfiles.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
+        allProfilesCache = allProfiles;
+        allProfilesCacheTime = Date.now();
+        console.log(`✅ All profiles cache: ${allProfiles.length} profiles`);
+
+        const elapsed = Date.now() - startTime;
+        console.log(`🔄 All caches ready in ${elapsed}ms (single pass over ${namesResults.length} files)`);
+    } catch (err) {
+        console.error(`⚠️ Cache warm failed: ${err}`);
+    }
+}
+
 // Build/rebuild the names cache (non-blocking - serves stale while rebuilding)
 async function rebuildNamesCache(waitForCompletion = false) {
     if (namesCacheBuilding) {
@@ -3106,21 +3327,21 @@ app.listen(PORT, () => {
         console.log(`⚠️  Admin access disabled - set ADMIN_SECRET_KEY environment variable to enable`);
     }
 
-    // Pre-warm caches in background so first requests don't wait
-    console.log(`🔄 Pre-warming caches in background...`);
-    rebuildNamesCache().then(() => {
-        console.log(`✅ Names cache pre-warmed`);
-    }).catch(err => {
-        console.error(`⚠️ Names cache pre-warm failed: ${err}`);
-    });
-    rebuildProfilesLookupCache().then(() => {
-        console.log(`✅ Profiles lookup cache pre-warmed`);
-    }).catch(err => {
-        console.error(`⚠️ Profiles lookup cache pre-warm failed: ${err}`);
-    });
-    rebuildGalleryCache().then(() => {
-        console.log(`✅ Gallery cache pre-warmed`);
-    }).catch(err => {
-        console.error(`⚠️ Gallery cache pre-warm failed: ${err}`);
-    });
+    // Pre-warm caches sequentially so they don't all compete for disk I/O
+    console.log(`🔄 Pre-warming caches...`);
+    (async () => {
+        try {
+            await rebuildNamesCache(true);
+            console.log(`✅ Names cache pre-warmed`);
+            await rebuildProfilesLookupCache(true);
+            console.log(`✅ Profiles lookup cache pre-warmed`);
+            await rebuildGalleryCache(true);
+            console.log(`✅ Gallery cache pre-warmed`);
+            await rebuildAllProfilesCache(true);
+            console.log(`✅ All profiles cache pre-warmed`);
+            console.log(`🔄 All caches ready`);
+        } catch (err) {
+            console.error(`⚠️ Cache pre-warm failed: ${err}`);
+        }
+    })();
 });
