@@ -943,6 +943,10 @@
                     Name Sync
                     <span class="nav-badge info" id="namesyncBadge"></span>
                 </div>
+                <div class="nav-item" data-page="server" onclick="showPage('server', this)">
+                    <span class="icon">🖥️</span>
+                    Server
+                </div>
             </div>
         </nav>
         <div class="sidebar-footer">
@@ -1005,8 +1009,6 @@
                 </div>
 
                 <div class="stats-grid" id="statsGrid"></div>
-
-                <div id="bandwidthCard" class="stat-card" style="margin-bottom: 24px; display: none;"></div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
                     <div class="stat-card">
@@ -1309,6 +1311,52 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Server Page -->
+            <div class="page" id="page-server">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Server Diagnostics</h2>
+                    <button class="btn btn-ghost" onclick="loadSystem(true)">🔄 Refresh</button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                    <!-- Disk Usage Card -->
+                    <div class="card">
+                        <div class="card-header"><h3>💾 Disk Usage</h3></div>
+                        <div class="card-body" id="diskUsageContent">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">💾</div>
+                                <div class="empty-state-title">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Server Info Card -->
+                    <div class="card">
+                        <div class="card-header"><h3>⚙️ Server Info</h3></div>
+                        <div class="card-body" id="serverInfoContent">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">⚙️</div>
+                                <div class="empty-state-title">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Egress Bandwidth Card (full width) -->
+                <div class="card">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>📡 Egress Bandwidth</h3>
+                        <button class="btn btn-ghost" onclick="resetEgressStats()" style="font-size: 0.85em;">Reset Counters</button>
+                    </div>
+                    <div class="card-body" id="egressBandwidthContent">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📡</div>
+                            <div class="empty-state-title">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -1389,6 +1437,7 @@
         let bannedProfiles = [];
         let activityLog = [];
         let dashboardStats = {};
+        let systemData = null;
 
         // ============ STATE ============
         let selectedReportId = null;
@@ -1599,12 +1648,198 @@
             return response.json();
         }
 
+        // ============ SYSTEM DIAGNOSTICS ============
+        function fmtBytes(b) {
+            if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
+            if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+            if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+            return b + ' B';
+        }
+
+        function getDashServerEgressSummary() {
+            if (!systemData || !systemData.egress) return 'Click for details';
+            const eg = systemData.egress;
+            const cats = eg.categories;
+            let totalReqs = 0;
+            let totalBytes = 0;
+            for (const c of Object.keys(cats)) {
+                totalReqs += (cats[c]?.requests || 0);
+                totalBytes += (cats[c]?.bytes || 0);
+            }
+            const hours = parseFloat(eg.uptimeHours) || 1;
+            const reqPerH = Math.round(totalReqs / hours);
+            const bytesPerH = totalBytes / hours;
+            return `${reqPerH} req/h · ${fmtBytes(bytesPerH)}/h egress`;
+        }
+
+        async function loadSystem(force = false) {
+            try {
+                const param = force ? '&force=true' : '';
+                systemData = await apiGet('/admin/system?' + param);
+                updateSystem();
+                // Also update dashboard summary if present
+                const dashDisk = document.getElementById('dashServerDisk');
+                const dashEgress = document.getElementById('dashServerEgress');
+                if (dashDisk) dashDisk.textContent = fmtBytes(systemData.disk.total);
+                if (dashEgress) dashEgress.textContent = getDashServerEgressSummary();
+            } catch (err) {
+                console.error('Failed to load system data:', err);
+            }
+        }
+
+        function updateSystem() {
+            if (!systemData) return;
+
+            // Disk Usage
+            const diskEl = document.getElementById('diskUsageContent');
+            const d = systemData.disk;
+            const diskRows = [
+                { label: 'Profile Data', icon: '📄', ...d.profiles },
+                { label: 'Images', icon: '🖼️', ...d.images },
+                { label: 'Uploads (temp)', icon: '📤', ...d.uploads },
+                { label: 'Databases', icon: '🗄️', ...d.databases }
+            ];
+            const diskRowsHtml = diskRows.map(r => {
+                const pct = d.total > 0 ? ((r.size / d.total) * 100).toFixed(1) : '0.0';
+                return `<tr>
+                    <td style="padding: 8px 10px;">${r.icon} ${r.label}</td>
+                    <td style="padding: 8px 10px; text-align: right;">${(r.files || 0).toLocaleString()}</td>
+                    <td style="padding: 8px 10px; text-align: right; font-weight: 500;">${fmtBytes(r.size)}</td>
+                    <td style="padding: 8px 10px; text-align: right;">
+                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                            <div style="width: 80px; height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: ${parseFloat(pct) > 80 ? '#ef4444' : parseFloat(pct) > 50 ? '#f59e0b' : 'var(--accent)'}; border-radius: 4px;"></div>
+                            </div>
+                            ${pct}%
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            diskEl.innerHTML = `
+                <div style="margin-bottom: 16px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; text-align: center;">
+                    <div style="font-size: 2em; font-weight: 700;">${fmtBytes(d.total)}</div>
+                    <div style="color: var(--text-secondary); font-size: 0.85em; margin-top: 4px;">Total disk usage</div>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
+                            <th style="padding: 8px 10px; text-align: left;">Directory</th>
+                            <th style="padding: 8px 10px; text-align: right;">Files</th>
+                            <th style="padding: 8px 10px; text-align: right;">Size</th>
+                            <th style="padding: 8px 10px; text-align: right;">% of Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>${diskRowsHtml}</tbody>
+                </table>
+            `;
+
+            // Server Info
+            const serverEl = document.getElementById('serverInfoContent');
+            const s = systemData.server;
+            const uptimeH = Math.floor(s.uptimeSeconds / 3600);
+            const uptimeM = Math.floor((s.uptimeSeconds % 3600) / 60);
+            const uptimeStr = uptimeH > 24
+                ? `${Math.floor(uptimeH / 24)}d ${uptimeH % 24}h ${uptimeM}m`
+                : `${uptimeH}h ${uptimeM}m`;
+
+            serverEl.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                        <div style="color: var(--text-secondary); font-size: 0.8em; margin-bottom: 4px;">Node.js</div>
+                        <div style="font-weight: 600;">${escapeHtml(s.nodeVersion)}</div>
+                    </div>
+                    <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                        <div style="color: var(--text-secondary); font-size: 0.8em; margin-bottom: 4px;">Platform</div>
+                        <div style="font-weight: 600;">${escapeHtml(s.platform)}</div>
+                    </div>
+                    <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                        <div style="color: var(--text-secondary); font-size: 0.8em; margin-bottom: 4px;">Uptime</div>
+                        <div style="font-weight: 600;">${uptimeStr}</div>
+                    </div>
+                    <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                        <div style="color: var(--text-secondary); font-size: 0.8em; margin-bottom: 4px;">Memory (RSS)</div>
+                        <div style="font-weight: 600;">${s.memoryMB.rss} MB</div>
+                    </div>
+                    <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                        <div style="color: var(--text-secondary); font-size: 0.8em; margin-bottom: 4px;">Heap Used</div>
+                        <div style="font-weight: 600;">${s.memoryMB.heapUsed} / ${s.memoryMB.heapTotal} MB</div>
+                    </div>
+                </div>
+            `;
+
+            // Egress Bandwidth
+            const egressEl = document.getElementById('egressBandwidthContent');
+            const eg = systemData.egress;
+            const cats = eg.categories;
+            const catOrder = ['images', 'gallery', 'names', 'profileLookup', 'profileView', 'profileUpload', 'admin', 'other'];
+            const catLabels = {
+                images: 'Images',
+                gallery: 'Gallery API',
+                names: 'Name Sync',
+                profileLookup: 'Profile Lookup',
+                profileView: 'Profile View',
+                profileUpload: 'Profile Upload',
+                admin: 'Admin',
+                other: 'Other'
+            };
+            let totalBytes = 0;
+            let totalReqs = 0;
+            for (const c of catOrder) {
+                totalBytes += (cats[c]?.bytes || 0);
+                totalReqs += (cats[c]?.requests || 0);
+            }
+            const egressRows = catOrder.map(c => {
+                const data = cats[c] || { bytes: 0, requests: 0 };
+                const pct = totalBytes > 0 ? ((data.bytes / totalBytes) * 100).toFixed(1) : '0.0';
+                return `<tr>
+                    <td style="padding: 6px 10px;">${catLabels[c]}</td>
+                    <td style="padding: 6px 10px; text-align: right;">${data.requests.toLocaleString()}</td>
+                    <td style="padding: 6px 10px; text-align: right;">${fmtBytes(data.bytes)}</td>
+                    <td style="padding: 6px 10px; text-align: right;">
+                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                            <div style="width: 60px; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: var(--accent); border-radius: 3px;"></div>
+                            </div>
+                            ${pct}%
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            const since = new Date(eg.startTime).toLocaleString();
+            egressEl.innerHTML = `
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
+                            <th style="padding: 6px 10px; text-align: left;">Category</th>
+                            <th style="padding: 6px 10px; text-align: right;">Requests</th>
+                            <th style="padding: 6px 10px; text-align: right;">Data</th>
+                            <th style="padding: 6px 10px; text-align: right;">% of Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>${egressRows}</tbody>
+                    <tfoot>
+                        <tr style="border-top: 1px solid var(--border); font-weight: 600;">
+                            <td style="padding: 6px 10px;">Total</td>
+                            <td style="padding: 6px 10px; text-align: right;">${totalReqs.toLocaleString()}</td>
+                            <td style="padding: 6px 10px; text-align: right;">${fmtBytes(totalBytes)}</td>
+                            <td style="padding: 6px 10px; text-align: right;">100%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div style="margin-top: 10px; font-size: 0.75em; color: var(--text-secondary);">
+                    Tracking since: ${since} (${eg.uptimeHours}h uptime)
+                </div>
+            `;
+        }
+
         async function resetEgressStats() {
             if (!confirm('Reset bandwidth tracking counters?')) return;
             try {
-                await apiPost('/admin/egress-stats/reset');
+                await apiPost('/admin/system/egress-reset');
                 showToast('Egress stats reset', 'success');
-                await loadDashboard();
+                await loadSystem();
             } catch (err) {
                 showToast('Failed to reset stats', 'error');
             }
@@ -1623,7 +1858,8 @@
                     loadAllProfiles(),
                     loadGallery(),
                     loadActivity(),
-                    loadAnnouncements()
+                    loadAnnouncements(),
+                    loadSystem()
                 ]);
                 updateBadges();
             } catch (error) {
@@ -2083,89 +2319,12 @@
                     <div class="stat-value">${stats.totalBanned || 0}</div>
                     <div class="stat-change neutral">Profile bans</div>
                 </div>
+                <div class="stat-card" style="cursor: pointer;" onclick="showPage('server')">
+                    <div class="stat-label">🖥️ Server</div>
+                    <div class="stat-value" id="dashServerDisk">${systemData ? fmtBytes(systemData.disk.total) : '—'}</div>
+                    <div class="stat-change neutral" id="dashServerEgress">${getDashServerEgressSummary()}</div>
+                </div>
             `;
-
-            // Bandwidth card
-            const bandwidthCard = document.getElementById('bandwidthCard');
-            if (stats.egress) {
-                const eg = stats.egress;
-                const cats = eg.categories;
-                const catOrder = ['images', 'gallery', 'names', 'profileLookup', 'profileView', 'profileUpload', 'admin', 'other'];
-                const catLabels = {
-                    images: 'Images',
-                    gallery: 'Gallery API',
-                    names: 'Name Sync',
-                    profileLookup: 'Profile Lookup',
-                    profileView: 'Profile View',
-                    profileUpload: 'Profile Upload',
-                    admin: 'Admin',
-                    other: 'Other'
-                };
-                let totalBytes = 0;
-                let totalReqs = 0;
-                for (const c of catOrder) {
-                    totalBytes += (cats[c]?.bytes || 0);
-                    totalReqs += (cats[c]?.requests || 0);
-                }
-
-                function fmtBytes(b) {
-                    if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
-                    if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
-                    if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
-                    return b + ' B';
-                }
-
-                const rows = catOrder.map(c => {
-                    const d = cats[c] || { bytes: 0, requests: 0 };
-                    const pct = totalBytes > 0 ? ((d.bytes / totalBytes) * 100).toFixed(1) : '0.0';
-                    return `<tr>
-                        <td style="padding: 6px 10px;">${catLabels[c]}</td>
-                        <td style="padding: 6px 10px; text-align: right;">${d.requests.toLocaleString()}</td>
-                        <td style="padding: 6px 10px; text-align: right;">${fmtBytes(d.bytes)}</td>
-                        <td style="padding: 6px 10px; text-align: right;">
-                            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
-                                <div style="width: 60px; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden;">
-                                    <div style="width: ${pct}%; height: 100%; background: var(--accent); border-radius: 3px;"></div>
-                                </div>
-                                ${pct}%
-                            </div>
-                        </td>
-                    </tr>`;
-                }).join('');
-
-                const since = new Date(eg.startTime).toLocaleString();
-                bandwidthCard.style.display = 'block';
-                bandwidthCard.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <div class="stat-label">📡 Egress Bandwidth</div>
-                        <button class="btn btn-ghost" onclick="resetEgressStats()" style="font-size: 0.8em; padding: 4px 10px;">Reset</button>
-                    </div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
-                                <th style="padding: 6px 10px; text-align: left;">Category</th>
-                                <th style="padding: 6px 10px; text-align: right;">Requests</th>
-                                <th style="padding: 6px 10px; text-align: right;">Data</th>
-                                <th style="padding: 6px 10px; text-align: right;">% of Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                        <tfoot>
-                            <tr style="border-top: 1px solid var(--border); font-weight: 600;">
-                                <td style="padding: 6px 10px;">Total</td>
-                                <td style="padding: 6px 10px; text-align: right;">${totalReqs.toLocaleString()}</td>
-                                <td style="padding: 6px 10px; text-align: right;">${fmtBytes(totalBytes)}</td>
-                                <td style="padding: 6px 10px; text-align: right;">100%</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    <div style="margin-top: 10px; font-size: 0.75em; color: var(--text-secondary);">
-                        Tracking since: ${since} (${eg.uptimeHours}h uptime)
-                    </div>
-                `;
-            } else {
-                bandwidthCard.style.display = 'none';
-            }
 
             // Recent Activity
             const recentActivity = document.getElementById('recentActivity');
@@ -3550,6 +3709,8 @@
             // Load data for specific pages
             if (pageName === 'namesync') {
                 loadNamesCache();
+            } else if (pageName === 'server') {
+                loadSystem();
             }
         }
 
