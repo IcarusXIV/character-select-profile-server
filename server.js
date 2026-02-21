@@ -67,6 +67,49 @@ app.use((req, res, next) => {
     next();
 });
 
+// Egress bandwidth tracking per endpoint category
+const egressStats = {
+    startTime: Date.now(),
+    categories: {
+        images:        { bytes: 0, requests: 0 },
+        gallery:       { bytes: 0, requests: 0 },
+        names:         { bytes: 0, requests: 0 },
+        profileLookup: { bytes: 0, requests: 0 },
+        profileView:   { bytes: 0, requests: 0 },
+        profileUpload: { bytes: 0, requests: 0 },
+        admin:         { bytes: 0, requests: 0 },
+        other:         { bytes: 0, requests: 0 }
+    }
+};
+
+function categorizeRequest(url) {
+    if (url.startsWith('/images/'))         return 'images';
+    if (url.startsWith('/gallery'))          return 'gallery';
+    if (url.startsWith('/names/'))           return 'names';
+    if (url.startsWith('/profiles/lookup'))  return 'profileLookup';
+    if (url.startsWith('/view/'))            return 'profileView';
+    if (url.startsWith('/upload/'))          return 'profileUpload';
+    if (url.startsWith('/admin'))            return 'admin';
+    return 'other';
+}
+
+// Track response bytes per category
+app.use((req, res, next) => {
+    const startBytes = req.socket.bytesWritten;
+    res.on('finish', () => {
+        const category = categorizeRequest(req.originalUrl || req.url);
+        const contentLength = res.getHeader('content-length');
+        const bytes = contentLength
+            ? parseInt(contentLength, 10)
+            : (req.socket.bytesWritten - startBytes);
+        if (bytes > 0) {
+            egressStats.categories[category].bytes += bytes;
+        }
+        egressStats.categories[category].requests++;
+    });
+    next();
+});
+
 // Database files - ALL NOW PERSISTENT WITH VOLUMES
 const likesDbFile = path.join(DATA_DIR, "likes_database.json");
 const friendsDbFile = path.join(DATA_DIR, "friends_database.json");
@@ -3188,7 +3231,12 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
             pendingFlags: pendingFlags.length,
             newFlaggedToday,
             totalWarnings: allWarnings.length,
-            newWarningsToday
+            newWarningsToday,
+            egress: {
+                startTime: egressStats.startTime,
+                uptimeHours: ((Date.now() - egressStats.startTime) / 3600000).toFixed(1),
+                categories: egressStats.categories
+            }
         };
 
         res.json(stats);
@@ -3196,6 +3244,16 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
         console.error('Dashboard error:', error);
         res.status(500).json({ error: 'Failed to get dashboard data' });
     }
+});
+
+// Reset egress tracking counters
+app.post("/admin/egress-stats/reset", requireAdmin, (req, res) => {
+    egressStats.startTime = Date.now();
+    for (const cat of Object.keys(egressStats.categories)) {
+        egressStats.categories[cat].bytes = 0;
+        egressStats.categories[cat].requests = 0;
+    }
+    res.json({ success: true, message: 'Egress stats reset' });
 });
 
 // Activity Feed endpoints
