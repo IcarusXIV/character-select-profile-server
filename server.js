@@ -55,6 +55,35 @@ let profilesLookupCacheTime = 0;
 let profilesLookupCacheBuilding = false;
 const PROFILES_LOOKUP_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes - extended for 24k+ profiles
 
+// System diagnostics cache (disk usage is expensive to compute)
+let diskUsageCache = null;
+let diskUsageCacheTime = 0;
+const DISK_USAGE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Recursive directory size helper
+async function getDirectorySize(dirPath) {
+    let totalSize = 0;
+    let fileCount = 0;
+    try {
+        const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            if (entry.isFile()) {
+                const stat = await fs.promises.stat(fullPath);
+                totalSize += stat.size;
+                fileCount++;
+            } else if (entry.isDirectory()) {
+                const sub = await getDirectorySize(fullPath);
+                totalSize += sub.size;
+                fileCount += sub.files;
+            }
+        }
+    } catch (err) {
+        // Directory might not exist yet
+    }
+    return { size: totalSize, files: fileCount };
+}
+
 app.use(require('compression')());
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
@@ -3246,8 +3275,79 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
     }
 });
 
+// System diagnostics endpoint - disk usage, egress, server info
+app.get("/admin/system", requireAdmin, async (req, res) => {
+    try {
+        const force = req.query.force === 'true';
+
+        // Disk usage (cached for 5 min, bypass with ?force=true)
+        let disk;
+        if (!force && diskUsageCache && (Date.now() - diskUsageCacheTime < DISK_USAGE_CACHE_DURATION)) {
+            disk = diskUsageCache;
+        } else {
+            const [profilesInfo, imagesInfo, uploadsInfo] = await Promise.all([
+                getDirectorySize(profilesDir),
+                getDirectorySize(imagesDir),
+                getDirectorySize(uploadsDir)
+            ]);
+
+            // Database JSON files in DATA_DIR root
+            let dbSize = 0;
+            let dbFiles = 0;
+            const dbFileNames = [
+                'likes_database.json', 'friends_database.json', 'announcements_database.json',
+                'reports_database.json', 'moderation_database.json', 'activity_database.json',
+                'flagged_database.json', 'warnings_database.json'
+            ];
+            for (const name of dbFileNames) {
+                try {
+                    const stat = await fs.promises.stat(path.join(DATA_DIR, name));
+                    dbSize += stat.size;
+                    dbFiles++;
+                } catch (e) { /* file may not exist */ }
+            }
+
+            disk = {
+                profiles: { size: profilesInfo.size, files: profilesInfo.files },
+                images: { size: imagesInfo.size, files: imagesInfo.files },
+                uploads: { size: uploadsInfo.size, files: uploadsInfo.files },
+                databases: { size: dbSize, files: dbFiles },
+                total: profilesInfo.size + imagesInfo.size + uploadsInfo.size + dbSize
+            };
+
+            diskUsageCache = disk;
+            diskUsageCacheTime = Date.now();
+        }
+
+        // Egress stats (already tracked by middleware)
+        const egress = {
+            startTime: egressStats.startTime,
+            uptimeHours: ((Date.now() - egressStats.startTime) / 3600000).toFixed(1),
+            categories: egressStats.categories
+        };
+
+        // Server info
+        const mem = process.memoryUsage();
+        const server = {
+            nodeVersion: process.version,
+            platform: process.platform,
+            uptimeSeconds: Math.floor(process.uptime()),
+            memoryMB: {
+                rss: Math.round(mem.rss / 1048576),
+                heapUsed: Math.round(mem.heapUsed / 1048576),
+                heapTotal: Math.round(mem.heapTotal / 1048576)
+            }
+        };
+
+        res.json({ disk, egress, server });
+    } catch (error) {
+        console.error('System diagnostics error:', error);
+        res.status(500).json({ error: 'Failed to get system diagnostics' });
+    }
+});
+
 // Reset egress tracking counters
-app.post("/admin/egress-stats/reset", requireAdmin, (req, res) => {
+app.post("/admin/system/egress-reset", requireAdmin, (req, res) => {
     egressStats.startTime = Date.now();
     for (const cat of Object.keys(egressStats.categories)) {
         egressStats.categories[cat].bytes = 0;
