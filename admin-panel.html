@@ -1006,6 +1006,8 @@
 
                 <div class="stats-grid" id="statsGrid"></div>
 
+                <div id="bandwidthCard" class="stat-card" style="margin-bottom: 24px; display: none;"></div>
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
                     <div class="stat-card">
                         <div class="stat-label">Recent Activity</div>
@@ -1597,6 +1599,17 @@
             return response.json();
         }
 
+        async function resetEgressStats() {
+            if (!confirm('Reset bandwidth tracking counters?')) return;
+            try {
+                await apiPost('/admin/egress-stats/reset');
+                showToast('Egress stats reset', 'success');
+                await loadDashboard();
+            } catch (err) {
+                showToast('Failed to reset stats', 'error');
+            }
+        }
+
         // ============ DATA LOADING ============
         async function loadAllData() {
             try {
@@ -1847,7 +1860,7 @@
                     <div class="gallery-card ${selectedProfiles.has(characterId) ? 'selected' : ''} ${p.IsBanned ? 'banned' : ''}"
                          data-id="${escapeForHtml(characterId)}"
                          onclick="toggleProfileSelection('${escapeForHtml(characterId)}')">
-                        <input type="checkbox" class="gallery-card-checkbox" onclick="event.stopPropagation(); toggleProfileSelection('${escapeForHtml(characterId)}')" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
+                        <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
                             <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'view')" title="View">👁️</button>
                             <button onclick="event.stopPropagation(); singleAction('${escapeForHtml(characterId)}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
@@ -2071,6 +2084,88 @@
                     <div class="stat-change neutral">Profile bans</div>
                 </div>
             `;
+
+            // Bandwidth card
+            const bandwidthCard = document.getElementById('bandwidthCard');
+            if (stats.egress) {
+                const eg = stats.egress;
+                const cats = eg.categories;
+                const catOrder = ['images', 'gallery', 'names', 'profileLookup', 'profileView', 'profileUpload', 'admin', 'other'];
+                const catLabels = {
+                    images: 'Images',
+                    gallery: 'Gallery API',
+                    names: 'Name Sync',
+                    profileLookup: 'Profile Lookup',
+                    profileView: 'Profile View',
+                    profileUpload: 'Profile Upload',
+                    admin: 'Admin',
+                    other: 'Other'
+                };
+                let totalBytes = 0;
+                let totalReqs = 0;
+                for (const c of catOrder) {
+                    totalBytes += (cats[c]?.bytes || 0);
+                    totalReqs += (cats[c]?.requests || 0);
+                }
+
+                function fmtBytes(b) {
+                    if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
+                    if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+                    if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+                    return b + ' B';
+                }
+
+                const rows = catOrder.map(c => {
+                    const d = cats[c] || { bytes: 0, requests: 0 };
+                    const pct = totalBytes > 0 ? ((d.bytes / totalBytes) * 100).toFixed(1) : '0.0';
+                    return `<tr>
+                        <td style="padding: 6px 10px;">${catLabels[c]}</td>
+                        <td style="padding: 6px 10px; text-align: right;">${d.requests.toLocaleString()}</td>
+                        <td style="padding: 6px 10px; text-align: right;">${fmtBytes(d.bytes)}</td>
+                        <td style="padding: 6px 10px; text-align: right;">
+                            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                                <div style="width: 60px; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden;">
+                                    <div style="width: ${pct}%; height: 100%; background: var(--accent); border-radius: 3px;"></div>
+                                </div>
+                                ${pct}%
+                            </div>
+                        </td>
+                    </tr>`;
+                }).join('');
+
+                const since = new Date(eg.startTime).toLocaleString();
+                bandwidthCard.style.display = 'block';
+                bandwidthCard.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div class="stat-label">📡 Egress Bandwidth</div>
+                        <button class="btn btn-ghost" onclick="resetEgressStats()" style="font-size: 0.8em; padding: 4px 10px;">Reset</button>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
+                                <th style="padding: 6px 10px; text-align: left;">Category</th>
+                                <th style="padding: 6px 10px; text-align: right;">Requests</th>
+                                <th style="padding: 6px 10px; text-align: right;">Data</th>
+                                <th style="padding: 6px 10px; text-align: right;">% of Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                        <tfoot>
+                            <tr style="border-top: 1px solid var(--border); font-weight: 600;">
+                                <td style="padding: 6px 10px;">Total</td>
+                                <td style="padding: 6px 10px; text-align: right;">${totalReqs.toLocaleString()}</td>
+                                <td style="padding: 6px 10px; text-align: right;">${fmtBytes(totalBytes)}</td>
+                                <td style="padding: 6px 10px; text-align: right;">100%</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <div style="margin-top: 10px; font-size: 0.75em; color: var(--text-secondary);">
+                        Tracking since: ${since} (${eg.uptimeHours}h uptime)
+                    </div>
+                `;
+            } else {
+                bandwidthCard.style.display = 'none';
+            }
 
             // Recent Activity
             const recentActivity = document.getElementById('recentActivity');
@@ -2733,7 +2828,7 @@
                     <div class="gallery-card ${selectedProfiles.has(characterId) ? 'selected' : ''}"
                          onclick="toggleProfileSelection('${safeId}', event)"
                          oncontextmenu="showContextMenu(event, '${safeId}')" data-id="${safeId}">
-                        <input type="checkbox" class="gallery-card-checkbox" onclick="event.stopPropagation(); toggleProfileSelection('${safeId}')" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
+                        <input type="checkbox" class="gallery-card-checkbox" ${selectedProfiles.has(characterId) ? 'checked' : ''}>
                         <div class="gallery-card-actions">
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'view')" title="View">👁️</button>
                             <button onclick="event.stopPropagation(); singleAction('${safeId}', 'nsfw')" title="Toggle NSFW" style="${p.IsNSFW ? 'color: #f87171;' : ''}">🔞</button>
@@ -3622,3 +3717,4 @@
     </script>
 </body>
 </html>
+
