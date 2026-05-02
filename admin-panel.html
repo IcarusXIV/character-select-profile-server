@@ -1322,7 +1322,10 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
                     <!-- Disk Usage Card -->
                     <div class="card">
-                        <div class="card-header"><h3>💾 Disk Usage</h3></div>
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3>💾 Disk Usage</h3>
+                            <button class="btn btn-ghost" onclick="cleanupTempFiles()" style="font-size: 0.85em;">🧹 Clean Temp Files</button>
+                        </div>
                         <div class="card-body" id="diskUsageContent">
                             <div class="empty-state">
                                 <div class="empty-state-icon">💾</div>
@@ -1834,6 +1837,20 @@
             `;
         }
 
+        async function cleanupTempFiles() {
+            try {
+                const result = await apiPost('/admin/system/cleanup-temp');
+                if (result.cleaned > 0) {
+                    showToast(`Cleaned ${result.cleaned} temp files (${fmtBytes(result.freedBytes)})`, 'success');
+                } else {
+                    showToast('No orphaned temp files found', 'success');
+                }
+                await loadSystem(true);
+            } catch (err) {
+                showToast('Failed to clean temp files', 'error');
+            }
+        }
+
         async function resetEgressStats() {
             if (!confirm('Reset bandwidth tracking counters?')) return;
             try {
@@ -2321,7 +2338,7 @@
                 </div>
                 <div class="stat-card" style="cursor: pointer;" onclick="showPage('server')">
                     <div class="stat-label">🖥️ Server</div>
-                    <div class="stat-value" id="dashServerDisk">${systemData ? fmtBytes(systemData.disk.total) : '—'}</div>
+                    <div class="stat-value" id="dashServerDisk">${systemData ? fmtBytes(systemData.disk.total) : ','}</div>
                     <div class="stat-change neutral" id="dashServerEgress">${getDashServerEgressSummary()}</div>
                 </div>
             `;
