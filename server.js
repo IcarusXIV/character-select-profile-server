@@ -5,6 +5,16 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 const crypto = require("crypto");
+// sharp handles image optimization on upload. Requires `npm install sharp` on Railway.
+// If sharp fails to load for any reason, image optimization is bypassed and uploads fall back
+// to their original behaviour so the service stays up.
+let sharp = null;
+try {
+    sharp = require("sharp");
+    console.log("✅ sharp loaded for image optimization");
+} catch (err) {
+    console.error("⚠️ sharp not available, image optimization disabled:", err.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,15 +37,99 @@ if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 const uploadsDir = path.join(DATA_DIR, "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-// Static route to serve uploaded images
-app.use("/images", express.static(path.join(DATA_DIR, "public", "images")));
+// Static route to serve uploaded images.
+// Aggressive caching: image filenames embed the characterId, so a URL's content never changes.
+// 30 day cache + immutable means browsers and Dalamud's texture cache skip revalidation entirely,
+// dramatically cutting egress from repeat views.
+app.use("/images", express.static(path.join(DATA_DIR, "public", "images"), {
+    maxAge: '30d',
+    immutable: true,
+    etag: true,
+    lastModified: true
+}));
 
-const upload = multer({ dest: uploadsDir });
+// Cap raw uploads at 10 MB (pre-optimization). Legitimate profile images never need to be larger
+// than this, and rejecting oversized uploads prevents memory spikes during sharp processing.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const upload = multer({ dest: uploadsDir, limits: { fileSize: MAX_UPLOAD_BYTES } });
+
+// ===============================
+// 🖼️ IMAGE OPTIMIZATION PIPELINE
+// ===============================
+// Runs on every image upload. Re-encodes PNG → JPEG q95 (no resize, near-lossless) for images
+// without alpha, or re-compresses PNG for images with alpha. Typical result: ~85-95% file size
+// reduction on PNG sources with no perceptible quality loss at any display size. If sharp fails
+// for any reason, we fall back to the original file so uploads never break.
+const JPEG_QUALITY = 95;        // Near-lossless, very close to source PNG quality
+const PNG_COMPRESSION = 9;      // Max deflate compression for PNG (lossless)
+const MIN_SIZE_WIN = 0.05;      // Only replace original if new file is at least 5% smaller
+
+/**
+ * Optimizes an image at inputPath, writing the result to outputPath.
+ * Returns { ok: true, format, bytes, skipped: false } on success
+ * or    { ok: true, skipped: true, reason } if the original was already optimal
+ * or    { ok: false, error } on failure.
+ * On failure, outputPath is NOT written and the caller should fall back to the original.
+ */
+async function optimizeImage(inputPath, outputPath) {
+    if (!sharp) {
+        return { ok: false, error: "sharp not available" };
+    }
+    try {
+        const originalSize = (await fs.promises.stat(inputPath)).size;
+        const metadata = await sharp(inputPath, { failOn: "error" }).metadata();
+        const hasAlpha = metadata.hasAlpha === true;
+
+        let pipeline = sharp(inputPath).rotate(); // auto-orient via EXIF, then strip
+
+        if (hasAlpha) {
+            pipeline = pipeline.png({ compressionLevel: PNG_COMPRESSION, palette: false });
+        } else {
+            pipeline = pipeline.jpeg({ quality: JPEG_QUALITY, mozjpeg: true, progressive: true });
+        }
+
+        // Strip metadata (EXIF / ICC / IPTC / XMP)
+        pipeline = pipeline.withMetadata({ exif: {}, icc: undefined, iptc: {}, xmp: "" });
+
+        const tempOut = outputPath + ".opt.tmp";
+        await pipeline.toFile(tempOut);
+
+        const newSize = (await fs.promises.stat(tempOut)).size;
+
+        // Verify the output decodes cleanly before committing
+        const verifyMeta = await sharp(tempOut).metadata();
+        if (!verifyMeta.width || !verifyMeta.height) {
+            try { fs.unlinkSync(tempOut); } catch (e) { /* ignore */ }
+            return { ok: false, error: "output failed decode verification" };
+        }
+
+        // Only adopt the optimized version if it's meaningfully smaller
+        if (newSize >= originalSize * (1 - MIN_SIZE_WIN)) {
+            try { fs.unlinkSync(tempOut); } catch (e) { /* ignore */ }
+            return { ok: true, skipped: true, reason: "no meaningful size win", originalSize };
+        }
+
+        // Atomic rename: temp → final
+        fs.renameSync(tempOut, outputPath);
+
+        return {
+            ok: true,
+            skipped: false,
+            format: hasAlpha ? "png" : "jpeg",
+            originalSize,
+            newSize,
+            reduction: ((1 - newSize / originalSize) * 100).toFixed(1) + "%"
+        };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+}
 
 // Gallery caching
 let galleryCache = null;
 let galleryCacheTime = 0;
 let galleryCacheBuilding = false;
+let galleryCacheVersion = 0; // Bumped on every cache rebuild - used as ETag for /gallery/v2
 const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes cache - extended for 24k+ profiles
 
 // All Profiles caching (admin endpoint)
@@ -221,6 +315,36 @@ class LikesDatabase {
 
     getLikeCount(characterId) {
         return this.likeCounts.get(characterId) || 0;
+    }
+
+    // Move likes from oldId to newId, unioning by liker so the same user can't double-count
+    migrateLikes(oldId, newId) {
+        if (!oldId || !newId || oldId === newId) return 0;
+        const oldSet = this.likes.get(oldId);
+        if (!oldSet || oldSet.size === 0) {
+            // Still clean up any stray count entry
+            if (this.likeCounts.has(oldId)) {
+                this.likeCounts.delete(oldId);
+                this.save();
+            }
+            return 0;
+        }
+
+        if (!this.likes.has(newId)) this.likes.set(newId, new Set());
+        const newSet = this.likes.get(newId);
+        let added = 0;
+        for (const liker of oldSet) {
+            if (!newSet.has(liker)) {
+                newSet.add(liker);
+                added++;
+            }
+        }
+
+        this.likeCounts.set(newId, newSet.size);
+        this.likes.delete(oldId);
+        this.likeCounts.delete(oldId);
+        this.save();
+        return added;
     }
 }
 
@@ -577,7 +701,7 @@ class ModerationDatabase {
         const atIndex = characterId.lastIndexOf('@');
         if (atIndex <= 0) return null;
 
-        // Physical name is "First Last@World" — find the space before @
+        // Physical name is "First Last@World", find the space before @
         const beforeAt = characterId.substring(0, atIndex);
         const lastSpaceIndex = beforeAt.lastIndexOf(' ');
         if (lastSpaceIndex <= 0) return null;
@@ -1102,6 +1226,89 @@ async function cleanupOldCharacterVersions(csCharacterName, physicalCharacterNam
     }
 }
 
+// Extracts the physical name ("Name@Server") from a fileKey of the form "{sanitizedCsName}_{physicalName}".
+// The CS+ sanitized name can itself contain underscores, so we anchor on the '@' in the physical name
+// and walk backwards to the nearest underscore, that's the separator between csName and physicalName.
+function extractPhysicalNameFromKey(key) {
+    if (typeof key !== 'string' || !key) return null;
+    const atIdx = key.indexOf('@');
+    if (atIdx < 0) return null;
+    const beforeAt = key.substring(0, atIdx);
+    const sep = beforeAt.lastIndexOf('_');
+    if (sep < 0) return null;
+    return key.substring(sep + 1);
+}
+
+// Process a list of previous fileKeys the client sent with an upload: delete the old profile JSON +
+// image, migrate likes (union by liker) into the new characterId, and clean up cached state. Runs
+// BEFORE the new profile is written so the new upload's caches are rebuilt from the correct state.
+async function migrateFromPreviousKeys(previousKeys, newCharacterId, newPhysicalName) {
+    if (!Array.isArray(previousKeys) || previousKeys.length === 0) return 0;
+
+    let migratedCount = 0;
+    let cacheDirty = false;
+
+    for (const oldKey of previousKeys) {
+        if (typeof oldKey !== 'string' || !oldKey) continue;
+        if (oldKey === newCharacterId) continue; // No-op self migration
+        // Must look like a valid fileKey ("{csName}_{physicalName}")
+        if (!oldKey.includes('_') || !oldKey.includes('@')) continue;
+
+        const oldFilePath = path.join(profilesDir, `${oldKey}.json`);
+        if (!fs.existsSync(oldFilePath)) continue; // Already migrated or never existed
+
+        try {
+            // Migrate likes first (union by liker, safe if already migrated)
+            const addedLikes = likesDB.migrateLikes(oldKey, newCharacterId);
+
+            // Delete old profile JSON
+            try { fs.unlinkSync(oldFilePath); } catch (e) { /* ignore */ }
+
+            // Delete associated image files (handles multiple extensions)
+            try {
+                const sanitizedBase = oldKey.replace(/[^\w@\-_.]/g, "_");
+                const imageFiles = fs.readdirSync(imagesDir);
+                for (const f of imageFiles) {
+                    if (f === sanitizedBase || f.startsWith(sanitizedBase + '.')) {
+                        try { fs.unlinkSync(path.join(imagesDir, f)); } catch (e) { /* ignore */ }
+                    }
+                }
+            } catch (e) {
+                console.error(`[migrate] image cleanup error for ${oldKey}:`, e.message);
+            }
+
+            // If the old key was for a different physical name (physical rename), remove its cache entries
+            const oldPhysicalName = extractPhysicalNameFromKey(oldKey);
+            if (oldPhysicalName && oldPhysicalName !== newPhysicalName) {
+                if (namesCache) namesCache.delete(oldPhysicalName);
+                if (profilesLookupCache) profilesLookupCache.delete(oldPhysicalName);
+            }
+
+            cacheDirty = true;
+            migratedCount++;
+            console.log(`[migrate] ${oldKey} → ${newCharacterId} (+${addedLikes} likes)`);
+
+            try {
+                activityDB.logActivity('migrate', `RENAME: ${oldKey} → ${newCharacterId}`, {
+                    oldCharacterId: oldKey,
+                    newCharacterId: newCharacterId,
+                    physicalCharacterName: newPhysicalName,
+                    migratedLikes: addedLikes
+                });
+            } catch (e) { /* activityDB optional */ }
+        } catch (err) {
+            console.error(`[migrate] error migrating ${oldKey}:`, err.message);
+        }
+    }
+
+    if (cacheDirty) {
+        galleryCache = null;
+        allProfilesCache = null;
+    }
+
+    return migratedCount;
+}
+
 async function atomicWriteProfile(filePath, profile) {
     const tempPath = filePath + '.tmp';
     const backupPath = filePath + '.backup';
@@ -1284,6 +1491,13 @@ app.get("/health", (req, res) => {
     });
 });
 
+// Clean up multer temp file if it exists
+function cleanupTempFile(req) {
+    if (req.file && req.file.path) {
+        fs.unlink(req.file.path, () => {});
+    }
+}
+
 // Upload endpoints (keeping all existing logic)
 app.post("/upload/:name", upload.single("image"), async (req, res) => {
     try {
@@ -1291,6 +1505,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         const profileJson = req.body.profile;
 
         if (!profileJson) {
+            cleanupTempFile(req);
             return res.status(400).send("Missing profile data.");
         }
 
@@ -1298,11 +1513,13 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         try {
             profile = JSON.parse(profileJson);
         } catch (err) {
+            cleanupTempFile(req);
             return res.status(400).send("Invalid profile JSON.");
         }
 
         const csCharacterName = profile.CharacterName;
         if (!csCharacterName) {
+            cleanupTempFile(req);
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
@@ -1313,14 +1530,28 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
 
         // Check if user is banned (blocks ALL uploads from this physical character)
         if (moderationDB.isUserBanned(physicalCharacterName)) {
+            cleanupTempFile(req);
             return res.status(403).json({ error: 'User has been banned from uploading profiles' });
         }
 
         if (moderationDB.isProfileBanned(characterId)) {
+            cleanupTempFile(req);
             return res.status(403).json({ error: 'Profile has been banned from the gallery' });
         }
 
         await cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName);
+
+        // Handle rename migration: client sends previousKeys for any rename/alias/physical-name
+        // changes this character has been through. Migrate likes and clean up orphan files before
+        // writing the new profile so aggregate caches rebuild from a clean state.
+        if (req.body.previousKeys) {
+            try {
+                const previousKeys = JSON.parse(req.body.previousKeys);
+                await migrateFromPreviousKeys(previousKeys, characterId, physicalCharacterName);
+            } catch (e) {
+                console.error('[upload] invalid previousKeys payload:', e.message);
+            }
+        }
 
         delete profile.LikeCount;
         profile.LikeCount = likesDB.getLikeCount(characterId);
@@ -1329,11 +1560,45 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         const isNewProfile = !fs.existsSync(filePath);
 
         if (req.file) {
-            const ext = path.extname(req.file.originalname) || ".png";
-            const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
+            const sanitizedBase = newFileName.replace(/[^\w@\-_.]/g, "_");
+
+            // Probe the source to decide the final extension. Images without alpha become JPEG
+            // (~88-95% smaller than equivalent PNG at q95). Images with alpha stay PNG to preserve
+            // transparency. If probing fails, fall back to the source's extension.
+            let targetExt = path.extname(req.file.originalname) || ".png";
+            if (sharp) {
+                try {
+                    const meta = await sharp(req.file.path, { failOn: "error" }).metadata();
+                    targetExt = meta.hasAlpha ? ".png" : ".jpg";
+                } catch (probeErr) {
+                    console.error(`[upload] metadata probe failed for ${sanitizedBase}: ${probeErr.message}`);
+                }
+            }
+
+            const safeFileName = sanitizedBase + targetExt;
             const finalImagePath = path.join(imagesDir, safeFileName);
 
+            // Move original into place first, guarantees we have something valid at the final path
+            // even if sharp fails. The optimizer then re-writes the file in place.
             await safeFileMove(req.file.path, finalImagePath);
+
+            // Run the optimizer. On failure, the original at finalImagePath is untouched and served.
+            const optResult = await optimizeImage(finalImagePath, finalImagePath);
+            if (optResult.ok && !optResult.skipped) {
+                console.log(`[upload] optimized ${safeFileName}: ${optResult.originalSize} → ${optResult.newSize} bytes (${optResult.reduction})`);
+            } else if (optResult.ok && optResult.skipped) {
+                // Original already near-optimal, keep as-is (common for images that were already well-compressed)
+            } else {
+                console.error(`[upload] optimization failed for ${safeFileName}: ${optResult.error}, keeping original`);
+            }
+
+            // Clean up any stale file at the OTHER extension (e.g. a prior PNG upload being replaced
+            // by a JPEG after format conversion). Prevents orphan files from accumulating on re-upload.
+            const altExt = targetExt === ".jpg" ? ".png" : ".jpg";
+            const altPath = path.join(imagesDir, sanitizedBase + altExt);
+            if (fs.existsSync(altPath)) {
+                try { fs.unlinkSync(altPath); } catch (e) { /* ignore */ }
+            }
 
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
@@ -1365,6 +1630,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         console.log(`✅ Saved profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
         res.json(profile);
     } catch (error) {
+        cleanupTempFile(req);
         console.error('Upload error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -1376,6 +1642,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         const profileJson = req.body.profile;
 
         if (!profileJson) {
+            cleanupTempFile(req);
             return res.status(400).send("Missing profile data.");
         }
 
@@ -1383,11 +1650,13 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         try {
             profile = JSON.parse(profileJson);
         } catch (err) {
+            cleanupTempFile(req);
             return res.status(400).send("Invalid profile JSON.");
         }
 
         const csCharacterName = profile.CharacterName;
         if (!csCharacterName) {
+            cleanupTempFile(req);
             return res.status(400).send("Missing CharacterName in profile data.");
         }
 
@@ -1398,14 +1667,28 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
 
         // Check if user is banned (blocks ALL uploads from this physical character)
         if (moderationDB.isUserBanned(physicalCharacterName)) {
+            cleanupTempFile(req);
             return res.status(403).json({ error: 'User has been banned from uploading profiles' });
         }
 
         if (moderationDB.isProfileBanned(characterId)) {
+            cleanupTempFile(req);
             return res.status(403).json({ error: 'Profile has been banned from the gallery' });
         }
 
         await cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName);
+
+        // Handle rename migration: client sends previousKeys for any rename/alias/physical-name
+        // changes this character has been through. Migrate likes and clean up orphan files before
+        // writing the new profile so aggregate caches rebuild from a clean state.
+        if (req.body.previousKeys) {
+            try {
+                const previousKeys = JSON.parse(req.body.previousKeys);
+                await migrateFromPreviousKeys(previousKeys, characterId, physicalCharacterName);
+            } catch (e) {
+                console.error('[upload] invalid previousKeys payload:', e.message);
+            }
+        }
 
         delete profile.LikeCount;
         profile.LikeCount = likesDB.getLikeCount(characterId);
@@ -1414,11 +1697,45 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         const isNewProfile = !fs.existsSync(filePath);
 
         if (req.file) {
-            const ext = path.extname(req.file.originalname) || ".png";
-            const safeFileName = newFileName.replace(/[^\w@\-_.]/g, "_") + ext;
+            const sanitizedBase = newFileName.replace(/[^\w@\-_.]/g, "_");
+
+            // Probe the source to decide the final extension. Images without alpha become JPEG
+            // (~88-95% smaller than equivalent PNG at q95). Images with alpha stay PNG to preserve
+            // transparency. If probing fails, fall back to the source's extension.
+            let targetExt = path.extname(req.file.originalname) || ".png";
+            if (sharp) {
+                try {
+                    const meta = await sharp(req.file.path, { failOn: "error" }).metadata();
+                    targetExt = meta.hasAlpha ? ".png" : ".jpg";
+                } catch (probeErr) {
+                    console.error(`[upload] metadata probe failed for ${sanitizedBase}: ${probeErr.message}`);
+                }
+            }
+
+            const safeFileName = sanitizedBase + targetExt;
             const finalImagePath = path.join(imagesDir, safeFileName);
 
+            // Move original into place first, guarantees we have something valid at the final path
+            // even if sharp fails. The optimizer then re-writes the file in place.
             await safeFileMove(req.file.path, finalImagePath);
+
+            // Run the optimizer. On failure, the original at finalImagePath is untouched and served.
+            const optResult = await optimizeImage(finalImagePath, finalImagePath);
+            if (optResult.ok && !optResult.skipped) {
+                console.log(`[upload] optimized ${safeFileName}: ${optResult.originalSize} → ${optResult.newSize} bytes (${optResult.reduction})`);
+            } else if (optResult.ok && optResult.skipped) {
+                // Original already near-optimal, keep as-is (common for images that were already well-compressed)
+            } else {
+                console.error(`[upload] optimization failed for ${safeFileName}: ${optResult.error}, keeping original`);
+            }
+
+            // Clean up any stale file at the OTHER extension (e.g. a prior PNG upload being replaced
+            // by a JPEG after format conversion). Prevents orphan files from accumulating on re-upload.
+            const altExt = targetExt === ".jpg" ? ".png" : ".jpg";
+            const altPath = path.join(imagesDir, sanitizedBase + altExt);
+            if (fs.existsSync(altPath)) {
+                try { fs.unlinkSync(altPath); } catch (e) { /* ignore */ }
+            }
 
             profile.ProfileImageUrl = `https://character-select-profile-server-production.up.railway.app/images/${safeFileName}`;
         }
@@ -1450,8 +1767,144 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         console.log(`✅ PUT updated profile: ${newFileName}.json (likes: ${profile.LikeCount})`);
         res.json(profile);
     } catch (error) {
+        cleanupTempFile(req);
         console.error('PUT error:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Client-initiated profile deletion. Used when a CS+ character is deleted locally so the
+// corresponding server file, image, likes, and cache entries are cleaned up too. The URL's :name
+// parameter reflects the user's current physical character (used for cache invalidation), and the
+// body carries the list of fileKeys to delete. Matches the trust model of the upload endpoint:
+// plugin auth only, no ownership verification, the server trusts clients to identify themselves
+// honestly (the existing upload endpoint has no stronger check either).
+app.delete("/upload/:name", async (req, res) => {
+    try {
+        const physicalCharacterName = decodeURIComponent(req.params.name);
+        const pluginAuth = req.headers['x-plugin-auth'];
+        if (pluginAuth !== 'cs-plus-gallery-client') {
+            return res.status(403).json({ error: 'Plugin auth required' });
+        }
+
+        // fileKeys can arrive as either a single string or an array. Normalise.
+        let fileKeys = req.body.fileKeys;
+        if (typeof fileKeys === 'string') {
+            try { fileKeys = JSON.parse(fileKeys); } catch { fileKeys = [fileKeys]; }
+        }
+        if (!Array.isArray(fileKeys) || fileKeys.length === 0) {
+            return res.status(400).json({ error: 'Missing fileKeys' });
+        }
+
+        const deleted = [];
+        const skipped = [];
+        const affectedPhysicals = new Set();
+
+        for (const fileKey of fileKeys) {
+            if (typeof fileKey !== 'string' || !fileKey) { skipped.push(fileKey); continue; }
+            // Sanity filter: valid fileKeys look like "{csName}_{physicalName}" with both parts.
+            if (!fileKey.includes('_') || !fileKey.includes('@')) { skipped.push(fileKey); continue; }
+
+            const filePath = path.join(profilesDir, `${fileKey}.json`);
+            if (!fs.existsSync(filePath)) { skipped.push(fileKey); continue; }
+
+            try {
+                // Remove likes
+                if (likesDB.likes.has(fileKey)) likesDB.likes.delete(fileKey);
+                if (likesDB.likeCounts.has(fileKey)) {
+                    likesDB.likeCounts.delete(fileKey);
+                }
+                likesDB.save();
+
+                // Remove profile JSON
+                try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+
+                // Remove associated image files (any extension)
+                try {
+                    const sanitizedBase = fileKey.replace(/[^\w@\-_.]/g, "_");
+                    const imageFiles = fs.readdirSync(imagesDir);
+                    for (const f of imageFiles) {
+                        if (f === sanitizedBase || f.startsWith(sanitizedBase + '.')) {
+                            try { fs.unlinkSync(path.join(imagesDir, f)); } catch (e) { /* ignore */ }
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[delete] image cleanup error for ${fileKey}:`, e.message);
+                }
+
+                deleted.push(fileKey);
+
+                // Track which physical name this key belonged to for targeted cache cleanup.
+                const keyPhysical = extractPhysicalNameFromKey(fileKey);
+                if (keyPhysical) affectedPhysicals.add(keyPhysical);
+
+                try {
+                    activityDB.logActivity('delete', `CLIENT DELETE: ${fileKey}`, {
+                        characterId: fileKey,
+                        physicalCharacterName
+                    });
+                } catch (e) { /* activityDB optional */ }
+            } catch (err) {
+                console.error(`[delete] error deleting ${fileKey}:`, err.message);
+                skipped.push(fileKey);
+            }
+        }
+
+        if (deleted.length > 0) {
+            // Invalidate aggregate caches and targeted caches for every affected physical name
+            galleryCache = null;
+            allProfilesCache = null;
+            for (const phys of affectedPhysicals) {
+                if (namesCache) namesCache.delete(phys);
+                if (profilesLookupCache) profilesLookupCache.delete(phys);
+            }
+        }
+
+        console.log(`🗑️ Client delete for ${physicalCharacterName}: ${deleted.length} deleted, ${skipped.length} skipped`);
+        res.json({ deleted, skipped });
+    } catch (err) {
+        console.error('[delete] handler error:', err.message);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Lightweight NSFW check, returns just the IsNSFW flag for a physical character's profile.
+// Used by the client during character apply to preserve admin-set NSFW without downloading the entire gallery.
+app.get("/profile-nsfw/:name", async (req, res) => {
+    try {
+        const physicalName = decodeURIComponent(req.params.name);
+
+        // Find matching profile files (same pattern as /view/:name)
+        const expectedSuffix = `_${physicalName}.json`;
+        const files = await fs.promises.readdir(profilesDir);
+        const matching = files.filter(f => f.endsWith(expectedSuffix) && !f.endsWith('_follows.json'));
+
+        if (matching.length === 0) {
+            return res.json({ isNSFW: false });
+        }
+
+        // If multiple CS+ characters share this physical name, use the most recently modified
+        let newest = null;
+        let newestTime = 0;
+        for (const file of matching) {
+            try {
+                const stats = await fs.promises.stat(path.join(profilesDir, file));
+                if (stats.mtime.getTime() > newestTime) {
+                    newestTime = stats.mtime.getTime();
+                    newest = file;
+                }
+            } catch {}
+        }
+
+        if (!newest) {
+            return res.json({ isNSFW: false });
+        }
+
+        const profileData = await readProfileAsync(path.join(profilesDir, newest));
+        res.json({ isNSFW: profileData.IsNSFW || false });
+    } catch (err) {
+        console.error('[profile-nsfw] Error:', err.message);
+        res.json({ isNSFW: false }); // fail safe, don't block uploads
     }
 });
 
@@ -1464,6 +1917,10 @@ app.get("/view/:name", async (req, res) => {
         if (fs.existsSync(filePath)) {
             try {
                 const profile = await readProfileAsync(filePath);
+                // Privacy check - don't return profiles marked as NeverShare
+                if (profile.Sharing === 'NeverShare' || profile.Sharing === 1) {
+                    return res.status(404).json({ error: "Profile not found" });
+                }
                 const sanitizedProfile = sanitizeProfileResponse(profile);
                 return res.json(sanitizedProfile);
             } catch (err) {
@@ -1498,7 +1955,12 @@ app.get("/view/:name", async (req, res) => {
                             });
                         });
                         const profileData = await readProfileAsync(fullPath);
-                        
+
+                        // Skip profiles marked as NeverShare so a private upload can't be served
+                        if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) {
+                            return;
+                        }
+
                         if (isValidProfile(profileData)) {
                             matchingProfiles.push({
                                 file: file,
@@ -1554,11 +2016,11 @@ async function warmAllCaches() {
 
         console.log(`📁 Found ${profileFiles.length} profile files`);
 
-        // Data collectors for all 4 caches
-        const namesResults = [];          // For names cache
-        const profilesLookupResults = []; // For profiles lookup cache
-        const galleryResults = [];        // For gallery cache
-        const allProfileResults = [];     // For all profiles cache
+        // Lightweight per-cache collectors, only store the fields each cache needs
+        const namesResults = [];
+        const profilesLookupResults = [];
+        const galleryResults = [];
+        const allProfileResults = [];
 
         const BATCH_SIZE = 25;
         for (let i = 0; i < profileFiles.length; i += BATCH_SIZE) {
@@ -1590,7 +2052,50 @@ async function warmAllCaches() {
                         activeTime = stats.mtime.getTime();
                     }
 
-                    return { file, characterId, physicalName, fullPath, profileData, activeTime };
+                    // Extract only what each cache needs, full profileData is NOT stored
+                    // Names cache needs: sharing, opt-in, character name, nameplate colour
+                    let colorArray = [1.0, 1.0, 1.0];
+                    if (profileData.NameplateColor) {
+                        if (Array.isArray(profileData.NameplateColor)) {
+                            colorArray = profileData.NameplateColor;
+                        } else if (typeof profileData.NameplateColor === 'object') {
+                            colorArray = [
+                                profileData.NameplateColor.X ?? 1.0,
+                                profileData.NameplateColor.Y ?? 1.0,
+                                profileData.NameplateColor.Z ?? 1.0
+                            ];
+                        }
+                    }
+
+                    const sharing = profileData.Sharing;
+                    const csName = profileData.CharacterName;
+
+                    // Gallery/AllProfiles need display fields
+                    const underscoreIndex = characterId.indexOf('_');
+                    const displayName = underscoreIndex > 0
+                        ? characterId.substring(0, underscoreIndex)
+                        : (csName || characterId.split('@')[0]);
+
+                    return {
+                        file, characterId, physicalName, activeTime,
+                        // Names cache fields
+                        sharing, csName, nameplateColor: colorArray,
+                        allowNameSync: profileData.AllowOthersToSeeMyCSName,
+                        // Gallery/AllProfiles display fields
+                        displayName,
+                        profileImageUrl: profileData.ProfileImageUrl || null,
+                        tags: profileData.Tags || "",
+                        bio: profileData.Bio || "",
+                        galleryStatus: profileData.GalleryStatus || "",
+                        race: profileData.Race || "",
+                        pronouns: profileData.Pronouns || "",
+                        links: profileData.Links || "",
+                        lastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                        imageZoom: profileData.ImageZoom || 1.0,
+                        imageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
+                        isNSFW: profileData.IsNSFW || false
+                    };
+                    // profileData goes out of scope here and can be GC'd
                 } catch (err) {
                     return null;
                 }
@@ -1619,31 +2124,19 @@ async function warmAllCaches() {
         const tempNamesIndex = new Map();
         const expiryTime = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
 
-        for (const { physicalName, activeTime, profileData } of namesResults) {
-            const seenNewerTime = newestActiveTime.get(physicalName);
-            if (seenNewerTime && seenNewerTime > activeTime) continue;
-            newestActiveTime.set(physicalName, activeTime);
-            tempNamesIndex.delete(physicalName);
+        for (const r of namesResults) {
+            const seenNewerTime = newestActiveTime.get(r.physicalName);
+            if (seenNewerTime && seenNewerTime > r.activeTime) continue;
+            newestActiveTime.set(r.physicalName, r.activeTime);
+            tempNamesIndex.delete(r.physicalName);
 
-            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
-            if (profileData.AllowOthersToSeeMyCSName !== true) continue;
-            if (activeTime < expiryTime) continue;
-            if (moderationDB.isNameBanned(physicalName)) continue;
-            if (!profileData.CharacterName) continue;
+            if (r.sharing === 'NeverShare' || r.sharing === 1) continue;
+            if (r.allowNameSync !== true) continue;
+            if (r.activeTime < expiryTime) continue;
+            if (moderationDB.isNameBanned(r.physicalName)) continue;
+            if (!r.csName) continue;
 
-            let colorArray = [1.0, 1.0, 1.0];
-            if (profileData.NameplateColor) {
-                if (Array.isArray(profileData.NameplateColor)) {
-                    colorArray = profileData.NameplateColor;
-                } else if (typeof profileData.NameplateColor === 'object') {
-                    colorArray = [
-                        profileData.NameplateColor.X ?? 1.0,
-                        profileData.NameplateColor.Y ?? 1.0,
-                        profileData.NameplateColor.Z ?? 1.0
-                    ];
-                }
-            }
-            tempNamesIndex.set(physicalName, { csName: profileData.CharacterName, nameplateColor: colorArray });
+            tempNamesIndex.set(r.physicalName, { csName: r.csName, nameplateColor: r.nameplateColor });
         }
         for (const [k, v] of tempNamesIndex) newNamesCache.set(k, v);
         namesCache = newNamesCache;
@@ -1655,15 +2148,15 @@ async function warmAllCaches() {
         const newestModTime = new Map();
         const tempProfilesIndex = new Map();
 
-        for (const { file, physicalName, activeTime, profileData } of profilesLookupResults) {
-            const seenNewerTime = newestModTime.get(physicalName);
-            if (seenNewerTime && seenNewerTime > activeTime) continue;
-            newestModTime.set(physicalName, activeTime);
-            tempProfilesIndex.delete(physicalName);
+        for (const r of profilesLookupResults) {
+            const seenNewerTime = newestModTime.get(r.physicalName);
+            if (seenNewerTime && seenNewerTime > r.activeTime) continue;
+            newestModTime.set(r.physicalName, r.activeTime);
+            tempProfilesIndex.delete(r.physicalName);
 
-            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
-            if (moderationDB.isProfileBanned(file.replace('.json', ''))) continue;
-            tempProfilesIndex.set(physicalName, activeTime);
+            if (r.sharing === 'NeverShare' || r.sharing === 1) continue;
+            if (moderationDB.isProfileBanned(r.characterId)) continue;
+            tempProfilesIndex.set(r.physicalName, r.activeTime);
         }
         for (const k of tempProfilesIndex.keys()) newProfilesLookupCache.add(k);
         profilesLookupCache = newProfilesLookupCache;
@@ -1672,34 +2165,26 @@ async function warmAllCaches() {
 
         // === Build Gallery Cache ===
         const showcaseProfiles = [];
-        for (const { characterId, physicalName, profileData } of galleryResults) {
-            if (moderationDB.isProfileBanned(characterId)) continue;
-            if (profileData.Sharing !== 'ShowcasePublic' && profileData.Sharing !== 2) continue;
-
-            const underscoreIndex = characterId.indexOf('_');
-            let csCharacterName;
-            if (underscoreIndex > 0) {
-                csCharacterName = characterId.substring(0, underscoreIndex);
-            } else {
-                csCharacterName = profileData.CharacterName || characterId.split('@')[0];
-            }
+        for (const r of galleryResults) {
+            if (moderationDB.isProfileBanned(r.characterId)) continue;
+            if (r.sharing !== 'ShowcasePublic' && r.sharing !== 2) continue;
 
             showcaseProfiles.push({
-                CharacterId: characterId,
-                CharacterName: csCharacterName,
-                Server: extractServerFromName(physicalName),
-                ProfileImageUrl: profileData.ProfileImageUrl || null,
-                Tags: profileData.Tags || "",
-                Bio: profileData.Bio || "",
-                GalleryStatus: profileData.GalleryStatus || "",
-                Race: profileData.Race || "",
-                Pronouns: profileData.Pronouns || "",
-                Links: profileData.Links || "",
-                LikeCount: likesDB.getLikeCount(characterId),
-                LastUpdated: profileData.LastUpdated || new Date().toISOString(),
-                ImageZoom: profileData.ImageZoom || 1.0,
-                ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
-                IsNSFW: profileData.IsNSFW || false
+                CharacterId: r.characterId,
+                CharacterName: r.displayName,
+                Server: extractServerFromName(r.physicalName),
+                ProfileImageUrl: r.profileImageUrl,
+                Tags: r.tags,
+                Bio: r.bio,
+                GalleryStatus: r.galleryStatus,
+                Race: r.race,
+                Pronouns: r.pronouns,
+                Links: r.links,
+                LikeCount: likesDB.getLikeCount(r.characterId),
+                LastUpdated: r.lastUpdated,
+                ImageZoom: r.imageZoom,
+                ImageOffset: r.imageOffset,
+                IsNSFW: r.isNSFW
             });
         }
         showcaseProfiles.sort((a, b) => b.LikeCount - a.LikeCount);
@@ -1709,38 +2194,29 @@ async function warmAllCaches() {
 
         // === Build All Profiles Cache ===
         const allProfiles = [];
-        for (const { characterId, physicalName, profileData } of allProfileResults) {
-            const sharing = profileData.Sharing;
-            const isShowcasePublic = sharing === 'ShowcasePublic' || sharing === 2;
-            const isAlwaysShare = sharing === 'AlwaysShare' || sharing === 0;
+        for (const r of allProfileResults) {
+            const isShowcasePublic = r.sharing === 'ShowcasePublic' || r.sharing === 2;
+            const isAlwaysShare = r.sharing === 'AlwaysShare' || r.sharing === 0;
             if (!isShowcasePublic && !isAlwaysShare) continue;
 
-            const underscoreIndex = characterId.indexOf('_');
-            let csCharacterName;
-            if (underscoreIndex > 0) {
-                csCharacterName = characterId.substring(0, underscoreIndex);
-            } else {
-                csCharacterName = profileData.CharacterName || characterId.split('@')[0];
-            }
-
             allProfiles.push({
-                CharacterId: characterId,
-                CharacterName: csCharacterName,
-                Server: extractServerFromName(physicalName),
-                ProfileImageUrl: profileData.ProfileImageUrl || null,
-                Tags: profileData.Tags || "",
-                Bio: profileData.Bio || "",
-                GalleryStatus: profileData.GalleryStatus || "",
-                Race: profileData.Race || "",
-                Pronouns: profileData.Pronouns || "",
-                Links: profileData.Links || "",
-                LikeCount: likesDB.getLikeCount(characterId),
-                LastUpdated: profileData.LastUpdated || new Date().toISOString(),
-                ImageZoom: profileData.ImageZoom || 1.0,
-                ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
-                IsNSFW: profileData.IsNSFW || false,
+                CharacterId: r.characterId,
+                CharacterName: r.displayName,
+                Server: extractServerFromName(r.physicalName),
+                ProfileImageUrl: r.profileImageUrl,
+                Tags: r.tags,
+                Bio: r.bio,
+                GalleryStatus: r.galleryStatus,
+                Race: r.race,
+                Pronouns: r.pronouns,
+                Links: r.links,
+                LikeCount: likesDB.getLikeCount(r.characterId),
+                LastUpdated: r.lastUpdated,
+                ImageZoom: r.imageZoom,
+                ImageOffset: r.imageOffset,
+                IsNSFW: r.isNSFW,
                 Sharing: isShowcasePublic ? 'ShowcasePublic' : 'AlwaysShare',
-                IsBanned: moderationDB.isProfileBanned(characterId)
+                IsBanned: moderationDB.isProfileBanned(r.characterId)
             });
         }
         allProfiles.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
@@ -1819,10 +2295,27 @@ async function rebuildNamesCache(waitForCompletion = false) {
                         activeTime = stats.mtime.getTime();
                     }
 
+                    // Extract only the fields this cache needs, discard full profile immediately
+                    let colorArray = [1.0, 1.0, 1.0];
+                    if (profileData.NameplateColor) {
+                        if (Array.isArray(profileData.NameplateColor)) {
+                            colorArray = profileData.NameplateColor;
+                        } else if (typeof profileData.NameplateColor === 'object') {
+                            colorArray = [
+                                profileData.NameplateColor.X ?? 1.0,
+                                profileData.NameplateColor.Y ?? 1.0,
+                                profileData.NameplateColor.Z ?? 1.0
+                            ];
+                        }
+                    }
+
                     return {
                         physicalName,
                         activeTime,
-                        profileData
+                        sharing: profileData.Sharing,
+                        allowNameSync: profileData.AllowOthersToSeeMyCSName,
+                        csName: profileData.CharacterName,
+                        nameplateColor: colorArray
                     };
                 } catch (err) {
                     return null; // Skip files that can't be read
@@ -1842,7 +2335,7 @@ async function rebuildNamesCache(waitForCompletion = false) {
         const newestActiveTime = new Map();
         const tempIndex = new Map();
 
-        for (const { physicalName, activeTime, profileData } of allResults) {
+        for (const { physicalName, activeTime, sharing, allowNameSync, csName, nameplateColor } of allResults) {
             // Check if we've already seen a newer file for this physical name
             const seenNewerTime = newestActiveTime.get(physicalName);
             if (seenNewerTime && seenNewerTime > activeTime) continue; // Skip older profiles
@@ -1854,10 +2347,10 @@ async function rebuildNamesCache(waitForCompletion = false) {
             tempIndex.delete(physicalName);
 
             // Skip if NeverShare (NeverShare = 1 in the enum)
-            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+            if (sharing === 'NeverShare' || sharing === 1) continue;
 
             // Skip if user hasn't opted in to name visibility
-            if (profileData.AllowOthersToSeeMyCSName !== true) continue;
+            if (allowNameSync !== true) continue;
 
             // Skip if profile is older than 24 hours (Name Sync expiry - profiles NOT deleted, just excluded from Name Sync)
             const expiryTime = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
@@ -1867,25 +2360,11 @@ async function rebuildNamesCache(waitForCompletion = false) {
             if (moderationDB.isNameBanned(physicalName)) continue;
 
             // Skip if no character name
-            if (!profileData.CharacterName) continue;
-
-            // Convert nameplate colour
-            let colorArray = [1.0, 1.0, 1.0];
-            if (profileData.NameplateColor) {
-                if (Array.isArray(profileData.NameplateColor)) {
-                    colorArray = profileData.NameplateColor;
-                } else if (typeof profileData.NameplateColor === 'object') {
-                    colorArray = [
-                        profileData.NameplateColor.X ?? 1.0,
-                        profileData.NameplateColor.Y ?? 1.0,
-                        profileData.NameplateColor.Z ?? 1.0
-                    ];
-                }
-            }
+            if (!csName) continue;
 
             tempIndex.set(physicalName, {
-                csName: profileData.CharacterName,
-                nameplateColor: colorArray
+                csName: csName,
+                nameplateColor: nameplateColor
             });
         }
 
@@ -2033,11 +2512,16 @@ async function rebuildProfilesLookupCache(waitForCompletion = false) {
                     const stats = await fs.promises.stat(fullPath);
                     const modTime = stats.mtime.getTime();
 
-                    // Read and validate profile
+                    // Read profile but only extract what this cache needs
                     const fileContent = await fs.promises.readFile(fullPath, 'utf-8');
                     const profileData = JSON.parse(fileContent);
 
-                    return { file, physicalName, modTime, profileData };
+                    return {
+                        characterId: file.replace('.json', ''),
+                        physicalName,
+                        modTime,
+                        sharing: profileData.Sharing
+                    };
                 } catch (err) {
                     return null;
                 }
@@ -2055,7 +2539,7 @@ async function rebuildProfilesLookupCache(waitForCompletion = false) {
         const tempIndex = new Map();
         const newestModTime = new Map();
 
-        for (const { file, physicalName, modTime, profileData } of allResults) {
+        for (const { characterId, physicalName, modTime, sharing } of allResults) {
             // Check if we've already seen a newer file for this physical name
             const seenNewerTime = newestModTime.get(physicalName);
             if (seenNewerTime && seenNewerTime > modTime) continue;
@@ -2064,10 +2548,10 @@ async function rebuildProfilesLookupCache(waitForCompletion = false) {
             tempIndex.delete(physicalName);
 
             // Skip if NeverShare
-            if (profileData.Sharing === 'NeverShare' || profileData.Sharing === 1) continue;
+            if (sharing === 'NeverShare' || sharing === 1) continue;
 
             // Skip if banned
-            if (moderationDB.isProfileBanned(file.replace('.json', ''))) continue;
+            if (moderationDB.isProfileBanned(characterId)) continue;
 
             // Has a shared profile (AlwaysShare or ShowcasePublic)
             tempIndex.set(physicalName, modTime);
@@ -2245,7 +2729,8 @@ async function rebuildGalleryCache(waitForCompletion = false) {
 
         galleryCache = showcaseProfiles;
         galleryCacheTime = Date.now();
-        console.log(`📚 Gallery cache rebuilt: ${showcaseProfiles.length} profiles in ${Date.now() - startTime}ms`);
+        galleryCacheVersion++; // Bump ETag version so clients know to refetch
+        console.log(`📚 Gallery cache rebuilt: ${showcaseProfiles.length} profiles in ${Date.now() - startTime}ms (v${galleryCacheVersion})`);
     } catch (err) {
         console.error(`Gallery cache rebuild error: ${err}`);
     } finally {
@@ -2375,6 +2860,16 @@ app.get("/gallery", async (req, res) => {
             }
         }
 
+        // ETag check, auto-refresh clients send If-None-Match and get 304 most of the time
+        // (gallery cache only rebuilds every 30 min). The ETag factors in NSFW visibility so
+        // clients requesting different filter sets don't share cached responses.
+        const currentEtag = `"gallery-v${galleryCacheVersion}-${showNSFW ? 'nsfw' : 'sfw'}-${isPlugin || isAdmin ? 'full' : 'sanitized'}"`;
+        if (req.headers['if-none-match'] === currentEtag) {
+            res.setHeader('ETag', currentEtag);
+            res.setHeader('Cache-Control', 'private, max-age=30');
+            return res.status(304).end();
+        }
+
         // Return from cache (may be stale but that's ok)
         let profiles = galleryCache || [];
 
@@ -2383,6 +2878,9 @@ app.get("/gallery", async (req, res) => {
             profiles = profiles.filter(profile => !profile.IsNSFW);
         }
 
+        res.setHeader('ETag', currentEtag);
+        res.setHeader('Cache-Control', 'private, max-age=30');
+
         if (isPlugin || isAdmin) {
             return res.json(profiles);
         } else {
@@ -2390,6 +2888,89 @@ app.get("/gallery", async (req, res) => {
         }
     } catch (err) {
         console.error('Gallery error:', err);
+        res.status(500).json({ error: 'Failed to load gallery' });
+    }
+});
+
+// ===============================
+// 📚 GALLERY v2, PAGINATED
+// ===============================
+// Paginated gallery endpoint. Returns a slice of the gallery cache plus metadata so clients can
+// page through without pulling the entire list on every request. Supports ETag/304 for clients
+// that already have a current version cached.
+//
+// Response envelope:
+//   { profiles: [...], page: N, pageSize: N, total: N, version: N }
+//
+// Query params:
+//   page     , zero-indexed page number (default 0)
+//   pageSize , items per page, clamped 10-100 (default 50)
+//   nsfw     , 'true' to include NSFW profiles (admin + plugin clients only)
+//   search   , optional substring filter against CharacterName / Tags
+//
+// Backward compat: this is a NEW endpoint. The legacy /gallery continues to return the full array
+// unchanged, so clients still on older CS+ versions keep working.
+app.get("/gallery/v2", async (req, res) => {
+    try {
+        const isPlugin = req.headers['x-plugin-auth'] === 'cs-plus-gallery-client';
+        const isAdmin = req.query.admin === 'true' && req.query.key === process.env.ADMIN_SECRET_KEY;
+        const showNSFW = req.query.nsfw === 'true';
+
+        const now = Date.now();
+        const cacheStale = !galleryCache || (now - galleryCacheTime) >= CACHE_DURATION;
+
+        if (cacheStale) {
+            if (galleryCache) {
+                rebuildGalleryCache(); // background rebuild
+            } else {
+                await rebuildGalleryCache(true);
+            }
+        }
+
+        // ETag check - if client already has this version, return 304
+        const currentEtag = `"gallery-v${galleryCacheVersion}"`;
+        if (req.headers['if-none-match'] === currentEtag) {
+            res.setHeader('ETag', currentEtag);
+            res.setHeader('Cache-Control', 'private, max-age=60');
+            return res.status(304).end();
+        }
+
+        let profiles = galleryCache || [];
+
+        // NSFW filter for non-privileged clients
+        if (!showNSFW && !isAdmin) {
+            profiles = profiles.filter(p => !p.IsNSFW);
+        }
+
+        // Optional search filter
+        const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+        if (search) {
+            profiles = profiles.filter(p => {
+                const name = (p.CharacterName || '').toLowerCase();
+                const tags = (p.Tags || '').toLowerCase();
+                return name.includes(search) || tags.includes(search);
+            });
+        }
+
+        // Pagination
+        const total = profiles.length;
+        const pageSize = Math.min(100, Math.max(10, parseInt(req.query.pageSize, 10) || 50));
+        const page = Math.max(0, parseInt(req.query.page, 10) || 0);
+        const start = page * pageSize;
+        const slice = profiles.slice(start, start + pageSize);
+
+        res.setHeader('ETag', currentEtag);
+        res.setHeader('Cache-Control', 'private, max-age=60');
+
+        return res.json({
+            profiles: isPlugin || isAdmin ? slice : sanitizeGalleryData(slice),
+            page,
+            pageSize,
+            total,
+            version: galleryCacheVersion
+        });
+    } catch (err) {
+        console.error('Gallery v2 error:', err);
         res.status(500).json({ error: 'Failed to load gallery' });
     }
 });
@@ -2714,7 +3295,7 @@ app.delete("/admin/profiles/:characterId", requireAdmin, async (req, res) => {
         try {
             const profile = await readProfileAsync(filePath);
             characterName = profile.CharacterName || characterId;
-            // Derive physical name from profile's CS+ name — more reliable than extractPhysicalName
+            // Derive physical name from profile's CS+ name, more reliable than extractPhysicalName
             // when CS+ names contain special chars (sanitised to underscores in characterId)
             if (profile.CharacterName) {
                 const sanitizedCS = profile.CharacterName.replace(/[^\w\s\-.']/g, '_');
@@ -3344,6 +3925,44 @@ app.get("/admin/system", requireAdmin, async (req, res) => {
         console.error('System diagnostics error:', error);
         res.status(500).json({ error: 'Failed to get system diagnostics' });
     }
+});
+
+// Clean orphaned temp files from uploads directory (older than 1 hour)
+async function cleanupOrphanedTempFiles() {
+    try {
+        const entries = await fs.promises.readdir(uploadsDir);
+        const oneHourAgo = Date.now() - 3600000;
+        let cleaned = 0;
+        let freedBytes = 0;
+        for (const entry of entries) {
+            const fullPath = path.join(uploadsDir, entry);
+            try {
+                const stat = await fs.promises.stat(fullPath);
+                if (stat.isFile() && stat.mtimeMs < oneHourAgo) {
+                    freedBytes += stat.size;
+                    await fs.promises.unlink(fullPath);
+                    cleaned++;
+                }
+            } catch (e) { /* already deleted */ }
+        }
+        if (cleaned > 0) {
+            console.log(`🧹 Cleaned ${cleaned} orphaned temp files (${(freedBytes / 1048576).toFixed(1)} MB)`);
+        }
+        return { cleaned, freedBytes };
+    } catch (err) {
+        console.error('Temp cleanup error:', err.message);
+        return { cleaned: 0, freedBytes: 0 };
+    }
+}
+
+// Run temp cleanup every hour
+setInterval(cleanupOrphanedTempFiles, 3600000);
+
+// Admin endpoint to trigger immediate temp cleanup
+app.post("/admin/system/cleanup-temp", requireAdmin, async (req, res) => {
+    const result = await cleanupOrphanedTempFiles();
+    diskUsageCache = null; // Invalidate disk cache
+    res.json({ success: true, ...result });
 });
 
 // Reset egress tracking counters
