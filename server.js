@@ -91,7 +91,9 @@ async function optimizeImage(inputPath, outputPath) {
         // Strip metadata (EXIF / ICC / IPTC / XMP)
         pipeline = pipeline.withMetadata({ exif: {}, icc: undefined, iptc: {}, xmp: "" });
 
-        const tempOut = outputPath + ".opt.tmp";
+        // Per-invocation unique suffix so concurrent uploads (or a running
+        // migrate-images.js batch) don't race on the same `.opt.tmp` filename
+        const tempOut = `${outputPath}.opt.${crypto.randomBytes(6).toString("hex")}.tmp`;
         await pipeline.toFile(tempOut);
 
         const newSize = (await fs.promises.stat(tempOut)).size;
