@@ -50,7 +50,7 @@ app.use("/images", express.static(path.join(DATA_DIR, "public", "images"), {
 
 // Cap raw uploads at 10 MB (pre-optimization). Legitimate profile images never need to be larger
 // than this, and rejecting oversized uploads prevents memory spikes during sharp processing.
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const upload = multer({ dest: uploadsDir, limits: { fileSize: MAX_UPLOAD_BYTES } });
 
 // ===============================
