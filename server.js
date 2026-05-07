@@ -182,7 +182,7 @@ async function getDirectorySize(dirPath) {
 
 app.use(require('compression')());
 app.use(cors());
-app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.json({ limit: '25mb' }));
 
 // Handle aborted requests silently (client disconnect during upload)
 app.use((req, res, next) => {
@@ -243,6 +243,7 @@ const reportsDbFile = path.join(DATA_DIR, "reports_database.json");
 const moderationDbFile = path.join(DATA_DIR, "moderation_database.json");
 const activityDbFile = path.join(DATA_DIR, "activity_database.json");
 const flaggedDbFile = path.join(DATA_DIR, "flagged_database.json");
+const tokensDbFile = path.join(DATA_DIR, "tokens_database.json");
 
 // 💾 DATABASE CLASSES
 class LikesDatabase {
@@ -1129,6 +1130,138 @@ class AutoFlaggingDatabase {
     }
 }
 
+// Slot ownership store, TOFU per install token + ContentId pair.
+class TokensDatabase {
+    constructor() {
+        this.slots = new Map();
+        this.tokens = new Map();
+        this.graceWindowEnd = 0;
+        this.load();
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(tokensDbFile)) {
+                const data = JSON.parse(fs.readFileSync(tokensDbFile, 'utf-8'));
+                this.slots = new Map(Object.entries(data.slots || {}));
+                this.tokens = new Map(
+                    Object.entries(data.tokens || {}).map(([t, v]) => [t, {
+                        claimedSlots: new Set(v.claimedSlots || []),
+                        firstSeen: v.firstSeen,
+                        lastSeen: v.lastSeen,
+                    }])
+                );
+                this.graceWindowEnd = data.graceWindowEnd || 0;
+                console.log(`💾 Loaded ${this.slots.size} slot claims, ${this.tokens.size} known tokens`);
+            }
+            if (!this.graceWindowEnd) {
+                this.graceWindowEnd = Date.now() + 30 * 24 * 60 * 60 * 1000;
+                console.log(`🪪 Token grace window set, ends ${new Date(this.graceWindowEnd).toISOString()}`);
+                this.save();
+            }
+        } catch (err) {
+            console.error('Error loading tokens database:', err);
+            this.slots = new Map();
+            this.tokens = new Map();
+            this.graceWindowEnd = Date.now() + 30 * 24 * 60 * 60 * 1000;
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                graceWindowEnd: this.graceWindowEnd,
+                slots: Object.fromEntries(this.slots),
+                tokens: Object.fromEntries(
+                    Array.from(this.tokens.entries()).map(([t, v]) => [t, {
+                        claimedSlots: Array.from(v.claimedSlots),
+                        firstSeen: v.firstSeen,
+                        lastSeen: v.lastSeen,
+                    }])
+                ),
+            };
+            fs.writeFileSync(tokensDbFile, JSON.stringify(data, null, 2));
+        } catch (err) {
+            console.error('Error saving tokens database:', err);
+        }
+    }
+
+    // Returns { ok: true } or { ok: false, reason }.
+    verifyOrClaim(slot, token, contentId) {
+        if (!token) return { ok: false, reason: 'no_token' };
+
+        const now = new Date().toISOString();
+        const existing = this.slots.get(slot);
+
+        if (!existing) {
+            this._claim(slot, token, contentId, now);
+            return { ok: true };
+        }
+
+        if (existing.ownerToken === token) {
+            existing.lastSeen = now;
+            this._touchToken(token, now);
+            this.save();
+            return { ok: true };
+        }
+
+        // ContentId match = auto-reclaim (reinstall path).
+        if (contentId && existing.ownerContentId && existing.ownerContentId === contentId) {
+            console.log(`🪪 Auto-reclaim for ${slot}: contentId ${contentId} matches, new token ${token.substring(0, 8)}`);
+            this._releaseFromToken(existing.ownerToken, slot);
+            this._claim(slot, token, contentId, now);
+            return { ok: true };
+        }
+
+        return { ok: false, reason: contentId ? 'wrong_token' : 'wrong_token_no_contentid' };
+    }
+
+    _claim(slot, token, contentId, when) {
+        this.slots.set(slot, {
+            ownerToken: token,
+            ownerContentId: contentId || null,
+            claimedAt: when,
+            lastSeen: when,
+        });
+        this._touchToken(token, when);
+        const entry = this.tokens.get(token);
+        if (entry) entry.claimedSlots.add(slot);
+        this.save();
+    }
+
+    _touchToken(token, when) {
+        const entry = this.tokens.get(token);
+        if (entry) {
+            entry.lastSeen = when;
+        } else {
+            this.tokens.set(token, {
+                claimedSlots: new Set(),
+                firstSeen: when,
+                lastSeen: when,
+            });
+        }
+    }
+
+    _releaseFromToken(token, slot) {
+        const entry = this.tokens.get(token);
+        if (entry) entry.claimedSlots.delete(slot);
+    }
+
+    releaseSlot(slot, token) {
+        const existing = this.slots.get(slot);
+        if (!existing) return;
+        if (existing.ownerToken !== token) return;
+        this.slots.delete(slot);
+        this._releaseFromToken(token, slot);
+        this.save();
+    }
+
+    listSlotsByToken(token) {
+        const entry = this.tokens.get(token);
+        return entry ? Array.from(entry.claimedSlots) : [];
+    }
+}
+
 // Initialize databases
 const likesDB = new LikesDatabase();
 const friendsDB = new FriendsDatabase();
@@ -1137,6 +1270,7 @@ const reportsDB = new ReportsDatabase();
 const moderationDB = new ModerationDatabase();
 const activityDB = new ActivityDatabase();
 const autoFlagDB = new AutoFlaggingDatabase();
+const tokensDB = new TokensDatabase();
 
 // Admin authentication middleware
 function requireAdmin(req, res, next) {
@@ -1144,11 +1278,42 @@ function requireAdmin(req, res, next) {
     if (adminKey !== process.env.ADMIN_SECRET_KEY) {
         return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     // Get admin ID from header, fallback to 'unknown'
     req.adminId = req.headers['x-admin-id'] || req.body.adminId || 'unknown_admin';
     // Not logging every auth to avoid log spam - admin actions are logged separately
     next();
+}
+
+// Returns { ok: true } or { ok: false, status, message }.
+function checkSlotAuth(req, slot) {
+    const token = req.headers['x-install-token'];
+    const contentIdRaw = req.headers['x-character-contentid'];
+    const contentId = contentIdRaw && contentIdRaw !== '0' ? contentIdRaw : null;
+
+    if (!token) {
+        return { ok: false, status: 401, message: 'Missing install token. Update your CS+ plugin.' };
+    }
+
+    const result = tokensDB.verifyOrClaim(slot, token, contentId);
+    if (result.ok) return { ok: true };
+
+    if (result.reason === 'wrong_token' || result.reason === 'wrong_token_no_contentid') {
+        try {
+            activityDB.logActivity('auth', `BLOCKED upload: wrong token for ${slot}`, {
+                slot,
+                reason: result.reason,
+                tokenPrefix: token.substring(0, 8),
+                hasContentId: !!contentId,
+            });
+        } catch (e) { /* audit log is best effort */ }
+        return {
+            ok: false,
+            status: 403,
+            message: 'This profile slot is owned by a different installation. If this is your character, use Settings > Privacy > Request Reclaim in CS+.',
+        };
+    }
+    return { ok: false, status: 403, message: 'Slot ownership verification failed.' };
 }
 
 // Helper functions (keeping all the existing ones)
@@ -1506,6 +1671,12 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         const physicalCharacterName = decodeURIComponent(req.params.name);
         const profileJson = req.body.profile;
 
+        const authResult = checkSlotAuth(req, physicalCharacterName);
+        if (!authResult.ok) {
+            cleanupTempFile(req);
+            return res.status(authResult.status).json({ error: authResult.message });
+        }
+
         if (!profileJson) {
             cleanupTempFile(req);
             return res.status(400).send("Missing profile data.");
@@ -1643,6 +1814,12 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         const physicalCharacterName = decodeURIComponent(req.params.name);
         const profileJson = req.body.profile;
 
+        const authResult = checkSlotAuth(req, physicalCharacterName);
+        if (!authResult.ok) {
+            cleanupTempFile(req);
+            return res.status(authResult.status).json({ error: authResult.message });
+        }
+
         if (!profileJson) {
             cleanupTempFile(req);
             return res.status(400).send("Missing profile data.");
@@ -1775,6 +1952,93 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
     }
 });
 
+// Bulk delete by install token. Must register before the /upload/:name wildcard.
+app.delete("/upload/by-token", async (req, res) => {
+    try {
+        const token = req.headers['x-install-token'];
+        if (!token) {
+            return res.status(401).json({ error: 'Missing install token' });
+        }
+
+        const claimedSlots = tokensDB.listSlotsByToken(token);
+        if (claimedSlots.length === 0) {
+            return res.json({ deleted: [], skipped: [], message: 'No slots claimed by this token.' });
+        }
+
+        const deleted = [];
+        const skipped = [];
+        const affectedPhysicals = new Set();
+
+        for (const slot of claimedSlots) {
+            let files = [];
+            try {
+                const all = await fs.promises.readdir(profilesDir);
+                const suffix = `_${slot}.json`;
+                files = all.filter(f => f.endsWith(suffix) && !f.endsWith('_follows.json'));
+            } catch (e) {
+                console.error(`[delete-by-token] readdir failed for ${slot}: ${e.message}`);
+                skipped.push(slot);
+                continue;
+            }
+
+            for (const fileName of files) {
+                const fileKey = fileName.replace(/\.json$/, '');
+                const filePath = path.join(profilesDir, fileName);
+                try {
+                    if (likesDB.likes.has(fileKey)) likesDB.likes.delete(fileKey);
+                    if (likesDB.likeCounts.has(fileKey)) likesDB.likeCounts.delete(fileKey);
+
+                    try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+
+                    try {
+                        const sanitizedBase = fileKey.replace(/[^\w@\-_.]/g, "_");
+                        const imageFiles = fs.readdirSync(imagesDir);
+                        for (const f of imageFiles) {
+                            if (f === sanitizedBase || f.startsWith(sanitizedBase + '.')) {
+                                try { fs.unlinkSync(path.join(imagesDir, f)); } catch (e) { /* ignore */ }
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`[delete-by-token] image cleanup error for ${fileKey}: ${e.message}`);
+                    }
+
+                    deleted.push(fileKey);
+                    affectedPhysicals.add(slot);
+
+                    try {
+                        activityDB.logActivity('delete', `BY-TOKEN DELETE: ${fileKey}`, {
+                            characterId: fileKey,
+                            tokenPrefix: token.substring(0, 8),
+                        });
+                    } catch (e) { /* activity log is best effort */ }
+                } catch (err) {
+                    console.error(`[delete-by-token] error deleting ${fileKey}: ${err.message}`);
+                    skipped.push(fileKey);
+                }
+            }
+
+            try { tokensDB.releaseSlot(slot, token); } catch (e) { /* best effort */ }
+        }
+
+        likesDB.save();
+
+        if (deleted.length > 0) {
+            galleryCache = null;
+            allProfilesCache = null;
+            for (const phys of affectedPhysicals) {
+                if (namesCache) namesCache.delete(phys);
+                if (profilesLookupCache) profilesLookupCache.delete(phys);
+            }
+        }
+
+        console.log(`🗑️ By-token delete (token ${token.substring(0, 8)}): ${deleted.length} deleted across ${affectedPhysicals.size} slot(s), ${skipped.length} skipped`);
+        res.json({ deleted, skipped, slotsReleased: affectedPhysicals.size });
+    } catch (err) {
+        console.error('[delete-by-token] handler error:', err.message);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Client-initiated profile deletion. Used when a CS+ character is deleted locally so the
 // corresponding server file, image, likes, and cache entries are cleaned up too. The URL's :name
 // parameter reflects the user's current physical character (used for cache invalidation), and the
@@ -1787,6 +2051,11 @@ app.delete("/upload/:name", async (req, res) => {
         const pluginAuth = req.headers['x-plugin-auth'];
         if (pluginAuth !== 'cs-plus-gallery-client') {
             return res.status(403).json({ error: 'Plugin auth required' });
+        }
+
+        const authResult = checkSlotAuth(req, physicalCharacterName);
+        if (!authResult.ok) {
+            return res.status(authResult.status).json({ error: authResult.message });
         }
 
         // fileKeys can arrive as either a single string or an array. Normalise.
@@ -1809,6 +2078,8 @@ app.delete("/upload/:name", async (req, res) => {
 
             const filePath = path.join(profilesDir, `${fileKey}.json`);
             if (!fs.existsSync(filePath)) { skipped.push(fileKey); continue; }
+
+            try { tokensDB.releaseSlot(physicalCharacterName, req.headers['x-install-token'] || ''); } catch (e) { /* best effort */ }
 
             try {
                 // Remove likes
