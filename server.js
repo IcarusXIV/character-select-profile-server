@@ -138,6 +138,7 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes cache - extended for 24k+ p
 let allProfilesCache = null;
 let allProfilesCacheTime = 0;
 let allProfilesCacheBuilding = false;
+let lastDashboardStats = null;
 
 // Names lookup caching - indexed by physical character name
 let namesCache = null;           // Map<physicalName, {csName, nameplateColor}>
@@ -3308,8 +3309,6 @@ app.post("/gallery/:name/like", async (req, res) => {
             }
         }
 
-        galleryCache = null;
-        allProfilesCache = null;
         res.json({ LikeCount: newCount });
         
     } catch (err) {
@@ -3337,8 +3336,6 @@ app.delete("/gallery/:name/like", async (req, res) => {
             }
         }
 
-        galleryCache = null;
-        allProfilesCache = null;
         res.json({ LikeCount: newCount });
         
     } catch (err) {
@@ -4020,31 +4017,34 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-        // Counts read from the in-memory cache, not a per-request disk scan.
-        const cachedProfiles = allProfilesCache || [];
-
+        // Counts from the in-memory cache; reuse the last values when it is momentarily cleared.
         let totalCount = 0;
         let galleryCount = 0;
         let newProfilesToday = 0;
         let newProfilesThisWeek = 0;
         let newGalleryProfilesToday = 0;
 
-        for (const profile of cachedProfiles) {
-            if (profile.IsBanned) continue;
+        if (allProfilesCache) {
+            for (const profile of allProfilesCache) {
+                if (profile.IsBanned) continue;
 
-            const isShowcasePublic = profile.Sharing === 'ShowcasePublic';
-            const createdDate = profile.CreatedAt ? new Date(profile.CreatedAt) : null;
+                const isShowcasePublic = profile.Sharing === 'ShowcasePublic';
+                const createdDate = profile.CreatedAt ? new Date(profile.CreatedAt) : null;
 
-            totalCount++;
-            if (createdDate) {
-                if (createdDate > oneDayAgo) newProfilesToday++;
-                if (createdDate > oneWeekAgo) newProfilesThisWeek++;
+                totalCount++;
+                if (createdDate) {
+                    if (createdDate > oneDayAgo) newProfilesToday++;
+                    if (createdDate > oneWeekAgo) newProfilesThisWeek++;
+                }
+
+                if (isShowcasePublic) {
+                    galleryCount++;
+                    if (createdDate && createdDate > oneDayAgo) newGalleryProfilesToday++;
+                }
             }
-
-            if (isShowcasePublic) {
-                galleryCount++;
-                if (createdDate && createdDate > oneDayAgo) newGalleryProfilesToday++;
-            }
+            lastDashboardStats = { totalCount, galleryCount, newProfilesToday, newProfilesThisWeek, newGalleryProfilesToday };
+        } else if (lastDashboardStats) {
+            ({ totalCount, galleryCount, newProfilesToday, newProfilesThisWeek, newGalleryProfilesToday } = lastDashboardStats);
         }
 
         // Count new reports
