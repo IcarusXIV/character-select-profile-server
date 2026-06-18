@@ -37,6 +37,133 @@ if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 const uploadsDir = path.join(DATA_DIR, "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+// Persistent profile index. Replaces the in-memory caches that needed full 170k-file crawls.
+// Lives on the volume, so it survives restarts and only builds once; maintained on every upload.
+const Database = require("better-sqlite3");
+const indexDb = new Database(path.join(DATA_DIR, "profile_index.db"));
+indexDb.pragma("journal_mode = WAL");
+indexDb.exec(`
+    CREATE TABLE IF NOT EXISTS profile_index (
+        characterId    TEXT PRIMARY KEY,
+        physicalName   TEXT NOT NULL,
+        csName         TEXT,
+        nameplateColor TEXT,
+        sharing        TEXT,
+        allowNameSync  INTEGER,
+        lastActiveTime INTEGER,
+        createdAt      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_index_physical ON profile_index(physicalName);
+`);
+
+const stmtIndexUpsert = indexDb.prepare(`
+    INSERT INTO profile_index (characterId, physicalName, csName, nameplateColor, sharing, allowNameSync, lastActiveTime, createdAt)
+    VALUES (@characterId, @physicalName, @csName, @nameplateColor, @sharing, @allowNameSync, @lastActiveTime, @createdAt)
+    ON CONFLICT(characterId) DO UPDATE SET
+        physicalName = excluded.physicalName, csName = excluded.csName, nameplateColor = excluded.nameplateColor,
+        sharing = excluded.sharing, allowNameSync = excluded.allowNameSync,
+        lastActiveTime = excluded.lastActiveTime, createdAt = excluded.createdAt
+`);
+const stmtIndexDelete = indexDb.prepare(`DELETE FROM profile_index WHERE characterId = ?`);
+const stmtIndexCount = indexDb.prepare(`SELECT COUNT(*) AS c FROM profile_index`);
+const stmtIndexLookupName = indexDb.prepare(`
+    SELECT csName, nameplateColor FROM profile_index
+    WHERE physicalName = ? AND allowNameSync = 1
+      AND sharing != 'NeverShare' AND sharing != '1'
+      AND lastActiveTime > ?
+    ORDER BY lastActiveTime DESC LIMIT 1
+`);
+const stmtIndexLookupProfile = indexDb.prepare(`
+    SELECT characterId, sharing FROM profile_index
+    WHERE physicalName = ?
+    ORDER BY lastActiveTime DESC LIMIT 1
+`);
+
+// Normalise a profile object into an index row.
+function profileToIndexRow(characterId, physicalName, profile) {
+    let color = "[1,1,1]";
+    const c = profile.NameplateColor;
+    if (Array.isArray(c)) color = JSON.stringify(c);
+    else if (c && typeof c === "object") color = JSON.stringify([c.X ?? 1, c.Y ?? 1, c.Z ?? 1]);
+
+    let activeTime = 0;
+    if (profile.LastActiveTime) activeTime = new Date(profile.LastActiveTime).getTime() || 0;
+
+    return {
+        characterId,
+        physicalName,
+        csName: profile.CharacterName || null,
+        nameplateColor: color,
+        sharing: (profile.Sharing === undefined || profile.Sharing === null) ? null : String(profile.Sharing),
+        allowNameSync: profile.AllowOthersToSeeMyCSName === true ? 1 : 0,
+        lastActiveTime: activeTime,
+        createdAt: profile.CreatedAt || null
+    };
+}
+
+function indexUpsertProfile(characterId, physicalName, profile) {
+    try {
+        stmtIndexUpsert.run(profileToIndexRow(characterId, physicalName, profile));
+    } catch (err) {
+        console.error(`[index] upsert failed for ${characterId}: ${err.message}`);
+    }
+}
+
+function indexDeleteProfile(characterId) {
+    try { stmtIndexDelete.run(characterId); } catch (err) { /* ignore */ }
+}
+
+// One-time build from existing profile files. Runs only when the index is empty; afterwards the
+// index persists on the volume and stays current through incremental upserts on upload.
+let indexBuilding = false;
+async function buildIndexIfEmpty() {
+    const count = stmtIndexCount.get().c;
+    if (count > 0) {
+        console.log(`📇 Profile index ready: ${count} rows`);
+        return;
+    }
+    if (indexBuilding) return;
+    indexBuilding = true;
+    console.log("📇 Profile index empty, building from files (one time only)...");
+    const startTime = Date.now();
+    try {
+        const files = (await fs.promises.readdir(profilesDir))
+            .filter(f => f.endsWith(".json") && !f.endsWith("_follows.json"));
+        const insertBatch = indexDb.transaction((rows) => {
+            for (const row of rows) stmtIndexUpsert.run(row);
+        });
+        let batch = [];
+        let n = 0;
+        for (const file of files) {
+            try {
+                const lastUnderscore = file.lastIndexOf("_");
+                if (lastUnderscore === -1) continue;
+                const physicalName = file.substring(lastUnderscore + 1, file.length - 5);
+                if (!physicalName.includes("@")) continue;
+                const characterId = file.substring(0, file.length - 5);
+                const profile = JSON.parse(await fs.promises.readFile(path.join(profilesDir, file), "utf-8"));
+                if (!profile.LastActiveTime) {
+                    const st = await fs.promises.stat(path.join(profilesDir, file));
+                    profile.LastActiveTime = st.mtime.toISOString();
+                }
+                batch.push(profileToIndexRow(characterId, physicalName, profile));
+                n++;
+            } catch (e) { /* skip unreadable file */ }
+            if (batch.length >= 500) {
+                insertBatch(batch);
+                batch = [];
+                await new Promise(r => setTimeout(r, 5));
+            }
+        }
+        if (batch.length) insertBatch(batch);
+        console.log(`📇 Profile index built: ${n} rows in ${Date.now() - startTime}ms`);
+    } catch (err) {
+        console.error("📇 Profile index build error:", err);
+    } finally {
+        indexBuilding = false;
+    }
+}
+
 // Static route to serve uploaded images.
 // Aggressive caching: image filenames embed the characterId, so a URL's content never changes.
 // 30 day cache + immutable means browsers and Dalamud's texture cache skip revalidation entirely,
@@ -155,6 +282,7 @@ const PROFILES_LOOKUP_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes - extended 
 // System diagnostics cache (disk usage is expensive to compute)
 let diskUsageCache = null;
 let diskUsageCacheTime = 0;
+let diskUsageComputing = false;
 const DISK_USAGE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Recursive directory size helper
@@ -1789,6 +1917,7 @@ app.post("/upload/:name", upload.single("image"), async (req, res) => {
         // Incrementally update caches instead of full invalidation (scales better with 20k+ profiles)
         updateNamesCacheEntry(physicalCharacterName, csCharacterName, profile.NameplateColor, profile.Sharing, profile.AllowOthersToSeeMyCSName);
         updateProfilesLookupCacheEntry(physicalCharacterName, profile.Sharing);
+        indexUpsertProfile(characterId, physicalCharacterName, profile);
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -1932,6 +2061,7 @@ app.put("/upload/:name", upload.single("image"), async (req, res) => {
         // Incrementally update caches instead of full invalidation (scales better with 20k+ profiles)
         updateNamesCacheEntry(physicalCharacterName, csCharacterName, profile.NameplateColor, profile.Sharing, profile.AllowOthersToSeeMyCSName);
         updateProfilesLookupCacheEntry(physicalCharacterName, profile.Sharing);
+        indexUpsertProfile(characterId, physicalCharacterName, profile);
 
         // Auto-flag check for problematic content
         autoFlagDB.scanProfile(characterId, csCharacterName, profile.Bio, profile.GalleryStatus, profile.Tags);
@@ -2698,26 +2828,19 @@ app.post("/names/lookup", async (req, res) => {
             return res.status(400).json({ error: "Invalid request: characters array required" });
         }
 
-        // Check if cache needs refresh
-        const now = Date.now();
-        const cacheStale = !namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION;
-
-        if (cacheStale) {
-            // Trigger background rebuild, serve whatever cache we have now (possibly empty).
-            rebuildNamesCache();
-        }
-
-        // Limit batch size to prevent abuse
         const limitedChars = characters.slice(0, 50);
+        const cutoff = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
         const results = {};
 
-        // Fast lookup from cache (may be stale but that's ok)
         for (const physicalName of limitedChars) {
             if (!physicalName || typeof physicalName !== 'string') continue;
+            if (moderationDB.isNameBanned(physicalName)) continue;
 
-            const cached = namesCache?.get(physicalName);
-            if (cached) {
-                results[physicalName] = cached;
+            const row = stmtIndexLookupName.get(physicalName, cutoff);
+            if (row && row.csName) {
+                let color = [1, 1, 1];
+                try { color = JSON.parse(row.nameplateColor) || [1, 1, 1]; } catch (e) { /* keep default */ }
+                results[physicalName] = { csName: row.csName, nameplateColor: color };
             }
         }
 
@@ -2871,24 +2994,14 @@ app.post("/profiles/lookup", async (req, res) => {
             return res.status(400).json({ error: "Invalid request: characters array required" });
         }
 
-        // Check if cache needs refresh
-        const now = Date.now();
-        const cacheStale = !profilesLookupCache || (now - profilesLookupCacheTime) > PROFILES_LOOKUP_CACHE_DURATION;
-
-        if (cacheStale) {
-            // Trigger background rebuild, serve whatever cache we have now (possibly empty).
-            rebuildProfilesLookupCache();
-        }
-
-        // Limit batch size to prevent abuse
         const limitedChars = characters.slice(0, 50);
         const results = {};
 
-        // Fast lookup from cache (may be stale but that's ok)
         for (const physicalName of limitedChars) {
             if (!physicalName || typeof physicalName !== 'string') continue;
 
-            if (profilesLookupCache?.has(physicalName)) {
+            const row = stmtIndexLookupProfile.get(physicalName);
+            if (row && row.sharing !== 'NeverShare' && row.sharing !== '1' && !moderationDB.isProfileBanned(row.characterId)) {
                 results[physicalName] = { hasProfile: true };
             }
         }
@@ -4095,48 +4208,66 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
 });
 
 // System diagnostics endpoint - disk usage, egress, server info
+// Sums disk usage across the data directories. Walks ~167k files, so it runs off the
+// request path and stores the result in diskUsageCache for endpoints to read.
+async function computeDiskUsage() {
+    if (diskUsageComputing) return;
+    diskUsageComputing = true;
+    try {
+        const [profilesInfo, imagesInfo, uploadsInfo] = await Promise.all([
+            getDirectorySize(profilesDir),
+            getDirectorySize(imagesDir),
+            getDirectorySize(uploadsDir)
+        ]);
+
+        let dbSize = 0;
+        let dbFiles = 0;
+        const dbFileNames = [
+            'likes_database.json', 'friends_database.json', 'announcements_database.json',
+            'reports_database.json', 'moderation_database.json', 'activity_database.json',
+            'flagged_database.json', 'warnings_database.json'
+        ];
+        for (const name of dbFileNames) {
+            try {
+                const stat = await fs.promises.stat(path.join(DATA_DIR, name));
+                dbSize += stat.size;
+                dbFiles++;
+            } catch (e) { /* file may not exist */ }
+        }
+
+        diskUsageCache = {
+            profiles: { size: profilesInfo.size, files: profilesInfo.files },
+            images: { size: imagesInfo.size, files: imagesInfo.files },
+            uploads: { size: uploadsInfo.size, files: uploadsInfo.files },
+            databases: { size: dbSize, files: dbFiles },
+            total: profilesInfo.size + imagesInfo.size + uploadsInfo.size + dbSize
+        };
+        diskUsageCacheTime = Date.now();
+    } catch (err) {
+        console.error('Disk usage computation error:', err);
+    } finally {
+        diskUsageComputing = false;
+    }
+}
+
 app.get("/admin/system", requireAdmin, async (req, res) => {
     try {
         const force = req.query.force === 'true';
 
-        // Disk usage (cached for 5 min, bypass with ?force=true)
-        let disk;
-        if (!force && diskUsageCache && (Date.now() - diskUsageCacheTime < DISK_USAGE_CACHE_DURATION)) {
-            disk = diskUsageCache;
-        } else {
-            const [profilesInfo, imagesInfo, uploadsInfo] = await Promise.all([
-                getDirectorySize(profilesDir),
-                getDirectorySize(imagesDir),
-                getDirectorySize(uploadsDir)
-            ]);
-
-            // Database JSON files in DATA_DIR root
-            let dbSize = 0;
-            let dbFiles = 0;
-            const dbFileNames = [
-                'likes_database.json', 'friends_database.json', 'announcements_database.json',
-                'reports_database.json', 'moderation_database.json', 'activity_database.json',
-                'flagged_database.json', 'warnings_database.json'
-            ];
-            for (const name of dbFileNames) {
-                try {
-                    const stat = await fs.promises.stat(path.join(DATA_DIR, name));
-                    dbSize += stat.size;
-                    dbFiles++;
-                } catch (e) { /* file may not exist */ }
-            }
-
-            disk = {
-                profiles: { size: profilesInfo.size, files: profilesInfo.files },
-                images: { size: imagesInfo.size, files: imagesInfo.files },
-                uploads: { size: uploadsInfo.size, files: uploadsInfo.files },
-                databases: { size: dbSize, files: dbFiles },
-                total: profilesInfo.size + imagesInfo.size + uploadsInfo.size + dbSize
-            };
-
-            diskUsageCache = disk;
-            diskUsageCacheTime = Date.now();
+        // Never block the request on the directory walk; trigger it in the background and
+        // serve whatever is cached (a zeroed placeholder until the first walk finishes).
+        const cacheValid = diskUsageCache && (Date.now() - diskUsageCacheTime < DISK_USAGE_CACHE_DURATION);
+        if (force || !cacheValid) {
+            computeDiskUsage();
         }
+        const disk = diskUsageCache || {
+            profiles: { size: 0, files: 0 },
+            images: { size: 0, files: 0 },
+            uploads: { size: 0, files: 0 },
+            databases: { size: 0, files: 0 },
+            total: 0,
+            computing: true
+        };
 
         // Egress stats (already tracked by middleware)
         const egress = {
@@ -4346,12 +4477,8 @@ app.listen(PORT, () => {
     console.log(`🔄 Pre-warming caches...`);
     (async () => {
         try {
-            await rebuildNamesCache(true);
-            console.log(`✅ Names cache pre-warmed`);
-            await rebuildProfilesLookupCache(true);
-            console.log(`✅ Profiles lookup cache pre-warmed`);
-            await rebuildGalleryCache(true);
-            console.log(`✅ Gallery cache pre-warmed`);
+            await buildIndexIfEmpty();
+            console.log(`✅ Profile index ready`);
             await rebuildAllProfilesCache(true);
             console.log(`✅ All profiles cache pre-warmed`);
             console.log(`🔄 All caches ready`);
