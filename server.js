@@ -2702,13 +2702,8 @@ app.post("/names/lookup", async (req, res) => {
         const cacheStale = !namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION;
 
         if (cacheStale) {
-            if (namesCache) {
-                // Cache exists but stale - trigger background rebuild, serve stale data now
-                rebuildNamesCache(); // Don't await - runs in background
-            } else {
-                // No cache at all - must wait for initial build
-                await rebuildNamesCache(true);
-            }
+            // Trigger background rebuild, serve whatever cache we have now (possibly empty).
+            rebuildNamesCache();
         }
 
         // Limit batch size to prevent abuse
@@ -2880,13 +2875,8 @@ app.post("/profiles/lookup", async (req, res) => {
         const cacheStale = !profilesLookupCache || (now - profilesLookupCacheTime) > PROFILES_LOOKUP_CACHE_DURATION;
 
         if (cacheStale) {
-            if (profilesLookupCache) {
-                // Cache exists but stale - trigger background rebuild, serve stale data now
-                rebuildProfilesLookupCache(); // Don't await - runs in background
-            } else {
-                // No cache at all - must wait for initial build
-                await rebuildProfilesLookupCache(true);
-            }
+            // Trigger background rebuild, serve whatever cache we have now (possibly empty).
+            rebuildProfilesLookupCache();
         }
 
         // Limit batch size to prevent abuse
@@ -2911,6 +2901,9 @@ app.post("/profiles/lookup", async (req, res) => {
 
 // Gallery cache rebuild function (runs in background)
 async function rebuildGalleryCache(waitForCompletion = false) {
+    // Gallery cache rebuild disabled. Remove this return to restore it.
+    return;
+
     if (galleryCacheBuilding) {
         // If caller needs to wait for cache, poll until ready
         if (waitForCompletion) {
@@ -3076,6 +3069,7 @@ async function rebuildAllProfilesCache(waitForCompletion = false) {
                         Links: profileData.Links || "",
                         LikeCount: likesDB.getLikeCount(characterId),
                         LastUpdated: profileData.LastUpdated || new Date().toISOString(),
+                        CreatedAt: profileData.CreatedAt || null,
                         ImageZoom: profileData.ImageZoom || 1.0,
                         ImageOffset: profileData.ImageOffset || { X: 0, Y: 0 },
                         IsNSFW: profileData.IsNSFW || false,
@@ -4026,59 +4020,30 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-        // Count all profiles
-        const allProfiles = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json') && !f.endsWith('_follows.json'));
+        // Counts read from the in-memory cache, not a per-request disk scan.
+        const cachedProfiles = allProfilesCache || [];
 
-        // Count profiles - both total (AlwaysShare + ShowcasePublic) and gallery (ShowcasePublic only)
         let totalCount = 0;
         let galleryCount = 0;
         let newProfilesToday = 0;
         let newProfilesThisWeek = 0;
         let newGalleryProfilesToday = 0;
 
-        for (const file of allProfiles) {
-            try {
-                const characterId = file.replace('.json', '');
-                if (moderationDB.isProfileBanned(characterId)) continue;
+        for (const profile of cachedProfiles) {
+            if (profile.IsBanned) continue;
 
-                const filePath = path.join(profilesDir, file);
-                const profileData = await readProfileAsync(filePath);
+            const isShowcasePublic = profile.Sharing === 'ShowcasePublic';
+            const createdDate = profile.CreatedAt ? new Date(profile.CreatedAt) : null;
 
-                if (!isValidProfile(profileData)) continue;
+            totalCount++;
+            if (createdDate) {
+                if (createdDate > oneDayAgo) newProfilesToday++;
+                if (createdDate > oneWeekAgo) newProfilesThisWeek++;
+            }
 
-                const isShowcasePublic = profileData.Sharing === 'ShowcasePublic' || profileData.Sharing === 2;
-                const isAlwaysShare = profileData.Sharing === 'AlwaysShare' || profileData.Sharing === 0;
-
-                // Count total (both AlwaysShare and ShowcasePublic)
-                if (isShowcasePublic || isAlwaysShare) {
-                    totalCount++;
-
-                    // Check if profile is new (only count profiles with CreatedAt for accuracy)
-                    if (profileData.CreatedAt) {
-                        const createdDate = new Date(profileData.CreatedAt);
-                        if (createdDate > oneDayAgo) {
-                            newProfilesToday++;
-                        }
-                        if (createdDate > oneWeekAgo) {
-                            newProfilesThisWeek++;
-                        }
-                    }
-                }
-
-                // Count gallery (ShowcasePublic only)
-                if (isShowcasePublic) {
-                    galleryCount++;
-
-                    if (profileData.CreatedAt) {
-                        const createdDate = new Date(profileData.CreatedAt);
-                        if (createdDate > oneDayAgo) {
-                            newGalleryProfilesToday++;
-                        }
-                    }
-                }
-            } catch (err) {
-                // Skip invalid profiles
-                continue;
+            if (isShowcasePublic) {
+                galleryCount++;
+                if (createdDate && createdDate > oneDayAgo) newGalleryProfilesToday++;
             }
         }
 
