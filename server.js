@@ -56,14 +56,15 @@ indexDb.exec(`
     CREATE INDEX IF NOT EXISTS idx_index_physical ON profile_index(physicalName);
     CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT);
 `);
+try { indexDb.exec("ALTER TABLE profile_index ADD COLUMN displayJson TEXT"); } catch (e) { /* column already exists */ }
 
 const stmtIndexUpsert = indexDb.prepare(`
-    INSERT INTO profile_index (characterId, physicalName, csName, nameplateColor, sharing, allowNameSync, lastActiveTime, createdAt)
-    VALUES (@characterId, @physicalName, @csName, @nameplateColor, @sharing, @allowNameSync, @lastActiveTime, @createdAt)
+    INSERT INTO profile_index (characterId, physicalName, csName, nameplateColor, sharing, allowNameSync, lastActiveTime, createdAt, displayJson)
+    VALUES (@characterId, @physicalName, @csName, @nameplateColor, @sharing, @allowNameSync, @lastActiveTime, @createdAt, @displayJson)
     ON CONFLICT(characterId) DO UPDATE SET
         physicalName = excluded.physicalName, csName = excluded.csName, nameplateColor = excluded.nameplateColor,
         sharing = excluded.sharing, allowNameSync = excluded.allowNameSync,
-        lastActiveTime = excluded.lastActiveTime, createdAt = excluded.createdAt
+        lastActiveTime = excluded.lastActiveTime, createdAt = excluded.createdAt, displayJson = excluded.displayJson
 `);
 const stmtIndexDelete = indexDb.prepare(`DELETE FROM profile_index WHERE characterId = ?`);
 const stmtIndexCount = indexDb.prepare(`SELECT COUNT(*) AS c FROM profile_index`);
@@ -90,15 +91,39 @@ function profileToIndexRow(characterId, physicalName, profile) {
     let activeTime = 0;
     if (profile.LastActiveTime) activeTime = new Date(profile.LastActiveTime).getTime() || 0;
 
+    const sharingStr = (profile.Sharing === undefined || profile.Sharing === null) ? null : String(profile.Sharing);
+    const isShowcasePublic = sharingStr === 'ShowcasePublic' || sharingStr === '2';
+
+    // Display fields for the admin All Profiles list. LikeCount + IsBanned are added live at query time.
+    const displayJson = JSON.stringify({
+        CharacterId: characterId,
+        CharacterName: profile.CharacterName || characterId.split('@')[0],
+        Server: extractServerFromName(physicalName),
+        ProfileImageUrl: profile.ProfileImageUrl || null,
+        Tags: profile.Tags || "",
+        Bio: profile.Bio || "",
+        GalleryStatus: profile.GalleryStatus || "",
+        Race: profile.Race || "",
+        Pronouns: profile.Pronouns || "",
+        Links: profile.Links || "",
+        LastUpdated: profile.LastUpdated || new Date().toISOString(),
+        CreatedAt: profile.CreatedAt || null,
+        ImageZoom: profile.ImageZoom || 1.0,
+        ImageOffset: profile.ImageOffset || { X: 0, Y: 0 },
+        IsNSFW: profile.IsNSFW || false,
+        Sharing: isShowcasePublic ? 'ShowcasePublic' : 'AlwaysShare'
+    });
+
     return {
         characterId,
         physicalName,
         csName: profile.CharacterName || null,
         nameplateColor: color,
-        sharing: (profile.Sharing === undefined || profile.Sharing === null) ? null : String(profile.Sharing),
+        sharing: sharingStr,
         allowNameSync: profile.AllowOthersToSeeMyCSName === true ? 1 : 0,
         lastActiveTime: activeTime,
-        createdAt: profile.CreatedAt || null
+        createdAt: profile.CreatedAt || null,
+        displayJson: displayJson
     };
 }
 
@@ -118,22 +143,14 @@ function indexDeleteProfile(characterId) {
 // index persists on the volume and stays current through incremental upserts on upload.
 let indexBuilding = false;
 async function buildIndexIfEmpty() {
-    const built = indexDb.prepare("SELECT value FROM index_meta WHERE key = 'built'").get();
+    const built = indexDb.prepare("SELECT value FROM index_meta WHERE key = 'built_v2'").get();
     if (built) {
         console.log(`📇 Profile index ready: ${stmtIndexCount.get().c} rows`);
         return;
     }
-    // Adopt an already-populated index (e.g. a complete build from before the marker existed)
-    // instead of rebuilding it. Any gaps fill in through incremental upserts on upload.
-    const existing = stmtIndexCount.get().c;
-    if (existing > 100000) {
-        indexDb.prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built', '1')").run();
-        console.log(`📇 Profile index adopted: ${existing} existing rows`);
-        return;
-    }
     if (indexBuilding) return;
     indexBuilding = true;
-    console.log("📇 Building profile index from files (re-runs until it completes)...");
+    console.log("📇 Building profile index from files (one time, adds admin display data)...");
     const startTime = Date.now();
     try {
         const files = (await fs.promises.readdir(profilesDir))
@@ -165,7 +182,7 @@ async function buildIndexIfEmpty() {
             }
         }
         if (batch.length) insertBatch(batch);
-        indexDb.prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built', '1')").run();
+        indexDb.prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built_v2', '1')").run();
         console.log(`📇 Profile index built: ${n} rows in ${Date.now() - startTime}ms`);
     } catch (err) {
         console.error("📇 Profile index build error:", err);
@@ -293,7 +310,7 @@ const PROFILES_LOOKUP_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes - extended 
 let diskUsageCache = null;
 let diskUsageCacheTime = 0;
 let diskUsageComputing = false;
-const DISK_USAGE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const DISK_USAGE_CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 hours - the walk is heavy at 170k files
 
 // Recursive directory size helper
 async function getDirectorySize(dirPath) {
@@ -3375,18 +3392,22 @@ app.get("/profiles/all", async (req, res) => {
             return res.status(403).json({ error: 'Admin access required' });
         }
 
-        const now = Date.now();
-        const cacheStale = !allProfilesCache || (now - allProfilesCacheTime) >= CACHE_DURATION;
+        const rows = indexDb.prepare(`
+            SELECT characterId, displayJson FROM profile_index
+            WHERE sharing != 'NeverShare' AND sharing != '1' AND displayJson IS NOT NULL
+        `).all();
 
-        if (cacheStale) {
-            if (allProfilesCache) {
-                rebuildAllProfilesCache();
-            } else {
-                await rebuildAllProfilesCache(true);
-            }
+        const profiles = [];
+        for (const row of rows) {
+            let p;
+            try { p = JSON.parse(row.displayJson); } catch (e) { continue; }
+            p.LikeCount = likesDB.getLikeCount(row.characterId);
+            p.IsBanned = moderationDB.isProfileBanned(row.characterId);
+            profiles.push(p);
         }
+        profiles.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
 
-        res.json(allProfilesCache || []);
+        res.json(profiles);
 
     } catch (err) {
         console.error('All profiles error:', err);
@@ -4140,35 +4161,24 @@ app.get("/admin/dashboard", requireAdmin, async (req, res) => {
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-        // Counts from the in-memory cache; reuse the last values when it is momentarily cleared.
-        let totalCount = 0;
-        let galleryCount = 0;
-        let newProfilesToday = 0;
-        let newProfilesThisWeek = 0;
-        let newGalleryProfilesToday = 0;
+        // Counts straight from the index (indexed columns, no crawl).
+        const dayAgoIso = oneDayAgo.toISOString();
+        const weekAgoIso = oneWeekAgo.toISOString();
+        const counts = indexDb.prepare(`
+            SELECT
+                SUM(CASE WHEN sharing != 'NeverShare' AND sharing != '1' THEN 1 ELSE 0 END) AS total,
+                SUM(CASE WHEN sharing = 'ShowcasePublic' OR sharing = '2' THEN 1 ELSE 0 END) AS gallery,
+                SUM(CASE WHEN sharing != 'NeverShare' AND sharing != '1' AND createdAt > ? THEN 1 ELSE 0 END) AS newToday,
+                SUM(CASE WHEN sharing != 'NeverShare' AND sharing != '1' AND createdAt > ? THEN 1 ELSE 0 END) AS newWeek,
+                SUM(CASE WHEN (sharing = 'ShowcasePublic' OR sharing = '2') AND createdAt > ? THEN 1 ELSE 0 END) AS newGalleryToday
+            FROM profile_index
+        `).get(dayAgoIso, weekAgoIso, dayAgoIso);
 
-        if (allProfilesCache) {
-            for (const profile of allProfilesCache) {
-                if (profile.IsBanned) continue;
-
-                const isShowcasePublic = profile.Sharing === 'ShowcasePublic';
-                const createdDate = profile.CreatedAt ? new Date(profile.CreatedAt) : null;
-
-                totalCount++;
-                if (createdDate) {
-                    if (createdDate > oneDayAgo) newProfilesToday++;
-                    if (createdDate > oneWeekAgo) newProfilesThisWeek++;
-                }
-
-                if (isShowcasePublic) {
-                    galleryCount++;
-                    if (createdDate && createdDate > oneDayAgo) newGalleryProfilesToday++;
-                }
-            }
-            lastDashboardStats = { totalCount, galleryCount, newProfilesToday, newProfilesThisWeek, newGalleryProfilesToday };
-        } else if (lastDashboardStats) {
-            ({ totalCount, galleryCount, newProfilesToday, newProfilesThisWeek, newGalleryProfilesToday } = lastDashboardStats);
-        }
+        const totalCount = counts.total || 0;
+        const galleryCount = counts.gallery || 0;
+        const newProfilesToday = counts.newToday || 0;
+        const newProfilesThisWeek = counts.newWeek || 0;
+        const newGalleryProfilesToday = counts.newGalleryToday || 0;
 
         // Count new reports
         const allReports = reportsDB.getReports();
@@ -4488,10 +4498,7 @@ app.listen(PORT, () => {
     (async () => {
         try {
             await buildIndexIfEmpty();
-            console.log(`✅ Profile index ready`);
-            await rebuildAllProfilesCache(true);
-            console.log(`✅ All profiles cache pre-warmed`);
-            console.log(`🔄 All caches ready`);
+            console.log(`✅ Profile index ready - no file crawls remain`);
         } catch (err) {
             console.error(`⚠️ Cache pre-warm failed: ${err}`);
         }
