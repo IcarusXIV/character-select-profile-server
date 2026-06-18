@@ -54,6 +54,7 @@ indexDb.exec(`
         createdAt      TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_index_physical ON profile_index(physicalName);
+    CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT);
 `);
 
 const stmtIndexUpsert = indexDb.prepare(`
@@ -117,14 +118,22 @@ function indexDeleteProfile(characterId) {
 // index persists on the volume and stays current through incremental upserts on upload.
 let indexBuilding = false;
 async function buildIndexIfEmpty() {
-    const count = stmtIndexCount.get().c;
-    if (count > 0) {
-        console.log(`📇 Profile index ready: ${count} rows`);
+    const built = indexDb.prepare("SELECT value FROM index_meta WHERE key = 'built'").get();
+    if (built) {
+        console.log(`📇 Profile index ready: ${stmtIndexCount.get().c} rows`);
+        return;
+    }
+    // Adopt an already-populated index (e.g. a complete build from before the marker existed)
+    // instead of rebuilding it. Any gaps fill in through incremental upserts on upload.
+    const existing = stmtIndexCount.get().c;
+    if (existing > 100000) {
+        indexDb.prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built', '1')").run();
+        console.log(`📇 Profile index adopted: ${existing} existing rows`);
         return;
     }
     if (indexBuilding) return;
     indexBuilding = true;
-    console.log("📇 Profile index empty, building from files (one time only)...");
+    console.log("📇 Building profile index from files (re-runs until it completes)...");
     const startTime = Date.now();
     try {
         const files = (await fs.promises.readdir(profilesDir))
@@ -156,6 +165,7 @@ async function buildIndexIfEmpty() {
             }
         }
         if (batch.length) insertBatch(batch);
+        indexDb.prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built', '1')").run();
         console.log(`📇 Profile index built: ${n} rows in ${Date.now() - startTime}ms`);
     } catch (err) {
         console.error("📇 Profile index build error:", err);
@@ -4010,30 +4020,30 @@ app.post("/admin/names/reject/:warningId", requireAdmin, (req, res) => {
 // Get names cache contents (admin)
 app.get("/admin/names/cache", requireAdmin, async (req, res) => {
     try {
-        // Rebuild cache if stale or missing
-        const now = Date.now();
-        if (!namesCache || (now - namesCacheTime) > NAMES_CACHE_DURATION) {
-            await rebuildNamesCache();
-        }
+        // Newest visible name-sync entry per physical name, straight from the index (no crawl).
+        const cutoff = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
+        const rows = indexDb.prepare(`
+            SELECT physicalName, csName, nameplateColor FROM (
+                SELECT physicalName, csName, nameplateColor, lastActiveTime,
+                       ROW_NUMBER() OVER (PARTITION BY physicalName ORDER BY lastActiveTime DESC) AS rn
+                FROM profile_index
+                WHERE allowNameSync = 1 AND sharing != 'NeverShare' AND sharing != '1' AND lastActiveTime > ?
+            ) WHERE rn = 1
+        `).all(cutoff);
 
-        // Convert Map to array for JSON response
         const cacheEntries = [];
-        if (namesCache) {
-            for (const [physicalName, data] of namesCache) {
-                cacheEntries.push({
-                    physicalName: physicalName,
-                    csName: data.csName,
-                    nameplateColor: data.nameplateColor
-                });
-            }
+        for (const row of rows) {
+            if (!row.csName) continue;
+            let color = [1, 1, 1];
+            try { color = JSON.parse(row.nameplateColor) || [1, 1, 1]; } catch (e) { /* keep default */ }
+            cacheEntries.push({ physicalName: row.physicalName, csName: row.csName, nameplateColor: color });
         }
 
-        // Sort alphabetically by CS+ name
         cacheEntries.sort((a, b) => a.csName.localeCompare(b.csName));
 
         res.json({
             count: cacheEntries.length,
-            cacheAge: namesCache ? Math.floor((now - namesCacheTime) / 1000) : null,
+            cacheAge: 0,
             entries: cacheEntries
         });
     } catch (error) {
