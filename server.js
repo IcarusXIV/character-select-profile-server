@@ -69,8 +69,10 @@ const stmtIndexUpsert = indexDb.prepare(`
 const stmtIndexDelete = indexDb.prepare(`DELETE FROM profile_index WHERE characterId = ?`);
 const stmtIndexCount = indexDb.prepare(`SELECT COUNT(*) AS c FROM profile_index`);
 const stmtIndexLookupName = indexDb.prepare(`
-    SELECT csName, nameplateColor, allowNameSync, sharing FROM profile_index
-    WHERE physicalName = ? AND lastActiveTime > ?
+    SELECT csName, nameplateColor FROM profile_index
+    WHERE physicalName = ? AND allowNameSync = 1
+      AND sharing != 'NeverShare' AND sharing != '1'
+      AND lastActiveTime > ?
     ORDER BY lastActiveTime DESC LIMIT 1
 `);
 const stmtIndexLookupProfile = indexDb.prepare(`
@@ -2861,10 +2863,8 @@ app.post("/names/lookup", async (req, res) => {
             if (!physicalName || typeof physicalName !== 'string') continue;
             if (moderationDB.isNameBanned(physicalName)) continue;
 
-            // Use the player's CURRENT character (newest). Show a name only if that one allows sync;
-            // if their current character is excluded, return nothing so viewers revert to the in-game name.
             const row = stmtIndexLookupName.get(physicalName, cutoff);
-            if (row && row.csName && row.allowNameSync === 1 && row.sharing !== 'NeverShare' && row.sharing !== '1') {
+            if (row && row.csName) {
                 let color = [1, 1, 1];
                 try { color = JSON.parse(row.nameplateColor) || [1, 1, 1]; } catch (e) { /* keep default */ }
                 results[physicalName] = { csName: row.csName, nameplateColor: color };
@@ -4045,11 +4045,11 @@ app.get("/admin/names/cache", requireAdmin, async (req, res) => {
         const cutoff = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
         const rows = indexDb.prepare(`
             SELECT physicalName, csName, nameplateColor FROM (
-                SELECT physicalName, csName, nameplateColor, allowNameSync, sharing, lastActiveTime,
+                SELECT physicalName, csName, nameplateColor, lastActiveTime,
                        ROW_NUMBER() OVER (PARTITION BY physicalName ORDER BY lastActiveTime DESC) AS rn
                 FROM profile_index
-                WHERE lastActiveTime > ?
-            ) WHERE rn = 1 AND allowNameSync = 1 AND sharing != 'NeverShare' AND sharing != '1'
+                WHERE allowNameSync = 1 AND sharing != 'NeverShare' AND sharing != '1' AND lastActiveTime > ?
+            ) WHERE rn = 1
         `).all(cutoff);
 
         const cacheEntries = [];
