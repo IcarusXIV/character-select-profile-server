@@ -69,16 +69,17 @@ const stmtIndexUpsert = indexDb.prepare(`
 const stmtIndexDelete = indexDb.prepare(`DELETE FROM profile_index WHERE characterId = ?`);
 const stmtIndexCount = indexDb.prepare(`SELECT COUNT(*) AS c FROM profile_index`);
 const stmtIndexLookupName = indexDb.prepare(`
-    SELECT csName, nameplateColor FROM profile_index
-    WHERE physicalName = ? AND allowNameSync = 1
-      AND sharing != 'NeverShare' AND sharing != '1'
-      AND lastActiveTime > ?
+    SELECT csName, nameplateColor, allowNameSync, sharing FROM profile_index
+    WHERE physicalName = ? AND lastActiveTime > ?
     ORDER BY lastActiveTime DESC LIMIT 1
 `);
 const stmtIndexLookupProfile = indexDb.prepare(`
     SELECT characterId, sharing FROM profile_index
     WHERE physicalName = ?
     ORDER BY lastActiveTime DESC LIMIT 1
+`);
+const stmtIndexClearName = indexDb.prepare(`
+    UPDATE profile_index SET lastActiveTime = 0 WHERE physicalName = ?
 `);
 
 // Normalise a profile object into an index row.
@@ -402,6 +403,22 @@ const flaggedDbFile = path.join(DATA_DIR, "flagged_database.json");
 const tokensDbFile = path.join(DATA_DIR, "tokens_database.json");
 
 // 💾 DATABASE CLASSES
+
+// Debounced async atomic JSON persistence for the hot stores.
+const SAVE_DEBOUNCE_MS = 2000;
+
+async function writeJsonAtomicAsync(file, obj) {
+    const tmp = file + '.tmp';
+    await fs.promises.writeFile(tmp, JSON.stringify(obj));
+    await fs.promises.rename(tmp, file);
+}
+
+function writeJsonAtomicSync(file, obj) {
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(obj));
+    fs.renameSync(tmp, file);
+}
+
 class LikesDatabase {
     constructor() {
         this.likes = new Map();
@@ -424,25 +441,40 @@ class LikesDatabase {
         }
     }
 
+    _serialize() {
+        return {
+            likes: Array.from(this.likes.entries()).map(([k, v]) => [k, Array.from(v)]),
+            likeCounts: Array.from(this.likeCounts.entries()),
+            lastSaved: new Date().toISOString()
+        };
+    }
+
     save() {
+        this._dirty = true;
+        if (this._flushTimer) return;
+        this._flushTimer = setTimeout(() => this._flush(), SAVE_DEBOUNCE_MS);
+    }
+
+    async _flush() {
+        this._flushTimer = null;
+        if (!this._dirty || this._flushing) return;
+        this._flushing = true;
+        this._dirty = false;
         try {
-            const data = {
-                likes: Array.from(this.likes.entries()).map(([k, v]) => [k, Array.from(v)]),
-                likeCounts: Array.from(this.likeCounts.entries()),
-                lastSaved: new Date().toISOString()
-            };
-            
-            const tempFile = likesDbFile + '.tmp';
-            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
-            
-            if (fs.existsSync(likesDbFile)) {
-                fs.copyFileSync(likesDbFile, likesDbFile + '.backup');
-            }
-            
-            fs.renameSync(tempFile, likesDbFile);
+            await writeJsonAtomicAsync(likesDbFile, this._serialize());
         } catch (err) {
             console.error('Error saving likes database:', err);
+            this._dirty = true;
+        } finally {
+            this._flushing = false;
+            if (this._dirty && !this._flushTimer) this._flushTimer = setTimeout(() => this._flush(), SAVE_DEBOUNCE_MS);
         }
+    }
+
+    flushSync() {
+        if (!this._dirty) return;
+        try { writeJsonAtomicSync(likesDbFile, this._serialize()); this._dirty = false; }
+        catch (err) { console.error('Error flushing likes database:', err); }
     }
 
     addLike(characterId, likerId) {
@@ -1095,24 +1127,39 @@ class ActivityDatabase {
         }
     }
 
+    _serialize() {
+        return {
+            activities: this.activities.slice(0, 1000),
+            lastSaved: new Date().toISOString()
+        };
+    }
+
     save() {
+        this._dirty = true;
+        if (this._flushTimer) return;
+        this._flushTimer = setTimeout(() => this._flush(), SAVE_DEBOUNCE_MS);
+    }
+
+    async _flush() {
+        this._flushTimer = null;
+        if (!this._dirty || this._flushing) return;
+        this._flushing = true;
+        this._dirty = false;
         try {
-            const data = {
-                activities: this.activities.slice(0, 1000), // Keep only latest 1000 entries
-                lastSaved: new Date().toISOString()
-            };
-            
-            const tempFile = activityDbFile + '.tmp';
-            fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
-            
-            if (fs.existsSync(activityDbFile)) {
-                fs.copyFileSync(activityDbFile, activityDbFile + '.backup');
-            }
-            
-            fs.renameSync(tempFile, activityDbFile);
+            await writeJsonAtomicAsync(activityDbFile, this._serialize());
         } catch (err) {
             console.error('Error saving activity database:', err);
+            this._dirty = true;
+        } finally {
+            this._flushing = false;
+            if (this._dirty && !this._flushTimer) this._flushTimer = setTimeout(() => this._flush(), SAVE_DEBOUNCE_MS);
         }
+    }
+
+    flushSync() {
+        if (!this._dirty) return;
+        try { writeJsonAtomicSync(activityDbFile, this._serialize()); this._dirty = false; }
+        catch (err) { console.error('Error flushing activity database:', err); }
     }
 
     logActivity(type, message, metadata = {}) {
@@ -1323,23 +1370,46 @@ class TokensDatabase {
         }
     }
 
+    _serialize() {
+        return {
+            graceWindowEnd: this.graceWindowEnd,
+            slots: Object.fromEntries(this.slots),
+            tokens: Object.fromEntries(
+                Array.from(this.tokens.entries()).map(([t, v]) => [t, {
+                    claimedSlots: Array.from(v.claimedSlots),
+                    firstSeen: v.firstSeen,
+                    lastSeen: v.lastSeen,
+                }])
+            ),
+        };
+    }
+
     save() {
+        this._dirty = true;
+        if (this._flushTimer) return;
+        this._flushTimer = setTimeout(() => this._flush(), SAVE_DEBOUNCE_MS);
+    }
+
+    async _flush() {
+        this._flushTimer = null;
+        if (!this._dirty || this._flushing) return;
+        this._flushing = true;
+        this._dirty = false;
         try {
-            const data = {
-                graceWindowEnd: this.graceWindowEnd,
-                slots: Object.fromEntries(this.slots),
-                tokens: Object.fromEntries(
-                    Array.from(this.tokens.entries()).map(([t, v]) => [t, {
-                        claimedSlots: Array.from(v.claimedSlots),
-                        firstSeen: v.firstSeen,
-                        lastSeen: v.lastSeen,
-                    }])
-                ),
-            };
-            fs.writeFileSync(tokensDbFile, JSON.stringify(data, null, 2));
+            await writeJsonAtomicAsync(tokensDbFile, this._serialize());
         } catch (err) {
             console.error('Error saving tokens database:', err);
+            this._dirty = true;
+        } finally {
+            this._flushing = false;
+            if (this._dirty && !this._flushTimer) this._flushTimer = setTimeout(() => this._flush(), SAVE_DEBOUNCE_MS);
         }
+    }
+
+    flushSync() {
+        if (!this._dirty) return;
+        try { writeJsonAtomicSync(tokensDbFile, this._serialize()); this._dirty = false; }
+        catch (err) { console.error('Error flushing tokens database:', err); }
     }
 
     // Returns { ok: true } or { ok: false, reason }.
@@ -1427,6 +1497,15 @@ const moderationDB = new ModerationDatabase();
 const activityDB = new ActivityDatabase();
 const autoFlagDB = new AutoFlaggingDatabase();
 const tokensDB = new TokensDatabase();
+
+// Flush debounced stores on shutdown so a redeploy doesn't drop the last pending writes
+function flushHotDbsSync() {
+    for (const db of [likesDB, activityDB, tokensDB]) {
+        try { db.flushSync(); } catch (err) { console.error('Flush on shutdown failed:', err); }
+    }
+}
+process.on('SIGTERM', () => { flushHotDbsSync(); process.exit(0); });
+process.on('SIGINT', () => { flushHotDbsSync(); process.exit(0); });
 
 // Admin authentication middleware
 function requireAdmin(req, res, next) {
@@ -2863,8 +2942,10 @@ app.post("/names/lookup", async (req, res) => {
             if (!physicalName || typeof physicalName !== 'string') continue;
             if (moderationDB.isNameBanned(physicalName)) continue;
 
+            // Use the player's CURRENT character (newest). Show a name only if that one allows sync;
+            // if their current character is excluded, return nothing so viewers revert to the in-game name.
             const row = stmtIndexLookupName.get(physicalName, cutoff);
-            if (row && row.csName) {
+            if (row && row.csName && row.allowNameSync === 1 && row.sharing !== 'NeverShare' && row.sharing !== '1') {
                 let color = [1, 1, 1];
                 try { color = JSON.parse(row.nameplateColor) || [1, 1, 1]; } catch (e) { /* keep default */ }
                 results[physicalName] = { csName: row.csName, nameplateColor: color };
@@ -2874,6 +2955,26 @@ app.post("/names/lookup", async (req, res) => {
         res.json({ results });
     } catch (err) {
         console.error(`Error in names lookup endpoint: ${err}`);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// Clear this physical name's Name Sync rows so /names/lookup skips it.
+app.post("/names/clear/:name", async (req, res) => {
+    try {
+        const physicalName = decodeURIComponent(req.params.name);
+
+        const authResult = checkSlotAuth(req, physicalName);
+        if (!authResult.ok) {
+            return res.status(authResult.status).json({ error: authResult.message });
+        }
+
+        stmtIndexClearName.run(physicalName);
+        if (namesCache) namesCache.delete(physicalName);
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error(`Error in names clear endpoint: ${err}`);
         res.status(500).json({ error: "Server error" });
     }
 });
@@ -4045,11 +4146,11 @@ app.get("/admin/names/cache", requireAdmin, async (req, res) => {
         const cutoff = Date.now() - (NAME_SYNC_EXPIRY_HOURS * 60 * 60 * 1000);
         const rows = indexDb.prepare(`
             SELECT physicalName, csName, nameplateColor FROM (
-                SELECT physicalName, csName, nameplateColor, lastActiveTime,
+                SELECT physicalName, csName, nameplateColor, allowNameSync, sharing, lastActiveTime,
                        ROW_NUMBER() OVER (PARTITION BY physicalName ORDER BY lastActiveTime DESC) AS rn
                 FROM profile_index
-                WHERE allowNameSync = 1 AND sharing != 'NeverShare' AND sharing != '1' AND lastActiveTime > ?
-            ) WHERE rn = 1
+                WHERE lastActiveTime > ?
+            ) WHERE rn = 1 AND allowNameSync = 1 AND sharing != 'NeverShare' AND sharing != '1'
         `).all(cutoff);
 
         const cacheEntries = [];
