@@ -1429,9 +1429,10 @@ class TokensDatabase {
         }
 
         if (existing.ownerToken === token) {
+            // lastSeen only; marked dirty for the periodic flush, no hot-path rewrite
             existing.lastSeen = now;
             this._touchToken(token, now);
-            this.save();
+            this._dirty = true;
             return { ok: true };
         }
 
@@ -1510,6 +1511,9 @@ function flushHotDbsSync() {
 }
 process.on('SIGTERM', () => { flushHotDbsSync(); process.exit(0); });
 process.on('SIGINT', () => { flushHotDbsSync(); process.exit(0); });
+
+// Periodically persist token lastSeen (kept off the hot upload path).
+setInterval(() => { if (tokensDB._dirty) tokensDB.save(); }, 10 * 60 * 1000);
 
 // Diagnostic: logs when a synchronous operation stalls the event loop.
 let _elMonLast = Date.now();
