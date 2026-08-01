@@ -81,6 +81,10 @@ const stmtIndexLookupProfile = indexDb.prepare(`
 const stmtIndexClearName = indexDb.prepare(`
     UPDATE profile_index SET lastActiveTime = 0 WHERE physicalName = ?
 `);
+const stmtIndexFindOldVersions = indexDb.prepare(`
+    SELECT characterId FROM profile_index
+    WHERE physicalName = ? AND csName = ? AND characterId != ?
+`);
 
 // Normalise a profile object into an index row.
 function profileToIndexRow(characterId, physicalName, profile) {
@@ -1507,6 +1511,15 @@ function flushHotDbsSync() {
 process.on('SIGTERM', () => { flushHotDbsSync(); process.exit(0); });
 process.on('SIGINT', () => { flushHotDbsSync(); process.exit(0); });
 
+// Diagnostic: logs when a synchronous operation stalls the event loop.
+let _elMonLast = Date.now();
+setInterval(() => {
+    const now = Date.now();
+    const lag = now - _elMonLast - 1000;
+    if (lag > 250) console.warn(`[event-loop] stalled ~${Math.round(lag)}ms`);
+    _elMonLast = now;
+}, 1000);
+
 // Admin authentication middleware
 function requireAdmin(req, res, next) {
     const adminKey = req.headers['x-admin-key'] || req.query.adminKey;
@@ -1587,42 +1600,18 @@ async function safeFileMove(sourcePath, destPath) {
 
 async function cleanupOldCharacterVersions(csCharacterName, physicalCharacterName, newFileName) {
     try {
-        const allFiles = await new Promise((resolve, reject) => {
-            fs.readdir(profilesDir, (err, files) => {
-                if (err) reject(err);
-                else resolve(files.filter(file => 
-                    file.endsWith('.json') && 
-                    !file.endsWith('_follows.json') &&
-                    file !== `${newFileName}.json`
-                ));
-            });
-        });
+        // Find old versions via the index, not a full profiles-dir scan.
+        const oldRows = stmtIndexFindOldVersions.all(physicalCharacterName, csCharacterName, newFileName);
+        if (oldRows.length === 0) return;
 
-        const oldVersions = [];
-        
-        for (const file of allFiles) {
-            if (file.endsWith(`_${physicalCharacterName}.json`)) {
-                try {
-                    const filePath = path.join(profilesDir, file);
-                    const oldProfile = await readProfileAsync(filePath);
-                    
-                    if (oldProfile.CharacterName === csCharacterName) {
-                        oldVersions.push({ file, path: filePath });
-                    }
-                } catch (err) {
-                    continue;
-                }
-            }
+        for (const { characterId } of oldRows) {
+            try { await fs.promises.unlink(path.join(profilesDir, `${characterId}.json`)); }
+            catch (err) { /* already gone */ }
+            indexDeleteProfile(characterId);
         }
 
-        for (const oldVersion of oldVersions) {
-            fs.unlinkSync(oldVersion.path);
-        }
-        
-        if (oldVersions.length > 0) {
-            galleryCache = null;
-            allProfilesCache = null;
-        }
+        galleryCache = null;
+        allProfilesCache = null;
     } catch (cleanupErr) {
         console.error('Error during cleanup:', cleanupErr.message);
     }
